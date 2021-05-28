@@ -1,0 +1,16 @@
+[package]
+name = "rustdns"
+version = "0.1.0"
+authors = ["Andrew Brampton <brampton@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+modular-bitfield = "0.11.2"
+encoding8 = "0.3.2"
+strum = "0.20"
+strum_macros = "0.20"
+
+[patch.crates-io]
+modular-bitfield = { path = "./modular-bitfield" }
