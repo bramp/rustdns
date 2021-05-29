@@ -1,0 +1,29 @@
+
+[package]
+name = "rustdns-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.rustdns]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "from_slice"
+path = "fuzz_targets/from_slice.rs"
+test = false
+doc = false
+
+[patch.crates-io]
+modular-bitfield = { path = "../modular-bitfield" }

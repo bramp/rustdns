@@ -1,76 +1,73 @@
+use crate::errors::ParseError;
+use crate::errors::WriteError;
 use std::convert::TryInto;
-use std::error::Error;
 use std::fmt;
 use std::str;
 
 use crate::resource::Record;
 use crate::types::*;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WriteError {
-    msg: String,
-}
-
-impl Error for WriteError {}
-
-impl fmt::Display for WriteError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.msg)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseError {
-    pub msg: String,
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.msg)
-    }
-}
-
-#[macro_export]
-macro_rules! parse_error {
-    ($($arg:tt)*) => {{
-        Err(ParseError{
-            msg: fmt::format(format_args!($($arg)*)),
-        })
-    }}
-}
+use crate::parse_error;
+use crate::as_array;
 
 pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), ParseError> {
     let mut qname = String::new();
     let mut offset = start;
 
     loop {
-        let len = buf[offset] as usize;
-        offset += 1;
+        let len = *match buf.get(offset) {
+            Some(len) => len,
+            None => return parse_error!("qname failed to read label length"),
+        } as usize;
 
+        offset += 1;
         if len == 0 {
             break;
         }
 
-        if len >= 64 {
-            // Compressed
-            if len & 0xC0 != 0xC0 {
-                // TODO maybe provide more information
-                return parse_error!("unsupported compression type {0:b}", len & 0xC0);
+        match len & 0xC0 {
+            // No compression
+            0x00 => {
+                match buf.get(offset..offset + len) {
+                    None => return parse_error!("qname too short"), // TODO standardise the too short error
+                    Some(label) => {
+                        // TODO I don't think this is meant to be UTF-8.
+                        let s = match str::from_utf8(label) {
+                            Ok(s) => s,
+                            Err(e) => return parse_error!("qname invalid label: {}", e),
+                        };
+                        qname.push_str( s );
+                        qname.push('.');
+                    }
+                }
+
+                offset += len;
+            },
+
+            // Compression
+            0xC0 => {
+                let b2 = *match buf.get(offset) {
+                    Some(b) => b,
+                    None => return parse_error!("qname too short missing compressed pointer"),
+                } as usize;
+
+                let ptr = (len & !0xC0) << 8 | b2;
+                offset += 1;
+
+                if ptr >= start {
+                    return parse_error!("qname invalid compressed pointer pointing to future bytes");
+                }
+
+                // Read the qname from elsewhere in the packet ignoring
+                // the length of that segment.
+                qname += &read_qname(buf, ptr)?.0;
+                break;
+            },
+
+             // Unknown
+            _ => {
+                return parse_error!("qname unsupported compression type {0:b}", len & 0xC0)
             }
-
-            let ptr = (len & !0xC0) << 8 | buf[offset] as usize;
-            offset += 1;
-
-            // Read the qname from elsewhere in the packet ignoring
-            // the length of that segment.
-            qname += &read_qname(buf, ptr)?.0;
-            break;
         }
-
-        qname += str::from_utf8(&buf[offset..offset + len]).unwrap();
-        qname += ".";
-
-        offset += len;
     }
 
     Ok((qname, offset - start))
@@ -114,7 +111,7 @@ impl DnsPacket {
         // TODO I think this copies the buffer, it would be nice if it
         // could just sit ontop of buf
         // TODO Check for error!
-        let header = Header::from_bytes(buf[0..12].try_into().unwrap());
+        let header = Header::from_bytes(*as_array![buf, 0, 12]);
         offset += 12;
 
         let (questions, len) = DnsPacket::read_questions(&buf, offset, header.qd_count())?;
@@ -150,7 +147,7 @@ impl DnsPacket {
             offset += len;
 
             // TODO Check for errors!
-            let header = QuestionHeader::from_bytes(buf[offset..offset + 4].try_into().unwrap());
+            let header = QuestionHeader::from_bytes(*as_array![buf, offset, 4]);
             offset += 4;
 
             questions.push(Question { header, name });
@@ -172,7 +169,7 @@ impl DnsPacket {
             offset += len;
 
             // TODO Check for bounds and errors!
-            let header = AnswerHeader::from_bytes(buf[offset..offset + 10].try_into().unwrap());
+            let header = AnswerHeader::from_bytes(*as_array![buf, offset, 10]);
             offset += 10; // a.bytes.len();
 
             // TODO Check for errors, and skip over them if possible!
@@ -266,7 +263,7 @@ impl fmt::Display for Header {
         )?;
 
         let mut flags = String::new();
-        
+
         if let QR::Response = self.qr() {
             flags.push_str(" qr")
         }

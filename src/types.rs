@@ -183,6 +183,11 @@ pub enum QType {
     NS = 2,
     CNAME = 5,
     SOA = 6,
+    PTR = 12,  // A domain name pointer
+    MX = 15,   // A mail exchange
+    TXT = 16,  // Text strings
+    AAAA = 28, // IP6 Address
+    SRV = 33,  // Server Selection
 
     // This is not a valid RType
     ANY = 255,
