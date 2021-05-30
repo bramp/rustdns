@@ -25,6 +25,14 @@ cargo run TXT google.com # Doesn't work due to being tuncated
 
 ```
 
+## Fuzzing
+
+The library has been extensively fuzzed. Try for yourself:
+
+```shell
+cargo fuzz run from_slice
+```
+
 
 ## Reference
 

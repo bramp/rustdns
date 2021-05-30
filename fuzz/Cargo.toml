@@ -24,6 +24,3 @@ name = "from_slice"
 path = "fuzz_targets/from_slice.rs"
 test = false
 doc = false
-
-[patch.crates-io]
-modular-bitfield = { path = "../modular-bitfield" }

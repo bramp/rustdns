@@ -1,51 +1,5 @@
 use strum_macros::{Display, EnumString};
 
-// TODO Replace these with bits(endian=big)
-pub struct BeB16 {}
-pub struct BeB32 {}
-
-impl modular_bitfield::Specifier for BeB16 {
-    type Bytes = u16;
-    type InOut = u16;
-
-    const BITS: usize = 16;
-
-    #[inline]
-    fn into_bytes(
-        input: Self::InOut,
-    ) -> Result<Self::Bytes, ::modular_bitfield::error::OutOfBounds> {
-        ::core::result::Result::Ok((input as Self::Bytes).to_be())
-    }
-
-    #[inline]
-    fn from_bytes(
-        bytes: Self::Bytes,
-    ) -> Result<Self::InOut, ::modular_bitfield::error::InvalidBitPattern<Self::Bytes>> {
-        ::core::result::Result::Ok(Self::Bytes::from_be(bytes))
-    }
-}
-
-impl modular_bitfield::Specifier for BeB32 {
-    type Bytes = u32;
-    type InOut = u32;
-
-    const BITS: usize = 32;
-
-    #[inline]
-    fn into_bytes(
-        input: Self::InOut,
-    ) -> Result<Self::Bytes, ::modular_bitfield::error::OutOfBounds> {
-        ::core::result::Result::Ok((input as Self::Bytes).to_be())
-    }
-
-    #[inline]
-    fn from_bytes(
-        bytes: Self::Bytes,
-    ) -> Result<Self::InOut, ::modular_bitfield::error::InvalidBitPattern<Self::Bytes>> {
-        ::core::result::Result::Ok(Self::Bytes::from_be(bytes))
-    }
-}
-
 #[derive(Copy, Clone, Debug, EnumString)]
 pub enum QR {
     Query = 0,
@@ -80,7 +34,7 @@ impl QR {
 pub enum Opcode {
     Query = 0,  // [RFC1035]
     IQuery = 1, // Inverse Query (OBSOLETE)    [RFC3425]
-    Status = 2, //  [RFC1035]
+    Status = 2, // [RFC1035]
     Notify = 4, // [RFC1996]
     Update = 5, // [RFC2136]
     DSO = 6,    // DNS Stateful Operations (DSO)   [RFC8490]

@@ -4,11 +4,84 @@ use num_traits::FromPrimitive;
 use std::convert::TryInto;
 use std::fmt;
 use std::str;
+use std::time::Duration;
 
 use crate::as_array;
 use crate::parse_error;
 use crate::resource::Record;
 use crate::types::*;
+
+#[derive(Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct Packet {
+    // A 16 bit identifier assigned by the program that generates any kind of
+    // query. This identifier is copied the corresponding reply and can be used
+    // by the requester to match up replies to outstanding queries.
+    pub id: u16,
+
+    // Recursion Desired - this bit directs the name server to pursue the query
+    // recursively.
+    pub rd: bool,
+
+    // Truncation - specifies that this message was truncated.
+    pub tc: bool,
+
+    // Authoritative Answer - Specifies that the responding name server is an
+    // authority for the domain name in question section.
+    pub aa: bool,
+
+    // Specifies kind of query in this message. 0 represents a standard query.
+    // https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
+    pub opcode: Opcode,
+
+    // TODO Change with enum.
+    // Specifies whether this message is a query (0), or a response (1).
+    pub qr: QR,
+
+    // Response code.
+    pub rcode: Rcode,
+
+    // Checking Disabled - [RFC4035][RFC6840][RFC Errata 4927]
+    pub cd: bool,
+
+    // Authentic Data - [RFC4035][RFC6840][RFC Errata 4924]
+    pub ad: bool,
+
+    // Z Reserved for future use. You must set this field to 0.
+    pub z: bool,
+
+    // Recursion Available - this be is set or cleared in a response, and
+    // denotes whether recursive query support is available in the name server.
+    pub ra: bool,
+
+    pub questions: Vec<Question>,
+    pub answers: Vec<Answer>,
+    pub authoritys: Vec<Answer>,
+    pub additionals: Vec<Answer>,
+}
+
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct Question {
+    pub name: String,
+    pub r#type: QType,
+    pub class: QClass,
+}
+
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct Answer {
+    pub name: String,
+
+    pub r#type: QType,
+    pub class: QClass, // TODO Really a Class (which is a subset of QClass)
+
+    // The number of seconds that the resource record may be cached
+    // before the source of the information should again be consulted.
+    // Zero is interpreted to mean that the RR can only be used for the
+    // transaction in progress.
+    pub ttl: Duration,
+
+    pub record: Record,
+}
 
 pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), ParseError> {
     let mut qname = String::new();
@@ -73,93 +146,7 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), Pa
 
     Ok((qname, offset - start))
 }
-
-pub struct Question {
-    pub name: String,
-    pub r#type: QType,
-    pub class: QClass,
-}
-
-pub struct Answer {
-    pub name: String,
-
-    pub r#type: QType,
-    pub class: QClass, // TODO Really a Class (which is a subset of QClass)
-
-    // The number of seconds that the resource record may be cached
-    // before the source of the information should again be consulted.
-    // Zero is interpreted to mean that the RR can only be used for the
-    // transaction in progress.
-    pub ttl: u32,
-
-    // Specifies the length in octets of the RDATA field.
-    pub rd_length: u16,
-
-    pub record: Record,
-}
-
-#[derive(Default)]
-pub struct Packet {
-    // A 16 bit identifier assigned by the program that generates any kind of
-    // query. This identifier is copied the corresponding reply and can be used
-    // by the requester to match up replies to outstanding queries.
-    pub id: u16,
-
-    // Recursion Desired - this bit directs the name server to pursue the query
-    // recursively.
-    pub rd: bool, // bit 7
-
-    // Truncation - specifies that this message was truncated.
-    pub tc: bool, // bit 6
-
-    // Authoritative Answer - Specifies that the responding name server is an
-    // authority for the domain name in question section.
-    pub aa: bool, // bit 5
-
-    // Specifies kind of query in this message. 0 represents a standard query.
-    // https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
-    pub opcode: Opcode, // bit 1-4
-
-    // TODO Change with enum.
-    // Specifies whether this message is a query (0), or a response (1).
-    pub qr: QR, // bit 0
-
-    // Response code.
-    pub rcode: Rcode, // bit 4-7
-
-    // Checking Disabled - [RFC4035][RFC6840][RFC Errata 4927]
-    pub cd: bool, // bit 3
-
-    // Authentic Data - [RFC4035][RFC6840][RFC Errata 4924]
-    pub ad: bool, // bit 2
-
-    // Z Reserved for future use. You must set this field to 0.
-    pub z: bool, // bit 1
-
-    // Recursion Available - this be is set or cleared in a response, and
-    // denotes whether recursive query support is available in the name server.
-    pub ra: bool, // bit 0
-
-    pub questions: Vec<Question>,
-    pub answers: Vec<Answer>,
-    pub authoritys: Vec<Answer>,
-    pub additionals: Vec<Answer>,
-}
-
 impl Packet {
-    /*
-    pub fn new() -> Packet {
-        Packet {
-            questions: Vec::new(),
-            answers: Vec::new(),
-            authoritys: Vec::new(),
-            additionals: Vec::new(),
-
-            ..Default::default()
-        }
-    }
-    */
-
     pub fn from_slice(buf: &[u8]) -> Result<Packet, ParseError> {
         // TODO Maybe we should take ownership of the buf
         // Then read_qname, and similar is "easier".
@@ -298,12 +285,12 @@ impl Packet {
             let ttl = u32::from_be_bytes(*as_array![buf, offset, 4]);
             offset += 4;
 
-            let rd_length = u16::from_be_bytes(*as_array![buf, offset, 2]);
+            let rd_length = u16::from_be_bytes(*as_array![buf, offset, 2]) as usize;
             offset += 2;
 
             // TODO Check for errors, and skip over them if possible!
             let record = Record::from_slice(r#type, class, &buf, offset, rd_length as usize)?;
-            offset += rd_length as usize;
+            offset += rd_length;
 
             answers.push(Answer {
                 name,
@@ -311,8 +298,7 @@ impl Packet {
                 r#type,
                 class,
 
-                ttl,
-                rd_length,
+                ttl: Duration::from_secs(ttl.into()),
 
                 record,
             });
@@ -321,7 +307,6 @@ impl Packet {
         Ok((answers, offset - start))
     }
 
-    // TODO Consider accepting just a normal Question.
     pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
         // TODO Don't allow more than 255 questions.
 
@@ -498,10 +483,10 @@ impl fmt::Display for Question {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,
-            "; {name:<18}      {qclass:4} {qtype:6}\n",
+            "; {name:<18}      {class:4} {type:6}\n",
             name = self.name,
-            qclass = self.class,
-            qtype = self.r#type,
+            class = self.class,
+            r#type = self.r#type,
         )
     }
 }
@@ -512,7 +497,7 @@ impl fmt::Display for Answer {
             f,
             "{name:<20} {ttl:>4} {class:4} {type:6} {record}",
             name = self.name,
-            ttl = self.ttl,
+            ttl = self.ttl.as_secs(),
             class = self.class,
             r#type = self.r#type,
             record = self.record,

@@ -2,13 +2,13 @@ use crate::as_array;
 use crate::dns::read_qname;
 use crate::errors::ParseError;
 use crate::parse_error;
-use crate::types::{BeB16, BeB32};
 
 use crate::types::{QClass, QType};
-use modular_bitfield::prelude::*;
 use std::convert::TryInto;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
+
+use std::time::Duration;
 
 // This should be kept in sync with QType.
 // TODO Can we merge this and QType? (when https://github.com/rust-lang/rust/issues/60553 is finished we can)
@@ -152,11 +152,16 @@ pub struct Soa {
     pub mname: String, // The <domain-name> of the name server that was the original or primary source of data for this zone.
     pub rname: String, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
 
-    pub header: SoaHeader, // TODO Somehow hoist this up, so it's methods are on Soa directly, and header is private.
+    serial: u32,
+
+    refresh: Duration,
+    retry: Duration,
+    expire: Duration,
+    minimum: Duration,
 }
 
 impl Soa {
-    pub fn from_slice(buf: &[u8], start: usize, _len: usize) -> Result<Soa, ParseError> {
+    pub fn from_slice(buf: &[u8], start: usize, len: usize) -> Result<Soa, ParseError> {
         let mut offset = start;
 
         let (mname, size) = read_qname(&buf, offset)?;
@@ -165,25 +170,36 @@ impl Soa {
         let (rname, size) = read_qname(&buf, offset)?;
         offset += size;
 
-        // TODO How do we catch errors if from_bytes fails?
-        let header = SoaHeader::from_bytes(*as_array![buf, offset, 20]);
+        let serial = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        offset += 4;
+
+        let refresh = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        offset += 4;
+
+        let retry = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        offset += 4;
+
+        let expire = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        offset += 4;
+
+        let minimum = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        offset += 4;
+
+        if offset - start != len {
+            return parse_error!("failed to parse full SOA record");
+        }
 
         Ok(Soa {
             mname,
             rname,
-            header,
+
+            serial,
+            refresh: Duration::from_secs(refresh.into()),
+            retry: Duration::from_secs(retry.into()),
+            expire: Duration::from_secs(expire.into()),
+            minimum: Duration::from_secs(minimum.into()),
         })
     }
-}
-
-#[bitfield(bits = 160)]
-#[derive(Debug)]
-pub struct SoaHeader {
-    serial: BeB32,
-    refresh: BeB32, // in seconds
-    retry: BeB32,   // in seconds
-    expire: BeB32,  // in seconds
-    minimum: BeB32, // in seconds
 }
 
 impl fmt::Display for Soa {
@@ -194,11 +210,11 @@ impl fmt::Display for Soa {
             "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
             mname = self.mname,
             rname = self.rname,
-            serial = self.header.serial(),
-            refresh = self.header.refresh(),
-            retry = self.header.retry(),
-            expire = self.header.expire(),
-            minimum = self.header.minimum(),
+            serial = self.serial,
+            refresh = self.refresh.as_secs(),
+            retry = self.retry.as_secs(),
+            expire = self.expire.as_secs(),
+            minimum = self.minimum.as_secs(),
         )
     }
 }
@@ -241,16 +257,10 @@ impl fmt::Display for Mx {
 // https://datatracker.ietf.org/doc/html/rfc2782
 #[derive(Debug)]
 pub struct Srv {
-    pub header: SrvHeader,
+    pub priority: u16,
+    pub weight: u16,
+    pub port: u16,
     pub name: String,
-}
-
-#[bitfield(bits = 48)]
-#[derive(Debug)]
-pub struct SrvHeader {
-    pub priority: BeB16,
-    pub weight: BeB16,
-    pub port: BeB16,
 }
 
 impl Srv {
@@ -259,7 +269,10 @@ impl Srv {
             return parse_error!("SRV record too short");
         }
 
-        let header = SrvHeader::from_bytes(*as_array![buf, start, 6]);
+        let priority = u16::from_be_bytes(*as_array![buf, start, 2]);
+        let weight = u16::from_be_bytes(*as_array![buf, start + 2, 2]);
+        let port = u16::from_be_bytes(*as_array![buf, start + 4, 2]);
+
         let (name, size) = read_qname(buf, start + 6)?;
 
         if len != 6 + size {
@@ -267,7 +280,12 @@ impl Srv {
             return parse_error!("failed to read full SRV record");
         }
 
-        Ok(Srv { header, name })
+        Ok(Srv {
+            priority,
+            weight,
+            port,
+            name,
+        })
     }
 }
 
@@ -277,9 +295,9 @@ impl fmt::Display for Srv {
         write!(
             f,
             "{priority} {weight} {port} {name}",
-            priority = self.header.priority(),
-            weight = self.header.weight(),
-            port = self.header.port(),
+            priority = self.priority,
+            weight = self.weight,
+            port = self.port,
             name = self.name,
         )
     }
