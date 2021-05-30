@@ -1,7 +1,10 @@
 pub mod dns;
+mod errors;
 pub mod resource;
 pub mod types;
-mod errors;
+
+#[macro_use]
+extern crate num_derive;
 
 // Converts a slice into a array (with a fixed length)
 // if the array is not long enough a parse_error is returned
@@ -21,9 +24,16 @@ macro_rules! as_array {
             let offset = $offset;
             let len = $len;
             match $slice.get(offset..offset + len) {
-                None => return parse_error!("buffer out of range buf[{}..{}] for slice of length {}", offset, len, $slice.len()),
-                Some(slice) => as_array(slice)
+                None => {
+                    return parse_error!(
+                        "buffer out of range buf[{}..{}] for slice of length {}",
+                        offset,
+                        len,
+                        $slice.len()
+                    )
+                }
+                Some(slice) => as_array(slice),
             }
         }
-    }}
+    }};
 }

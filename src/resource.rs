@@ -1,14 +1,14 @@
-use crate::types::{BeB16, BeB32};
+use crate::as_array;
 use crate::dns::read_qname;
 use crate::errors::ParseError;
 use crate::parse_error;
-use crate::as_array;
+use crate::types::{BeB16, BeB32};
 
 use crate::types::{QClass, QType};
-use std::net::{Ipv4Addr, Ipv6Addr};
-use std::convert::TryInto;
 use modular_bitfield::prelude::*;
+use std::convert::TryInto;
 use std::fmt;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 // This should be kept in sync with QType.
 // TODO Can we merge this and QType? (when https://github.com/rust-lang/rust/issues/60553 is finished we can)
@@ -47,14 +47,14 @@ impl Record {
         }
 
         match r#type {
-            QType::A => Ok(Record::A(parse_a(class, &buf[start..start+len])?)),
+            QType::A => Ok(Record::A(parse_a(class, &buf[start..start + len])?)),
             QType::NS => Ok(Record::NS(parse_qname(buf, start, len)?)),
             QType::SOA => Ok(Record::SOA(Soa::from_slice(buf, start, len)?)),
             QType::CNAME => Ok(Record::CNAME(parse_qname(buf, start, len)?)),
             QType::PTR => Ok(Record::PTR(parse_qname(buf, start, len)?)),
             QType::MX => Ok(Record::MX(Mx::from_slice(buf, start, len)?)),
-            QType::TXT => Ok(Record::TXT(parse_txt(&buf[start..start+len])?)),
-            QType::AAAA => Ok(Record::AAAA(parse_aaaa(class, &buf[start..start+len])?)),
+            QType::TXT => Ok(Record::TXT(parse_txt(&buf[start..start + len])?)),
+            QType::AAAA => Ok(Record::AAAA(parse_aaaa(class, &buf[start..start + len])?)),
             QType::SRV => Ok(Record::SRV(Srv::from_slice(buf, start, len)?)),
             QType::ANY => Ok(Record::ANY), // This should never happen unless we have invalid data.
         }
@@ -82,19 +82,13 @@ impl fmt::Display for Record {
     }
 }
 
-
 fn parse_a(class: QClass, buf: &[u8]) -> Result<Ipv4Addr, ParseError> {
     match class {
         QClass::Internet => {
             if buf.len() != 4 {
                 return parse_error!("invalid A record length ({}) expected 4", buf.len());
             }
-            Ok(Ipv4Addr::new(
-                buf[0],
-                buf[1],
-                buf[2],
-                buf[3],
-            ))
+            Ok(Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3]))
         }
 
         _ => return parse_error!("unsupported A record class '{}'", class),
@@ -133,7 +127,7 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
 
     while let Some(len) = buf.get(offset) {
         let len = *len as usize;
-        offset+=1;
+        offset += 1;
 
         match buf.get(offset..offset + len) {
             None => return parse_error!("TXT record too short"), // TODO standardise the too short error
@@ -144,7 +138,7 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
                     Ok(s) => txts.push(s),
                     Err(e) => return parse_error!("unable to parse TXT: {}", e),
                 }
-            },
+            }
         }
 
         offset += len;
@@ -153,13 +147,12 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
     Ok(txts)
 }
 
-
 #[derive(Debug)]
 pub struct Soa {
     pub mname: String, // The <domain-name> of the name server that was the original or primary source of data for this zone.
     pub rname: String, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
 
-    pub header: SoaHeader // TODO Somehow hoist this up, so it's methods are on Soa directly, and header is private.
+    pub header: SoaHeader, // TODO Somehow hoist this up, so it's methods are on Soa directly, and header is private.
 }
 
 impl Soa {
@@ -175,7 +168,7 @@ impl Soa {
         // TODO How do we catch errors if from_bytes fails?
         let header = SoaHeader::from_bytes(*as_array![buf, offset, 20]);
 
-        Ok(Soa{
+        Ok(Soa {
             mname,
             rname,
             header,
@@ -188,15 +181,17 @@ impl Soa {
 pub struct SoaHeader {
     serial: BeB32,
     refresh: BeB32, // in seconds
-    retry: BeB32,  // in seconds
+    retry: BeB32,   // in seconds
     expire: BeB32,  // in seconds
-    minimum: BeB32,   // in seconds
+    minimum: BeB32, // in seconds
 }
 
 impl fmt::Display for Soa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
-        write!(f, "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
+        write!(
+            f,
+            "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
             mname = self.mname,
             rname = self.rname,
             serial = self.header.serial(),
@@ -224,7 +219,7 @@ impl Mx {
             return parse_error!("failed to read full MX record");
         }
 
-        Ok(Mx{
+        Ok(Mx {
             preference,
             exchange,
         })
@@ -234,7 +229,9 @@ impl Mx {
 impl fmt::Display for Mx {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // "10 aspmx.l.google.com."
-        write!(f, "{preference} {exchange}",
+        write!(
+            f,
+            "{preference} {exchange}",
             preference = self.preference,
             exchange = self.exchange,
         )
@@ -252,8 +249,8 @@ pub struct Srv {
 #[derive(Debug)]
 pub struct SrvHeader {
     pub priority: BeB16,
-    pub weight:   BeB16,
-    pub port:     BeB16,
+    pub weight: BeB16,
+    pub port: BeB16,
 }
 
 impl Srv {
@@ -270,17 +267,16 @@ impl Srv {
             return parse_error!("failed to read full SRV record");
         }
 
-        Ok(Srv{
-            header,
-            name,
-        })
+        Ok(Srv { header, name })
     }
 }
 
 impl fmt::Display for Srv {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // "5 0 389 ldap.google.com."
-        write!(f, "{priority} {weight} {port} {name}",
+        write!(
+            f,
+            "{priority} {weight} {port} {name}",
             priority = self.header.priority(),
             weight = self.header.weight(),
             port = self.header.port(),
@@ -288,6 +284,3 @@ impl fmt::Display for Srv {
         )
     }
 }
-
-
-

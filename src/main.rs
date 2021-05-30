@@ -8,7 +8,7 @@ use std::process;
 use std::str::FromStr;
 use std::time::Duration;
 
-use rustdns::dns::DnsPacket;
+use rustdns::dns::Packet;
 use rustdns::types::*;
 
 fn main() -> std::io::Result<()> {
@@ -28,18 +28,20 @@ fn main() -> std::io::Result<()> {
         .set_read_timeout(Some(Duration::new(5, 0)))
         .expect("set_read_timeout call failed");
 
-    let mut packet = DnsPacket::new();
-    packet.header = packet
-        .header
-        .with_id(0xeccb)
-        .with_qr(QR::Query)
-        .with_opcode(Opcode::Query)
-        .with_rd(true)
-        .with_ad(true);
+    let mut packet = Packet {
+        id: 0xeccb,
+        qr: QR::Query,
+        opcode: Opcode::Query,
+        rd: true,
+        ad: true,
+
+        ..Default::default()
+    };
 
     packet.add_question(domain, qtype, QClass::Internet);
 
     /*
+    // TODO use this format
         packet.questions.push(Question{
             name: domain.to_string(),
             header: QuestionHeader::new()
@@ -53,7 +55,7 @@ fn main() -> std::io::Result<()> {
 
     println!("request:");
     util::hexdump(&req);
-    println!("{:}", packet);
+    println!("{}", packet);
 
     socket
         .send_to(&req, "8.8.8.8:53")
@@ -65,8 +67,8 @@ fn main() -> std::io::Result<()> {
     println!("response: {0}", src);
     util::hexdump(&resp[0..amt]);
 
-    let packet = DnsPacket::from_slice(&resp[0..amt]).expect("invalid response");
-    println!("{:}", packet);
+    let packet = Packet::from_slice(&resp[0..amt]).expect("invalid response");
+    println!("{}", packet);
 
     Ok(())
 }

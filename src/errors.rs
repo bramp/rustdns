@@ -1,6 +1,5 @@
-use std::fmt;
 use std::error::Error;
-
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteError {
@@ -25,7 +24,6 @@ impl fmt::Display for ParseError {
         write!(f, "{}", self.msg)
     }
 }
-
 
 #[macro_export]
 macro_rules! parse_error {
