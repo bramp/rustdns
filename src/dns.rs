@@ -3,10 +3,10 @@ use crate::errors::WriteError;
 use num_traits::FromPrimitive;
 use std::convert::TryInto;
 use std::fmt;
-use std::str;
 use std::time::Duration;
 
 use crate::as_array;
+use crate::name::Name;
 use crate::parse_error;
 use crate::resource::Record;
 use crate::types::*;
@@ -62,14 +62,14 @@ pub struct Packet {
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
-    pub name: String,
+    pub name: Name,
     pub r#type: QType,
     pub class: QClass,
 }
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Answer {
-    pub name: String,
+    pub name: Name,
 
     pub r#type: QType,
     pub class: QClass, // TODO Really a Class (which is a subset of QClass)
@@ -83,8 +83,8 @@ pub struct Answer {
     pub record: Record,
 }
 
-pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), ParseError> {
-    let mut qname = String::new();
+pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(Name, usize), ParseError> {
+    let mut qname = Name::empty();
     let mut offset = start;
 
     loop {
@@ -104,13 +104,11 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), Pa
                 match buf.get(offset..offset + len) {
                     None => return parse_error!("qname too short"), // TODO standardise the too short error
                     Some(label) => {
-                        // TODO I don't think this is meant to be UTF-8.
-                        let s = match str::from_utf8(label) {
+                        let label = match Name::from_label_slice(label) {
                             Ok(s) => s,
-                            Err(e) => return parse_error!("qname invalid label: {}", e),
+                            Err(e) => return parse_error!("invalid label '{:?}': {}", label, e),
                         };
-                        qname.push_str(s);
-                        qname.push('.');
+                        qname += label;
                     }
                 }
 
@@ -135,7 +133,7 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), Pa
 
                 // Read the qname from elsewhere in the packet ignoring
                 // the length of that segment.
-                qname += &read_qname(buf, ptr)?.0;
+                qname += read_qname(buf, ptr)?.0;
                 break;
             }
 
@@ -307,11 +305,11 @@ impl Packet {
         Ok((answers, offset - start))
     }
 
-    pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
+    pub fn add_question(&mut self, domain: Name, r#type: QType, class: QClass) {
         // TODO Don't allow more than 255 questions.
 
         let q = Question {
-            name: domain.to_string(),
+            name: domain,
             r#type,
             class,
         };
@@ -365,9 +363,10 @@ impl Packet {
         Ok(req)
     }
 
-    fn write_qname(buf: &mut Vec<u8>, domain: &str) -> Result<(), WriteError> {
-        for part in domain.split_terminator('.') {
-            assert!(part.len() < 64); // TODO
+    fn write_qname(buf: &mut Vec<u8>, domain: &Name) -> Result<(), WriteError> {
+        for part in domain.to_string().split_terminator('.') {
+            // TODO Implement a parts iterator on domain.
+            assert!(part.len() < 64); // TODO Remove
 
             if part.is_empty() {
                 return Err(WriteError {

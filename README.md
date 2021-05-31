@@ -3,27 +3,30 @@
 Simple native DNS client for rust.
 
 
-## To run
-
-```shell
-cargo run 
-```
-
-
-## Examples
+## To use
 
 ```shell
 cargo run A www.google.com
 cargo run AAAA www.google.com
 cargo run ANY www.google.com
 cargo run CNAME code.google.com
-cargo run MX _ldap._tcp.google.com
+cargo run MX google.com
 cargo run PTR 4.4.8.8.in-addr.arpa
 cargo run SOA google.com
 cargo run SRV _ldap._tcp.google.com
 cargo run TXT google.com # Doesn't work due to being tuncated
 
 ```
+
+TODO add Library examples
+
+## Testing
+
+```shell
+cargo test
+```
+
+The test suite is full of real life examples, from querying DNS servers online. This was generated withh `cargo run --bin generate_tests`.
 
 ## Fuzzing
 

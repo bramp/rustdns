@@ -9,6 +9,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use rustdns::dns::Packet;
+use rustdns::name::Name;
 use rustdns::types::*;
 
 fn main() -> std::io::Result<()> {
@@ -38,18 +39,8 @@ fn main() -> std::io::Result<()> {
         ..Default::default()
     };
 
+    let domain = Name::from_str(domain).expect("invalid domain name");
     packet.add_question(domain, qtype, QClass::Internet);
-
-    /*
-    // TODO use this format
-        packet.questions.push(Question{
-            name: domain.to_string(),
-            header: QuestionHeader::new()
-                .with_qtype(qtype)
-                .with_qclass(QClass::Internet),
-            }
-        );
-    */
 
     let req = packet.as_vec().expect("failed to write packet");
 

@@ -1,30 +1,27 @@
 use crate::as_array;
 use crate::dns::read_qname;
 use crate::errors::ParseError;
+use crate::name::Name;
 use crate::parse_error;
-
 use crate::types::{QClass, QType};
 use std::convert::TryInto;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
-
 use std::time::Duration;
 
 // This should be kept in sync with QType.
 // TODO Can we merge this and QType? (when https://github.com/rust-lang/rust/issues/60553 is finished we can)
-#[derive(Debug)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Record {
     A(Ipv4Addr), // TODO Is this always a IpAddress for non-Internet classes?
     AAAA(Ipv6Addr),
 
-    // QNames
-    CNAME(String),
-    NS(String),
-    PTR(String),
+    CNAME(Name),
+    NS(Name),
+    PTR(Name),
 
     // TODO Implement RFC 1464 for further parsing of the text
-    TXT(Vec<String>),
+    TXT(Vec<String>), // TODO Maybe change this to byte/u8/something
 
     MX(Mx),
     SOA(Soa),
@@ -105,11 +102,11 @@ fn parse_aaaa(class: QClass, buf: &[u8]) -> Result<Ipv6Addr, ParseError> {
             Ok(Ipv6Addr::from(ip))
         }
 
-        _ => return parse_error!("unsupported A record class '{:?}'", class),
+        _ => return parse_error!("unsupported A record class '{}'", class),
     }
 }
 
-fn parse_qname(buf: &[u8], start: usize, len: usize) -> Result<String, ParseError> {
+fn parse_qname(buf: &[u8], start: usize, len: usize) -> Result<Name, ParseError> {
     let (qname, size) = read_qname(&buf, start)?;
     if len != size {
         return parse_error!(
@@ -147,10 +144,9 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
     Ok(txts)
 }
 
-#[derive(Debug)]
 pub struct Soa {
-    pub mname: String, // The <domain-name> of the name server that was the original or primary source of data for this zone.
-    pub rname: String, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
+    pub mname: Name, // The <domain-name> of the name server that was the original or primary source of data for this zone.
+    pub rname: Name, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
 
     serial: u32,
 
@@ -219,10 +215,9 @@ impl fmt::Display for Soa {
     }
 }
 
-#[derive(Debug)]
 pub struct Mx {
     pub preference: u16, // A 16 bit integer which specifies the preference given to this RR among others at the same owner.  Lower values                are preferred.
-    pub exchange: String, // A <domain-name> which specifies a host willing to act as a mail exchange for the owner name.
+    pub exchange: Name, // A <domain-name> which specifies a host willing to act as a mail exchange for the owner name.
 }
 
 impl Mx {
@@ -255,12 +250,11 @@ impl fmt::Display for Mx {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc2782
-#[derive(Debug)]
 pub struct Srv {
     pub priority: u16,
     pub weight: u16,
     pub port: u16,
-    pub name: String,
+    pub name: Name,
 }
 
 impl Srv {
