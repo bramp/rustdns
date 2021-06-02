@@ -27,12 +27,12 @@ fn tests() {
         serde_yaml::from_slice(&s).expect("failed to deserialise test input");
 
     for case in tests {
-        from_slice(case);
+        test_from_slice(case);
     }
 }
 
 // TODO Switch this to use datatest after 0.6.3 (which is broken): https://github.com/commure/datatest/pull/30
-fn from_slice(case: TestCase) {
+fn test_from_slice(case: TestCase) {
     let input = match hex::decode(case.binary) {
         Err(e) => panic!("{}: Invalid test case input: {}", case.name, e),
         Ok(i) => i,

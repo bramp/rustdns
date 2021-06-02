@@ -24,6 +24,9 @@ TODO add Library examples
 
 ```shell
 cargo test
+
+# or the handy
+cargo watch -- cargo test --lib -- --nocapture
 ```
 
 The test suite is full of real life examples, from querying DNS servers online. This was generated withh `cargo run --bin generate_tests`.

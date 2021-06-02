@@ -7,6 +7,10 @@ pub mod types;
 #[macro_use]
 extern crate num_derive;
 
+// Used by punycode.rs (which is currently unused).
+// #[macro_use]
+// extern crate static_assertions;
+
 // Converts a slice into a array (with a fixed length)
 // if the array is not long enough a parse_error is returned
 // This is inspired by array_ref!, but it returns the errors
