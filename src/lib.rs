@@ -1,6 +1,5 @@
 pub mod dns;
 mod errors;
-pub mod name;
 pub mod resource;
 pub mod types;
 

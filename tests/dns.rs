@@ -1,5 +1,6 @@
 #![feature(custom_test_frameworks)]
 
+use regex::Regex;
 use rustdns::dns::Packet;
 use serde::Deserialize;
 use std::fs;
@@ -31,6 +32,11 @@ fn tests() {
     }
 }
 
+fn normalise_whitespace(s: &str) -> String {
+    let re = Regex::new(r"[ ]+").unwrap();
+    return re.replace_all(s, " ").to_string();
+}
+
 // TODO Switch this to use datatest after 0.6.3 (which is broken): https://github.com/commure/datatest/pull/30
 fn test_from_slice(case: TestCase) {
     let input = match hex::decode(case.binary) {
@@ -42,10 +48,9 @@ fn test_from_slice(case: TestCase) {
         Ok(p) => p,
     };
 
-    assert_eq!(
-        case.string,
-        format!("{}", packet),
-        "{}: Formatted string doesn't match",
-        case.name
-    );
+    // Normalise the formatted output a little (to allow little whitespace changes).
+    let want = normalise_whitespace(&case.string);
+    let got = normalise_whitespace(&format!("{}", packet));
+
+    assert_eq!(want, got, "{}: Formatted string doesn't match", case.name);
 }

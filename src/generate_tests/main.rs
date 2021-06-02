@@ -1,17 +1,36 @@
-// Simple tool that issues multiple requests, captures their output
-// and writes out test data.
-// If the tool fails, that indicates maybe a problem with the library.
-
+/// Simple tool that issues multiple DNS requests, captures their output
+/// and writes out test data.
+///
+/// # Example
+///
+/// ```
+/// cargo run --bin generate_tests
+/// ```
+/// If the tool fails, that indicates maybe a problem with the library.
 use serde::Serialize;
 use std::fs;
 use std::net::UdpSocket;
 use std::str::FromStr;
 
 use rustdns::dns::Packet;
-use rustdns::name::Name;
 use rustdns::types::*;
 
 const TEST_DATA_FILENAME: &str = "tests/test_data.yaml";
+
+// Set of actual queries we do, to get example output.
+const TESTS: [&str; 11] = [
+    "A www.google.com",
+    "AAAA www.google.com",
+    "ANY www.google.com",
+    "CNAME code.google.com",
+    "MX google.com",
+    "PTR 4.4.8.8.in-addr.arpa",
+    "SOA google.com",
+    "SRV _ldap._tcp.google.com",
+    "TXT google.com",
+    "A ☺️.com",
+    "A a", // Invalid TLD
+];
 
 #[derive(Serialize)]
 struct TestCase {
@@ -28,23 +47,13 @@ struct TestCase {
 }
 
 fn main() -> std::io::Result<()> {
-    let tests: Vec<&str> = vec![
-        "A www.google.com",
-        "AAAA www.google.com",
-        "ANY www.google.com",
-        "CNAME code.google.com",
-        "MX google.com",
-        "PTR 4.4.8.8.in-addr.arpa",
-        "SOA google.com",
-        "SRV _ldap._tcp.google.com",
-        "TXT google.com",
-    ];
-
     let socket = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to address");
 
     let mut output = Vec::new();
 
-    for test in tests {
+    for test in TESTS {
+        println!("Running {}", test);
+
         let args: Vec<&str> = test.split_whitespace().collect();
 
         if args.len() != 2 {
@@ -52,7 +61,7 @@ fn main() -> std::io::Result<()> {
         }
 
         let qtype = QType::from_str(&args[0]).expect("invalid qtype");
-        let domain = Name::from_str(&args[1]).expect("invalid domain");
+        let domain = &args[1];
 
         let mut req = Packet {
             id: 0xeccb, // randomise
@@ -92,6 +101,8 @@ fn main() -> std::io::Result<()> {
             binary: hex::encode(&resp_buf[0..amt]), // binary encoded
         });
     }
+
+    println!("Writing new test data to {}", TEST_DATA_FILENAME);
 
     match serde_yaml::to_string(&output) {
         Err(e) => eprintln!("Failed to serialise test results: {:?}", e),

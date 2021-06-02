@@ -6,7 +6,7 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::as_array;
-use crate::name::Name;
+
 use crate::parse_error;
 use crate::resource::Record;
 use crate::types::*;
@@ -60,16 +60,17 @@ pub struct Packet {
     pub additionals: Vec<Answer>,
 }
 
+/// A DNS Question.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
-    pub name: Name,
+    pub name: String,
     pub r#type: QType,
     pub class: QClass,
 }
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Answer {
-    pub name: Name,
+    pub name: String,
 
     pub r#type: QType,
     pub class: QClass, // TODO Really a Class (which is a subset of QClass)
@@ -83,11 +84,23 @@ pub struct Answer {
     pub record: Record,
 }
 
-pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(Name, usize), ParseError> {
-    let mut qname = Name::empty();
+/// Reads a ASCII qname from a byte array.
+///
+/// Used for extracting a encoding ASCII domain name from a DNS packet. Will
+/// returns the Unicode domain name, as well as the length of this qname (ignoring
+/// any compressed pointers) in bytes.
+///
+/// # Errors
+///
+/// Will return a [`ParseError`] if the qname is invalid as a domain name.
+// TODO Move into Packet
+pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), ParseError> {
+    let mut qname = String::new();
     let mut offset = start;
 
+    // Read each label one at a time, to build up the full domain name.
     loop {
+        // Length of the first label
         let len = *match buf.get(offset) {
             Some(len) => len,
             None => return parse_error!("qname failed to read label length"),
@@ -101,16 +114,25 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(Name, usize), Pars
         match len & 0xC0 {
             // No compression
             0x00 => {
-                match buf.get(offset..offset + len) {
-                    None => return parse_error!("qname too short"), // TODO standardise the too short error
-                    Some(label) => {
-                        let label = match Name::from_label_slice(label) {
-                            Ok(s) => s,
-                            Err(e) => return parse_error!("invalid label '{:?}': {}", label, e),
-                        };
-                        qname += label;
-                    }
-                }
+                let label = match buf.get(offset..offset + len) {
+                    None => return parse_error!("qname field too short"), // TODO standardise the too short error
+                    Some(label) => label,
+                };
+
+                // Really this is meant to be ASCII, but we read as utf8 (as that what Rust provides).
+                let label = match std::str::from_utf8(label) {
+                    Err(e) => return parse_error!("unable to read qname: {}", e), // TODO standardise the too short error
+                    Ok(s) => s,
+                };
+
+                // Decode this label into the original unicode.
+                let label = match idna::domain_to_unicode(label) {
+                    (label, Err(e)) => return parse_error!("invalid label '{:}': {}", label, e),
+                    (label, Ok(_)) => label,
+                };
+
+                qname.push_str(&label);
+                qname.push('.');
 
                 offset += len;
             }
@@ -133,7 +155,7 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(Name, usize), Pars
 
                 // Read the qname from elsewhere in the packet ignoring
                 // the length of that segment.
-                qname += read_qname(buf, ptr)?.0;
+                qname.push_str(&read_qname(buf, ptr)?.0);
                 break;
             }
 
@@ -144,17 +166,14 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(Name, usize), Pars
 
     Ok((qname, offset - start))
 }
+
 impl Packet {
     pub fn from_slice(buf: &[u8]) -> Result<Packet, ParseError> {
-        // TODO Maybe we should take ownership of the buf
-        // Then read_qname, and similar is "easier".
-
         let header = as_array![buf, 0, 12];
 
         let id = u16::from_be_bytes(*as_array![header, 0, 2]);
 
         let b = header[2];
-
         let qr = QR::from_bool(0b1000_0000 & b != 0);
         let opcode = (0b0111_1000 & b) >> 3;
         let aa = (0b0000_0100 & b) != 0;
@@ -167,7 +186,6 @@ impl Packet {
         };
 
         let b = header[3];
-
         let ra = (0b1000_0000 & b) != 0;
         let z = (0b0100_0000 & b) != 0; // Unused
         let ad = (0b0010_0000 & b) != 0;
@@ -195,11 +213,15 @@ impl Packet {
         let (authoritys, len) = Packet::read_answers(&buf, offset, ns_count)?;
         offset += len;
 
-        let (additionals, _) = Packet::read_answers(&buf, offset, ar_count)?;
+        let (additionals, len) = Packet::read_answers(&buf, offset, ar_count)?;
         offset += len;
 
         if offset != buf.len() {
-            return parse_error!("failed to read full packet");
+            return parse_error!(
+                "failed to read full packet expected {} read {}",
+                buf.len(),
+                offset
+            );
         }
 
         Ok(Packet {
@@ -256,7 +278,7 @@ impl Packet {
             offset += 4;
 
             questions.push(Question {
-                name,
+                name: name.to_string(), // TODO Fix
                 r#type,
                 class,
             });
@@ -305,11 +327,10 @@ impl Packet {
         Ok((answers, offset - start))
     }
 
-    pub fn add_question(&mut self, domain: Name, r#type: QType, class: QClass) {
+    pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
         // TODO Don't allow more than 255 questions.
-
         let q = Question {
-            name: domain,
+            name: domain.to_string(),
             r#type,
             class,
         };
@@ -363,22 +384,52 @@ impl Packet {
         Ok(req)
     }
 
-    fn write_qname(buf: &mut Vec<u8>, domain: &Name) -> Result<(), WriteError> {
-        for part in domain.to_string().split_terminator('.') {
-            // TODO Implement a parts iterator on domain.
-            assert!(part.len() < 64); // TODO Remove
-
-            if part.is_empty() {
+    /// Reads a Unicode domain name into the supplied `Vec<u8>`.
+    ///
+    /// Used for writing out a encoded ASCII domain name into a DNS packet. Will
+    /// returns the Unicode domain name, as well as the length of this qname (ignoring
+    /// any compressed pointers) in bytes.
+    ///
+    /// # Errors
+    ///
+    /// Will return a [`WriteError`] if the domain name is invalid.
+    // TODO Support compression.
+    fn write_qname(buf: &mut Vec<u8>, domain: &str) -> Result<(), WriteError> {
+        // Decode this label into the original unicode.
+        // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
+        let domain = match idna::domain_to_ascii(domain) {
+            Err(e) => {
                 return Err(WriteError {
-                    msg: format!("invalid dns name '{0}'", domain),
+                    msg: format!("invalid dns name '{0}': {1}", domain, e),
+                })
+            }
+            Ok(domain) => domain,
+        };
+
+        assert!(domain.is_ascii());
+
+        for label in domain.split_terminator('.') {
+            if label.is_empty() {
+                return Err(WriteError {
+                    msg: "empty label".to_string(),
                 });
             }
 
-            buf.push(part.len() as u8);
-            buf.extend_from_slice(part.as_bytes());
+            if label.len() > 63 {
+                return Err(WriteError {
+                    msg: format!("label '{0}' longer than 63 characters", label),
+                });
+            }
+
+            // Write the length.
+            buf.push(label.len() as u8);
+
+            // Then the actual label.
+            buf.extend_from_slice(label.as_bytes());
         }
 
         buf.push(0);
+
         Ok(())
     }
 }

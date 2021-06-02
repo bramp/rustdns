@@ -18,6 +18,7 @@ serde_yaml = "0.8.17"
 hex = "0.4.3"
 punycode = "0.4.1"
 idna = "0.2.3"
+regex = "1.5.4"
 
 [[bin]]
 name = "rustdns"

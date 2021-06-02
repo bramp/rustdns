@@ -1,7 +1,6 @@
 use crate::as_array;
 use crate::dns::read_qname;
 use crate::errors::ParseError;
-use crate::name::Name;
 use crate::parse_error;
 use crate::types::{QClass, QType};
 use std::convert::TryInto;
@@ -16,9 +15,9 @@ pub enum Record {
     A(Ipv4Addr), // TODO Is this always a IpAddress for non-Internet classes?
     AAAA(Ipv6Addr),
 
-    CNAME(Name),
-    NS(Name),
-    PTR(Name),
+    CNAME(String),
+    NS(String),
+    PTR(String),
 
     // TODO Implement RFC 1464 for further parsing of the text
     TXT(Vec<String>), // TODO Maybe change this to byte/u8/something
@@ -106,7 +105,7 @@ fn parse_aaaa(class: QClass, buf: &[u8]) -> Result<Ipv6Addr, ParseError> {
     }
 }
 
-fn parse_qname(buf: &[u8], start: usize, len: usize) -> Result<Name, ParseError> {
+fn parse_qname(buf: &[u8], start: usize, len: usize) -> Result<String, ParseError> {
     let (qname, size) = read_qname(&buf, start)?;
     if len != size {
         return parse_error!(
@@ -145,8 +144,8 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
 }
 
 pub struct Soa {
-    pub mname: Name, // The <domain-name> of the name server that was the original or primary source of data for this zone.
-    pub rname: Name, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
+    pub mname: String, // The <domain-name> of the name server that was the original or primary source of data for this zone.
+    pub rname: String, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
 
     serial: u32,
 
@@ -217,7 +216,7 @@ impl fmt::Display for Soa {
 
 pub struct Mx {
     pub preference: u16, // A 16 bit integer which specifies the preference given to this RR among others at the same owner.  Lower values                are preferred.
-    pub exchange: Name, // A <domain-name> which specifies a host willing to act as a mail exchange for the owner name.
+    pub exchange: String, // A <domain-name> which specifies a host willing to act as a mail exchange for the owner name.
 }
 
 impl Mx {
@@ -254,7 +253,7 @@ pub struct Srv {
     pub priority: u16,
     pub weight: u16,
     pub port: u16,
-    pub name: Name,
+    pub name: String,
 }
 
 impl Srv {
