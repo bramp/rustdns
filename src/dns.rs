@@ -1,88 +1,13 @@
-use crate::errors::ParseError;
-use crate::errors::WriteError;
 use num_traits::FromPrimitive;
 use std::convert::TryInto;
 use std::fmt;
-use std::time::Duration;
 
 use crate::as_array;
-
+use crate::errors::ParseError;
+use crate::errors::WriteError;
 use crate::parse_error;
-use crate::resource::Record;
+use crate::types::Record;
 use crate::types::*;
-
-#[derive(Default)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct Packet {
-    // A 16 bit identifier assigned by the program that generates any kind of
-    // query. This identifier is copied the corresponding reply and can be used
-    // by the requester to match up replies to outstanding queries.
-    pub id: u16,
-
-    // Recursion Desired - this bit directs the name server to pursue the query
-    // recursively.
-    pub rd: bool,
-
-    // Truncation - specifies that this message was truncated.
-    pub tc: bool,
-
-    // Authoritative Answer - Specifies that the responding name server is an
-    // authority for the domain name in question section.
-    pub aa: bool,
-
-    // Specifies kind of query in this message. 0 represents a standard query.
-    // https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
-    pub opcode: Opcode,
-
-    // TODO Change with enum.
-    // Specifies whether this message is a query (0), or a response (1).
-    pub qr: QR,
-
-    // Response code.
-    pub rcode: Rcode,
-
-    // Checking Disabled - [RFC4035][RFC6840][RFC Errata 4927]
-    pub cd: bool,
-
-    // Authentic Data - [RFC4035][RFC6840][RFC Errata 4924]
-    pub ad: bool,
-
-    // Z Reserved for future use. You must set this field to 0.
-    pub z: bool,
-
-    // Recursion Available - this be is set or cleared in a response, and
-    // denotes whether recursive query support is available in the name server.
-    pub ra: bool,
-
-    pub questions: Vec<Question>,
-    pub answers: Vec<Answer>,
-    pub authoritys: Vec<Answer>,
-    pub additionals: Vec<Answer>,
-}
-
-/// A DNS Question.
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct Question {
-    pub name: String,
-    pub r#type: QType,
-    pub class: QClass,
-}
-
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct Answer {
-    pub name: String,
-
-    pub r#type: QType,
-    pub class: QClass, // TODO Really a Class (which is a subset of QClass)
-
-    // The number of seconds that the resource record may be cached
-    // before the source of the information should again be consulted.
-    // Zero is interpreted to mean that the RR can only be used for the
-    // transaction in progress.
-    pub ttl: Duration,
-
-    pub record: Record,
-}
 
 /// Reads a ASCII qname from a byte array.
 ///
@@ -164,6 +89,10 @@ pub(crate) fn read_qname(buf: &[u8], start: usize) -> Result<(String, usize), Pa
         }
     }
 
+    if qname.is_empty() {
+        qname = ".".to_string() // Root domain
+    }
+
     Ok((qname, offset - start))
 }
 
@@ -207,13 +136,13 @@ impl Packet {
         let (questions, len) = Packet::read_questions(&buf, offset, qd_count)?;
         offset += len;
 
-        let (answers, len) = Packet::read_answers(&buf, offset, an_count)?;
+        let (answers, _, len) = Packet::read_records(&buf, offset, an_count, false)?;
         offset += len;
 
-        let (authoritys, len) = Packet::read_answers(&buf, offset, ns_count)?;
+        let (authoritys, _, len) = Packet::read_records(&buf, offset, ns_count, false)?;
         offset += len;
 
-        let (additionals, len) = Packet::read_answers(&buf, offset, ar_count)?;
+        let (additionals, extension, len) = Packet::read_records(&buf, offset, ar_count, true)?;
         offset += len;
 
         if offset != buf.len() {
@@ -242,23 +171,31 @@ impl Packet {
             answers,
             authoritys,
             additionals,
+
+            extension,
         })
     }
 
-    fn read_type_class(buf: [u8; 4]) -> Result<(QType, QClass), ParseError> {
-        let r#type = u16::from_be_bytes(*as_array![buf, 0, 2]);
+    // TODO Move into the QType.
+    fn read_type(buf: [u8; 2]) -> Result<QType, ParseError> {
+        let r#type = u16::from_be_bytes(buf);
         let r#type = match FromPrimitive::from_u16(r#type) {
             Some(t) => t,
             None => return parse_error!("invalid Type({})", r#type),
         };
 
-        let class = u16::from_be_bytes(*as_array![buf, 2, 2]);
+        Ok(r#type)
+    }
+
+    // TODO Move into the QClass.
+    fn read_class(buf: [u8; 2]) -> Result<QClass, ParseError> {
+        let class = u16::from_be_bytes(buf);
         let class = match FromPrimitive::from_u16(class) {
             Some(t) => t,
             None => return parse_error!("invalid Class({})", class),
         };
 
-        Ok((r#type, class))
+        Ok(class)
     }
 
     fn read_questions(
@@ -274,8 +211,11 @@ impl Packet {
             let (name, len) = read_qname(&buf, offset)?;
             offset += len;
 
-            let (r#type, class) = Packet::read_type_class(*as_array![buf, offset, 4])?;
-            offset += 4;
+            let r#type = Packet::read_type(*as_array![buf, offset, 2])?;
+            offset += 2;
+
+            let class = Packet::read_class(*as_array![buf, offset, 2])?;
+            offset += 2;
 
             questions.push(Question {
                 name: name.to_string(), // TODO Fix
@@ -287,50 +227,55 @@ impl Packet {
         Ok((questions, offset - start))
     }
 
-    fn read_answers(
+    fn read_records(
         buf: &[u8],
         start: usize,
         count: u16,
-    ) -> Result<(Vec<Answer>, usize), ParseError> {
+        allow_extension: bool,
+    ) -> Result<(Vec<Record>, Option<Extension>, usize), ParseError> {
         let mut offset = start;
         let mut answers = Vec::with_capacity(count.into());
+        let mut extension = None;
 
         for _ in 0..count {
             let (name, len) = read_qname(&buf, offset)?;
             offset += len;
 
-            let (r#type, class) = Packet::read_type_class(*as_array![buf, offset, 4])?;
-            offset += 4;
-
-            let ttl = u32::from_be_bytes(*as_array![buf, offset, 4]);
-            offset += 4;
-
-            let rd_length = u16::from_be_bytes(*as_array![buf, offset, 2]) as usize;
+            let r#type = Packet::read_type(*as_array![buf, offset, 2])?;
             offset += 2;
 
-            // TODO Check for errors, and skip over them if possible!
-            let record = Record::from_slice(r#type, class, &buf, offset, rd_length as usize)?;
-            offset += rd_length;
+            if allow_extension && r#type == QType::OPT {
+                if extension.is_some() {
+                    return parse_error!("multiple EDNS(0) extensions. Expected only one.");
+                }
 
-            answers.push(Answer {
-                name,
+                let (ext, len) = Extension::from_slice(name, r#type, buf, offset)?;
+                offset += len;
 
-                r#type,
-                class,
+                extension = Some(ext);
+            } else {
+                let class = Packet::read_class(*as_array![buf, offset, 2])?;
+                offset += 2;
 
-                ttl: Duration::from_secs(ttl.into()),
+                let (record, len) = Record::from_slice(name, r#type, class, &buf, offset)?;
+                offset += len;
 
-                record,
-            });
+                answers.push(record);
+            }
         }
 
-        Ok((answers, offset - start))
+        Ok((answers, extension, offset - start))
     }
 
     pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
+        let mut domain = domain.to_string();
+        if !domain.ends_with('.') {
+            domain.push('.')
+        }
+
         // TODO Don't allow more than 255 questions.
         let q = Question {
-            name: domain.to_string(),
+            name: domain,
             r#type,
             class,
         };
@@ -338,7 +283,14 @@ impl Packet {
         self.questions.push(q);
     }
 
+    /// Adds an EDNS(0) extension record, as defined by [rfc6891](https://datatracker.ietf.org/doc/html/rfc6891)
+    pub fn add_extension(&mut self, ext: Extension) {
+        // Don't allow if self.additionals.len() + 1 > 255
+        self.extension = Some(ext);
+    }
+
     // Returns this DNS packet as a Vec<u8>.
+    // TODO Rename this to_vec()
     pub fn as_vec(&self) -> Result<Vec<u8>, WriteError> {
         let mut req = Vec::<u8>::with_capacity(512); // TODO Guess the best size
 
@@ -361,10 +313,12 @@ impl Packet {
 
         req.push(b);
 
+        let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
+
         req.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
         req.extend_from_slice(&(self.answers.len() as u16).to_be_bytes());
         req.extend_from_slice(&(self.authoritys.len() as u16).to_be_bytes());
-        req.extend_from_slice(&(self.additionals.len() as u16).to_be_bytes());
+        req.extend_from_slice(&ar_count.to_be_bytes());
 
         for question in &self.questions {
             // TODO use Question::as_vec()
@@ -379,7 +333,11 @@ impl Packet {
         assert!(self.authoritys.is_empty());
         assert!(self.additionals.is_empty());
 
-        // TODO if the vector is too long, truncate the request.
+        if let Some(e) = &self.extension {
+            e.write(&mut req)?
+        }
+
+        // TODO if the Vec<u8> is too long, truncate the request.
 
         Ok(req)
     }
@@ -406,26 +364,26 @@ impl Packet {
             Ok(domain) => domain,
         };
 
-        assert!(domain.is_ascii());
+        if !domain.is_empty() && domain != "." {
+            for label in domain.split_terminator('.') {
+                if label.is_empty() {
+                    return Err(WriteError {
+                        msg: "double dot found in domain name".to_string(),
+                    });
+                }
 
-        for label in domain.split_terminator('.') {
-            if label.is_empty() {
-                return Err(WriteError {
-                    msg: "empty label".to_string(),
-                });
+                if label.len() > 63 {
+                    return Err(WriteError {
+                        msg: format!("label '{0}' longer than 63 characters", label),
+                    });
+                }
+
+                // Write the length.
+                buf.push(label.len() as u8);
+
+                // Then the actual label.
+                buf.extend_from_slice(label.as_bytes());
             }
-
-            if label.len() > 63 {
-                return Err(WriteError {
-                    msg: format!("label '{0}' longer than 63 characters", label),
-                });
-            }
-
-            // Write the length.
-            buf.push(label.len() as u8);
-
-            // Then the actual label.
-            buf.extend_from_slice(label.as_bytes());
         }
 
         buf.push(0);
@@ -468,12 +426,14 @@ impl Packet {
             flags.push_str(" cd")
         }
 
+        let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
+
         writeln!(f, ";; flags:{flags}; QUERY: {qd_count}, ANSWER: {an_count}, AUTHORITY: {ns_count}, ADDITIONAL: {ar_count}", 
             flags = flags,
             qd_count = self.questions.len(),
             an_count = self.answers.len(),
             ns_count = self.authoritys.len(),
-            ar_count = self.additionals.len(),
+            ar_count = ar_count,
         )?;
 
         writeln!(f)
@@ -485,7 +445,17 @@ impl fmt::Display for Packet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_header(f)?;
 
-        // TODO ;; OPT PSEUDOSECTION:
+        // ;; OPT PSEUDOSECTION:
+        // ; EDNS: version: 0, flags:; udp: 512
+        if let Some(e) = &self.extension {
+            writeln!(f, ";; OPT PSEUDOSECTION:")?;
+            writeln!(
+                f,
+                "; EDNS: version: {version}, flags:; udp: {payload_size}",
+                version = e.version,
+                payload_size = e.payload_size,
+            )?;
+        }
 
         // Always display the question section, but optionally display
         // the other sections.
@@ -541,16 +511,16 @@ impl fmt::Display for Question {
     }
 }
 
-impl fmt::Display for Answer {
+impl fmt::Display for Record {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,
-            "{name:<20} {ttl:>4} {class:4} {type:6} {record}",
+            "{name:<20} {ttl:>4} {class:4} {type:6} {resource}",
             name = self.name,
             ttl = self.ttl.as_secs(),
             class = self.class,
             r#type = self.r#type,
-            record = self.record,
+            resource = self.resource,
         )
     }
 }

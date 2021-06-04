@@ -1,79 +1,86 @@
 use crate::as_array;
 use crate::dns::read_qname;
-use crate::errors::ParseError;
+use crate::errors::{ParseError, WriteError};
 use crate::parse_error;
-use crate::types::{QClass, QType};
+use crate::types::*;
 use std::convert::TryInto;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
-// This should be kept in sync with QType.
-// TODO Can we merge this and QType? (when https://github.com/rust-lang/rust/issues/60553 is finished we can)
-#[allow(clippy::upper_case_acronyms)]
-pub enum Record {
-    A(Ipv4Addr), // TODO Is this always a IpAddress for non-Internet classes?
-    AAAA(Ipv6Addr),
-
-    CNAME(String),
-    NS(String),
-    PTR(String),
-
-    // TODO Implement RFC 1464 for further parsing of the text
-    TXT(Vec<String>), // TODO Maybe change this to byte/u8/something
-
-    MX(Mx),
-    SOA(Soa),
-    SRV(Srv),
-
-    ANY,  // Not a valid Record Type, but is a QType
-    TODO, // TODO Remove this placeholder. Figure out how to hide this type.
-}
+// TODO Consider moving Mx, SOA, and SRV to types.rs
 
 impl Record {
     pub fn from_slice(
+        name: String,
         r#type: QType,
         class: QClass,
         buf: &[u8],
         start: usize,
-        len: usize,
-    ) -> Result<Record, ParseError> {
-        if buf.len() < start + len {
-            return parse_error!("invalid record length");
+    ) -> Result<(Record, usize), ParseError> {
+        let mut offset = start;
+
+        let ttl = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        offset += 4;
+
+        let len = u16::from_be_bytes(*as_array![buf, offset, 2]) as usize;
+        offset += 2;
+
+        if buf.len() < offset + len {
+            return parse_error!("record too short");
         }
 
-        match r#type {
-            QType::A => Ok(Record::A(parse_a(class, &buf[start..start + len])?)),
-            QType::NS => Ok(Record::NS(parse_qname(buf, start, len)?)),
-            QType::SOA => Ok(Record::SOA(Soa::from_slice(buf, start, len)?)),
-            QType::CNAME => Ok(Record::CNAME(parse_qname(buf, start, len)?)),
-            QType::PTR => Ok(Record::PTR(parse_qname(buf, start, len)?)),
-            QType::MX => Ok(Record::MX(Mx::from_slice(buf, start, len)?)),
-            QType::TXT => Ok(Record::TXT(parse_txt(&buf[start..start + len])?)),
-            QType::AAAA => Ok(Record::AAAA(parse_aaaa(class, &buf[start..start + len])?)),
-            QType::SRV => Ok(Record::SRV(Srv::from_slice(buf, start, len)?)),
-            QType::ANY => Ok(Record::ANY), // This should never happen unless we have invalid data.
-        }
+        let resource = match r#type {
+            QType::A => Resource::A(parse_a(class, &buf[offset..offset + len])?),
+            QType::NS => Resource::NS(parse_qname(buf, offset, len)?),
+            QType::SOA => Resource::SOA(Soa::from_slice(buf, offset, len)?),
+            QType::CNAME => Resource::CNAME(parse_qname(buf, offset, len)?),
+            QType::PTR => Resource::PTR(parse_qname(buf, offset, len)?),
+            QType::MX => Resource::MX(Mx::from_slice(buf, offset, len)?),
+            QType::TXT => Resource::TXT(parse_txt(&buf[offset..offset + len])?),
+            QType::AAAA => Resource::AAAA(parse_aaaa(class, &buf[offset..offset + len])?),
+            QType::SRV => Resource::SRV(Srv::from_slice(buf, offset, len)?),
+
+            // This should never appear in a answer record unless we have invalid data.
+            QType::Reserved | QType::OPT | QType::ANY => {
+                return parse_error!("invalid record type '{}'", r#type)
+            }
+        };
+
+        let answer = Record {
+            name,
+
+            r#type,
+            class,
+
+            ttl: Duration::from_secs(ttl.into()),
+
+            resource,
+        };
+
+        Ok((answer, 4 + 2 + len))
     }
 }
 
-impl fmt::Display for Record {
+impl fmt::Display for Resource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Record::A(ip) => ip.fmt(f),
-            Record::AAAA(ip) => ip.fmt(f),
+            Resource::A(ip) => ip.fmt(f),
+            Resource::AAAA(ip) => ip.fmt(f),
 
-            Record::NS(name) => name.fmt(f),
-            Record::CNAME(name) => name.fmt(f),
-            Record::PTR(name) => name.fmt(f),
+            Resource::NS(name) => name.fmt(f),
+            Resource::CNAME(name) => name.fmt(f),
+            Resource::PTR(name) => name.fmt(f),
 
-            Record::SOA(soa) => soa.fmt(f),
-            Record::TXT(txts) => write!(f, "\"{}\"", txts.join(" ")), // TODO I'm not sure the right way to display this
-            Record::MX(mx) => mx.fmt(f),
-            Record::SRV(srv) => srv.fmt(f),
+            Resource::SOA(soa) => soa.fmt(f),
+            Resource::TXT(txts) => write!(f, "\"{}\"", txts.join(" ")), // TODO I'm not sure the right way to display this
+            Resource::MX(mx) => mx.fmt(f),
+            Resource::SRV(srv) => srv.fmt(f),
 
-            Record::TODO => write!(f, "TODO"),
-            Record::ANY => write!(f, "*"),
+            Resource::OPT => write!(f, "OPT"),
+
+            Resource::TODO => write!(f, "TODO"),
+            Resource::ANY => write!(f, "*"),
         }
     }
 }
@@ -143,18 +150,6 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
     Ok(txts)
 }
 
-pub struct Soa {
-    pub mname: String, // The <domain-name> of the name server that was the original or primary source of data for this zone.
-    pub rname: String, // A <domain-name> which specifies the mailbox of the person responsible for this zone.
-
-    serial: u32,
-
-    refresh: Duration,
-    retry: Duration,
-    expire: Duration,
-    minimum: Duration,
-}
-
 impl Soa {
     pub fn from_slice(buf: &[u8], start: usize, len: usize) -> Result<Soa, ParseError> {
         let mut offset = start;
@@ -197,28 +192,6 @@ impl Soa {
     }
 }
 
-impl fmt::Display for Soa {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
-        write!(
-            f,
-            "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
-            mname = self.mname,
-            rname = self.rname,
-            serial = self.serial,
-            refresh = self.refresh.as_secs(),
-            retry = self.retry.as_secs(),
-            expire = self.expire.as_secs(),
-            minimum = self.minimum.as_secs(),
-        )
-    }
-}
-
-pub struct Mx {
-    pub preference: u16, // A 16 bit integer which specifies the preference given to this RR among others at the same owner.  Lower values                are preferred.
-    pub exchange: String, // A <domain-name> which specifies a host willing to act as a mail exchange for the owner name.
-}
-
 impl Mx {
     pub fn from_slice(buf: &[u8], start: usize, len: usize) -> Result<Mx, ParseError> {
         let preference = u16::from_be_bytes(*as_array![buf, 0, 2]);
@@ -234,26 +207,6 @@ impl Mx {
             exchange,
         })
     }
-}
-
-impl fmt::Display for Mx {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // "10 aspmx.l.google.com."
-        write!(
-            f,
-            "{preference} {exchange}",
-            preference = self.preference,
-            exchange = self.exchange,
-        )
-    }
-}
-
-// https://datatracker.ietf.org/doc/html/rfc2782
-pub struct Srv {
-    pub priority: u16,
-    pub weight: u16,
-    pub port: u16,
-    pub name: String,
 }
 
 impl Srv {
@@ -282,16 +235,72 @@ impl Srv {
     }
 }
 
-impl fmt::Display for Srv {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // "5 0 389 ldap.google.com."
-        write!(
-            f,
-            "{priority} {weight} {port} {name}",
-            priority = self.priority,
-            weight = self.weight,
-            port = self.port,
-            name = self.name,
-        )
+impl Extension {
+    pub fn from_slice(
+        domain: String,
+        r#type: QType,
+        buf: &[u8],
+        start: usize,
+    ) -> Result<(Extension, usize), ParseError> {
+        assert!(r#type == QType::OPT);
+
+        if domain != "." {
+            return parse_error!(
+                "expected root domain for EDNS(0) extension, got '{}'",
+                domain
+            );
+        }
+
+        let mut offset = start;
+
+        let payload_size = u16::from_be_bytes(*as_array![buf, offset, 2]);
+        offset += 2;
+
+        let extend_rcode = buf[offset];
+        offset += 1;
+
+        let version = buf[offset];
+        offset += 1;
+
+        let b = buf[offset];
+        offset += 1;
+
+        let _z = buf[offset];
+        offset += 1;
+
+        let _rd_len = u16::from_be_bytes(*as_array![buf, offset, 2]);
+        offset += 2;
+
+        Ok((
+            Extension {
+                payload_size,
+                extend_rcode,
+                version,
+                dnssec_ok: b & 0b1000_0000 == 0b1000_0000,
+            },
+            offset - start,
+        ))
+    }
+
+    pub fn write(&self, buf: &mut Vec<u8>) -> Result<(), WriteError> {
+        buf.push(0); // A single "." domain name         // 0-1
+        buf.extend_from_slice(&(QType::OPT as u16).to_be_bytes()); // 1-3
+        buf.extend_from_slice(&(self.payload_size as u16).to_be_bytes()); // 3-5
+
+        buf.push(self.extend_rcode); // 5-6
+        buf.push(self.version); // 6-7
+
+        let mut b = 0_u8;
+        b |= if self.dnssec_ok { 0b1000_0000 } else { 0 };
+
+        // 16 bits
+        buf.push(b);
+        buf.push(0);
+
+        // 16 bit RDLEN - TODO
+        buf.push(0);
+        buf.push(0);
+
+        Ok(())
     }
 }

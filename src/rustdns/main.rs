@@ -8,7 +8,6 @@ use std::process;
 use std::str::FromStr;
 use std::time::Duration;
 
-use rustdns::dns::Packet;
 use rustdns::types::*;
 
 fn main() -> std::io::Result<()> {
@@ -40,6 +39,12 @@ fn main() -> std::io::Result<()> {
 
     packet.add_question(domain, qtype, QClass::Internet);
 
+    packet.add_extension(Extension {
+        payload_size: 4096,
+
+        ..Default::default()
+    });
+
     let req = packet.as_vec().expect("failed to write packet");
 
     println!("request:");
@@ -50,7 +55,7 @@ fn main() -> std::io::Result<()> {
         .send_to(&req, "8.8.8.8:53")
         .expect("could not send data");
 
-    let mut resp = [0; 1500];
+    let mut resp = [0; 4096];
     let (amt, src) = socket.recv_from(&mut resp).expect("no response");
 
     println!("response: {0}", src);
