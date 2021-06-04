@@ -1,7 +1,7 @@
 #![feature(custom_test_frameworks)]
 
 use regex::Regex;
-use rustdns::dns::Packet;
+use rustdns::types::Packet;
 use serde::Deserialize;
 use std::fs;
 

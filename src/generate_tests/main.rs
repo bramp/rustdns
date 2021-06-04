@@ -12,7 +12,6 @@ use std::fs;
 use std::net::UdpSocket;
 use std::str::FromStr;
 
-use rustdns::dns::Packet;
 use rustdns::types::*;
 
 const TEST_DATA_FILENAME: &str = "tests/test_data.yaml";

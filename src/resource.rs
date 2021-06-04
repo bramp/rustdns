@@ -1,5 +1,5 @@
 use crate::as_array;
-use crate::dns::read_qname;
+use crate::dns::PacketParser;
 use crate::errors::{ParseError, WriteError};
 use crate::parse_error;
 use crate::types::*;
@@ -11,35 +11,35 @@ use std::time::Duration;
 // TODO Consider moving Mx, SOA, and SRV to types.rs
 
 impl Record {
-    pub fn from_slice(
+    pub(crate) fn from_slice(
         name: String,
         r#type: QType,
         class: QClass,
-        buf: &[u8],
+        parser: &PacketParser,
         start: usize,
     ) -> Result<(Record, usize), ParseError> {
         let mut offset = start;
 
-        let ttl = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        let ttl = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
         offset += 4;
 
-        let len = u16::from_be_bytes(*as_array![buf, offset, 2]) as usize;
+        let len = u16::from_be_bytes(*as_array![parser.buf, offset, 2]) as usize;
         offset += 2;
 
-        if buf.len() < offset + len {
+        if parser.buf.len() < offset + len {
             return parse_error!("record too short");
         }
 
         let resource = match r#type {
-            QType::A => Resource::A(parse_a(class, &buf[offset..offset + len])?),
-            QType::NS => Resource::NS(parse_qname(buf, offset, len)?),
-            QType::SOA => Resource::SOA(Soa::from_slice(buf, offset, len)?),
-            QType::CNAME => Resource::CNAME(parse_qname(buf, offset, len)?),
-            QType::PTR => Resource::PTR(parse_qname(buf, offset, len)?),
-            QType::MX => Resource::MX(Mx::from_slice(buf, offset, len)?),
-            QType::TXT => Resource::TXT(parse_txt(&buf[offset..offset + len])?),
-            QType::AAAA => Resource::AAAA(parse_aaaa(class, &buf[offset..offset + len])?),
-            QType::SRV => Resource::SRV(Srv::from_slice(buf, offset, len)?),
+            QType::A => Resource::A(parse_a(class, &parser.buf[offset..offset + len])?),
+            QType::NS => Resource::NS(parse_qname(parser, offset, len)?),
+            QType::SOA => Resource::SOA(Soa::from_slice(parser, offset, len)?),
+            QType::CNAME => Resource::CNAME(parse_qname(parser, offset, len)?),
+            QType::PTR => Resource::PTR(parse_qname(parser, offset, len)?),
+            QType::MX => Resource::MX(Mx::from_slice(parser, offset, len)?),
+            QType::TXT => Resource::TXT(parse_txt(&parser.buf[offset..offset + len])?),
+            QType::AAAA => Resource::AAAA(parse_aaaa(class, &parser.buf[offset..offset + len])?),
+            QType::SRV => Resource::SRV(Srv::from_slice(parser, offset, len)?),
 
             // This should never appear in a answer record unless we have invalid data.
             QType::Reserved | QType::OPT | QType::ANY => {
@@ -112,8 +112,8 @@ fn parse_aaaa(class: QClass, buf: &[u8]) -> Result<Ipv6Addr, ParseError> {
     }
 }
 
-fn parse_qname(buf: &[u8], start: usize, len: usize) -> Result<String, ParseError> {
-    let (qname, size) = read_qname(&buf, start)?;
+fn parse_qname(parser: &PacketParser, start: usize, len: usize) -> Result<String, ParseError> {
+    let (qname, size) = parser.read_qname(start)?;
     if len != size {
         return parse_error!(
             "qname length ({}) did not match expected record len ({})",
@@ -151,28 +151,32 @@ fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
 }
 
 impl Soa {
-    pub fn from_slice(buf: &[u8], start: usize, len: usize) -> Result<Soa, ParseError> {
+    pub(crate) fn from_slice(
+        parser: &PacketParser,
+        start: usize,
+        len: usize,
+    ) -> Result<Soa, ParseError> {
         let mut offset = start;
 
-        let (mname, size) = read_qname(&buf, offset)?;
+        let (mname, size) = parser.read_qname(offset)?;
         offset += size;
 
-        let (rname, size) = read_qname(&buf, offset)?;
+        let (rname, size) = parser.read_qname(offset)?;
         offset += size;
 
-        let serial = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        let serial = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
         offset += 4;
 
-        let refresh = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        let refresh = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
         offset += 4;
 
-        let retry = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        let retry = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
         offset += 4;
 
-        let expire = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        let expire = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
         offset += 4;
 
-        let minimum = u32::from_be_bytes(*as_array![buf, offset, 4]);
+        let minimum = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
         offset += 4;
 
         if offset - start != len {
@@ -193,9 +197,13 @@ impl Soa {
 }
 
 impl Mx {
-    pub fn from_slice(buf: &[u8], start: usize, len: usize) -> Result<Mx, ParseError> {
-        let preference = u16::from_be_bytes(*as_array![buf, 0, 2]);
-        let (exchange, size) = read_qname(buf, start + 2)?;
+    pub(crate) fn from_slice(
+        parser: &PacketParser,
+        start: usize,
+        len: usize,
+    ) -> Result<Mx, ParseError> {
+        let preference = u16::from_be_bytes(*as_array![parser.buf, 0, 2]);
+        let (exchange, size) = parser.read_qname(start + 2)?;
 
         if len != 2 + size {
             // TODO Standardise his kind of error.
@@ -210,16 +218,20 @@ impl Mx {
 }
 
 impl Srv {
-    pub fn from_slice(buf: &[u8], start: usize, len: usize) -> Result<Srv, ParseError> {
+    pub(crate) fn from_slice(
+        parser: &PacketParser,
+        start: usize,
+        len: usize,
+    ) -> Result<Srv, ParseError> {
         if len < 7 {
             return parse_error!("SRV record too short");
         }
 
-        let priority = u16::from_be_bytes(*as_array![buf, start, 2]);
-        let weight = u16::from_be_bytes(*as_array![buf, start + 2, 2]);
-        let port = u16::from_be_bytes(*as_array![buf, start + 4, 2]);
+        let priority = u16::from_be_bytes(*as_array![parser.buf, start, 2]);
+        let weight = u16::from_be_bytes(*as_array![parser.buf, start + 2, 2]);
+        let port = u16::from_be_bytes(*as_array![parser.buf, start + 4, 2]);
 
-        let (name, size) = read_qname(buf, start + 6)?;
+        let (name, size) = parser.read_qname(start + 6)?;
 
         if len != 6 + size {
             // TODO Standardise his kind of error.
