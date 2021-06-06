@@ -45,7 +45,7 @@ fn main() -> std::io::Result<()> {
         ..Default::default()
     });
 
-    let req = packet.as_vec().expect("failed to write packet");
+    let req = packet.to_vec().expect("failed to write packet");
 
     println!("request:");
     util::hexdump(&req);

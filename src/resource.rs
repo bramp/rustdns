@@ -1,22 +1,18 @@
 use crate::types::*;
 use std::io;
 
-use byteorder::{ReadBytesExt, BE};
 use crate::bail;
+use crate::dns::{DNSReadExt, SeekExt};
+use byteorder::{ReadBytesExt, BE};
 use std::fmt;
 use std::io::Cursor;
 use std::io::Read;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
-use crate::dns::DNSReadExt;
-
-// TODO Consider moving Mx, SOA, and SRV to types.rs
 
 impl Record {
     pub(crate) fn parse(
-        // TODO Change the name to parse
-        //parser: &mut PacketParser,
-        cur: &mut Cursor<&[u8]>, // TODO perhaps allow any type.
+        cur: &mut Cursor<&[u8]>,
         name: String,
         r#type: QType,
         class: QClass,
@@ -24,33 +20,44 @@ impl Record {
         let ttl = cur.read_u32::<BE>()?;
         let len = cur.read_u16::<BE>()?;
 
-        /*
-        // TODO!
-        if parser.buf.len() < offset + len {
-            return parse_error!("record too short");
-        }
-        */
+        // Create a new Cursor that is limited to the len field.
+        let pos = cur.position();
+        let end = pos as usize + len as usize;
+        let buf = cur.get_ref();
 
-        // TODO Bound the record, and allow us to continue if it fails.
-        // let mut cur = parser.range(len.into()).unwrap(); // TODO replace with take().
+        let mut record = Cursor::new(&buf[0..end]);
+        record.set_position(pos);
 
         let resource = match r#type {
-            QType::A => Resource::A(parse_a(cur, class)?),
-            QType::AAAA => Resource::AAAA(parse_aaaa(cur, class)?),
+            QType::A => Resource::A(parse_a(&mut record, class)?),
+            QType::AAAA => Resource::AAAA(parse_aaaa(&mut record, class)?),
 
-            QType::NS => Resource::NS(parse_qname(cur)?),
-            QType::SOA => Resource::SOA(Soa::parse(cur)?),
-            QType::CNAME => Resource::CNAME(parse_qname(cur)?),
-            QType::PTR => Resource::PTR(parse_qname(cur)?),
-            QType::MX => Resource::MX(Mx::parse(cur)?),
-            QType::TXT => Resource::TXT(parse_txt( cur, len.into())?),
-            QType::SRV => Resource::SRV(Srv::parse( cur)?),
+            QType::NS => Resource::NS(parse_qname(&mut record)?),
+            QType::SOA => Resource::SOA(Soa::parse(&mut record)?),
+            QType::CNAME => Resource::CNAME(parse_qname(&mut record)?),
+            QType::PTR => Resource::PTR(parse_qname(&mut record)?),
+            QType::MX => Resource::MX(Mx::parse(&mut record)?),
+            QType::TXT => Resource::TXT(parse_txt(&mut record, len.into())?),
+            QType::SRV => Resource::SRV(Srv::parse(&mut record)?),
 
             // This should never appear in a answer record unless we have invalid data.
             QType::Reserved | QType::OPT | QType::ANY => {
                 bail!(InvalidData, "invalid record type '{}'", r#type);
             }
         };
+
+        // TODO This could be a warning, instead of a full error.
+        if record.remaining()? > 0 {
+            bail!(
+                Other,
+                "finished '{}' parsing record with {} bytes left over",
+                r#type,
+                record.remaining()?
+            );
+        }
+
+        // Now catch up
+        cur.set_position(record.position());
 
         Ok(Record {
             name,
@@ -106,7 +113,7 @@ fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: QClass) -> io::Result<Ipv6Addr> {
     match class {
         QClass::Internet => Ok(Ipv6Addr::from(buf)),
 
-        _ => bail!(InvalidData, "unsupported A record class '{}'", class),
+        _ => bail!(InvalidData, "unsupported AAAA record class '{}'", class),
     }
 }
 
@@ -129,7 +136,8 @@ fn parse_txt(cur: &mut Cursor<&[u8]>, mut size: usize) -> io::Result<Vec<String>
     let mut txts = Vec::new();
 
     // Read each record, prefixed by a 1-byte length.
-    while size > 0 { // TODO Change this so it doesn't need size passed in, and instead hits EOF
+    while size > 0 {
+        // TODO Change this so it doesn't need size passed in, and instead hits EOF
         let len = cur.read_u8()?;
 
         let mut txt = vec![0; len.into()];
@@ -229,11 +237,7 @@ impl Srv {
 }
 
 impl Extension {
-    pub fn parse(
-        cur: &mut Cursor<&[u8]>,
-        domain: String,
-        r#type: QType,
-    ) -> io::Result<Extension> {
+    pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: QType) -> io::Result<Extension> {
         assert!(r#type == QType::OPT);
 
         if domain != "." {

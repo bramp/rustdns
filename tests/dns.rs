@@ -55,4 +55,6 @@ fn test_from_slice(case: TestCase) {
     let want = normalise_whitespace(&case.string);
 
     assert_eq!(got, want, "{}: Formatted string doesn't match", case.name);
+
+    // TODO Test writing the result back out.
 }

@@ -59,6 +59,7 @@ pub struct Packet {
 #[derive(Default)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
+    /// A valid UTF-8 encoded domain name.
     pub name: String,
     pub r#type: QType,
     pub class: QClass,
