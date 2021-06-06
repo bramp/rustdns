@@ -1,0 +1,15 @@
+# generate_tests/Cargo.toml 
+
+[package]
+name = "generate_tests"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+hex = "0.4.3"
+rustdns = {path = "../" }
+
+
+[[bin]]
+name = "generate_tests"
+path = "main.rs"

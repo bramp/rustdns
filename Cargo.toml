@@ -1,3 +1,5 @@
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [package]
 name = "rustdns"
 version = "0.1.0"
@@ -5,7 +7,10 @@ authors = ["Andrew Brampton <brampton@gmail.com>"]
 edition = "2018"
 default-run = "rustdns"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = [
+    "generate_tests",
+]
 
 [dependencies]
 encoding8 = "0.3.2"
@@ -13,17 +18,17 @@ strum = "0.20"
 strum_macros = "0.20"
 num-traits = "0.2.14"
 num-derive = "0.3.3"
-serde = { version = "1.0.126", features = ["derive"] }
-serde_yaml = "0.8.17"
-hex = "0.4.3"
 punycode = "0.4.1"
 idna = "0.2.3"
 regex = "1.5.4"
+byteorder = "1.4.3"
+
+[dev-dependencies]
+pretty_assertions = "0.7.2"
+serde = { version = "1.0.126", features = ["derive"] }
+serde_yaml = "0.8.17"
+hex = "0.4.3"
 
 [[bin]]
 name = "rustdns"
 path = "src/rustdns/main.rs"
-
-[[bin]]
-name = "generate_tests"
-path = "src/generate_tests/main.rs"
