@@ -29,7 +29,7 @@ cargo test
 cargo watch -- cargo test --lib -- --nocapture
 ```
 
-The test suite is full of real life examples, from querying DNS servers online. This was generated withh `cargo run --bin generate_tests`.
+The test suite is full of real life examples, from querying DNS servers online. This was generated withh `cargo run -p generate_tests`.
 
 ## Fuzzing
 
@@ -48,3 +48,5 @@ cargo fuzz run from_slice
 
 * https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
 * https://courses.cs.duke.edu//fall16/compsci356/DNS/DNS-primer.pdf
+
+

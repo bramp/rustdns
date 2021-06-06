@@ -13,21 +13,20 @@ members = [
 ]
 
 [dependencies]
-encoding8 = "0.3.2"
-strum = "0.20"
-strum_macros = "0.20"
-num-traits = "0.2.14"
+encoding8 = "0.3.2"    # Used by rustdns for pretty-printing
+strum = "0.21"         # Simple macros for making Enum better
+strum_macros = "0.21"
+num-traits = "0.2.14"  # More macros for making Enum better
 num-derive = "0.3.3"
-punycode = "0.4.1"
-idna = "0.2.3"
-regex = "1.5.4"
-byteorder = "1.4.3"
+idna = "0.2.3"         # Encodes internation domain names
+byteorder = "1.4.3"    # Simplifies the binary parsing
 
 [dev-dependencies]
 pretty_assertions = "0.7.2"
 serde = { version = "1.0.126", features = ["derive"] }
 serde_yaml = "0.8.17"
 hex = "0.4.3"
+regex = "1.5.4"  # Used to cleanup the test cases for better comparison.
 
 [[bin]]
 name = "rustdns"

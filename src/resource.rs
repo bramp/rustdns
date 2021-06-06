@@ -1,53 +1,58 @@
-use crate::as_array;
-use crate::dns::PacketParser;
-use crate::errors::{ParseError, WriteError};
-use crate::parse_error;
 use crate::types::*;
-use std::convert::TryInto;
+use std::io;
+
+use byteorder::{ReadBytesExt, BE};
+use crate::bail;
 use std::fmt;
+use std::io::Cursor;
+use std::io::Read;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
+use crate::dns::DNSReadExt;
 
 // TODO Consider moving Mx, SOA, and SRV to types.rs
 
 impl Record {
-    pub(crate) fn from_slice(
+    pub(crate) fn parse(
+        // TODO Change the name to parse
+        //parser: &mut PacketParser,
+        cur: &mut Cursor<&[u8]>, // TODO perhaps allow any type.
         name: String,
         r#type: QType,
         class: QClass,
-        parser: &PacketParser,
-        start: usize,
-    ) -> Result<(Record, usize), ParseError> {
-        let mut offset = start;
+    ) -> io::Result<Record> {
+        let ttl = cur.read_u32::<BE>()?;
+        let len = cur.read_u16::<BE>()?;
 
-        let ttl = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        offset += 4;
-
-        let len = u16::from_be_bytes(*as_array![parser.buf, offset, 2]) as usize;
-        offset += 2;
-
+        /*
+        // TODO!
         if parser.buf.len() < offset + len {
             return parse_error!("record too short");
         }
+        */
+
+        // TODO Bound the record, and allow us to continue if it fails.
+        // let mut cur = parser.range(len.into()).unwrap(); // TODO replace with take().
 
         let resource = match r#type {
-            QType::A => Resource::A(parse_a(class, &parser.buf[offset..offset + len])?),
-            QType::NS => Resource::NS(parse_qname(parser, offset, len)?),
-            QType::SOA => Resource::SOA(Soa::from_slice(parser, offset, len)?),
-            QType::CNAME => Resource::CNAME(parse_qname(parser, offset, len)?),
-            QType::PTR => Resource::PTR(parse_qname(parser, offset, len)?),
-            QType::MX => Resource::MX(Mx::from_slice(parser, offset, len)?),
-            QType::TXT => Resource::TXT(parse_txt(&parser.buf[offset..offset + len])?),
-            QType::AAAA => Resource::AAAA(parse_aaaa(class, &parser.buf[offset..offset + len])?),
-            QType::SRV => Resource::SRV(Srv::from_slice(parser, offset, len)?),
+            QType::A => Resource::A(parse_a(cur, class)?),
+            QType::AAAA => Resource::AAAA(parse_aaaa(cur, class)?),
+
+            QType::NS => Resource::NS(parse_qname(cur)?),
+            QType::SOA => Resource::SOA(Soa::parse(cur)?),
+            QType::CNAME => Resource::CNAME(parse_qname(cur)?),
+            QType::PTR => Resource::PTR(parse_qname(cur)?),
+            QType::MX => Resource::MX(Mx::parse(cur)?),
+            QType::TXT => Resource::TXT(parse_txt( cur, len.into())?),
+            QType::SRV => Resource::SRV(Srv::parse( cur)?),
 
             // This should never appear in a answer record unless we have invalid data.
             QType::Reserved | QType::OPT | QType::ANY => {
-                return parse_error!("invalid record type '{}'", r#type)
+                bail!(InvalidData, "invalid record type '{}'", r#type);
             }
         };
 
-        let answer = Record {
+        Ok(Record {
             name,
 
             r#type,
@@ -56,9 +61,7 @@ impl Record {
             ttl: Duration::from_secs(ttl.into()),
 
             resource,
-        };
-
-        Ok((answer, 4 + 2 + len))
+        })
     }
 }
 
@@ -85,35 +88,32 @@ impl fmt::Display for Resource {
     }
 }
 
-fn parse_a(class: QClass, buf: &[u8]) -> Result<Ipv4Addr, ParseError> {
-    match class {
-        QClass::Internet => {
-            if buf.len() != 4 {
-                return parse_error!("invalid A record length ({}) expected 4", buf.len());
-            }
-            Ok(Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3]))
-        }
+fn parse_a(cur: &mut Cursor<&[u8]>, class: QClass) -> io::Result<Ipv4Addr> {
+    let mut buf = [0_u8; 4];
+    cur.read_exact(&mut buf)?;
 
-        _ => return parse_error!("unsupported A record class '{}'", class),
+    match class {
+        QClass::Internet => Ok(Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3])),
+
+        _ => bail!(InvalidData, "unsupported A record class '{}'", class),
     }
 }
 
-fn parse_aaaa(class: QClass, buf: &[u8]) -> Result<Ipv6Addr, ParseError> {
-    match class {
-        QClass::Internet => {
-            if buf.len() != 16 {
-                return parse_error!("invalid AAAA record length ({}) expected 16", buf.len());
-            }
-            let ip: [u8; 16] = buf.try_into().expect("record length is not 16 bytes");
-            Ok(Ipv6Addr::from(ip))
-        }
+fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: QClass) -> io::Result<Ipv6Addr> {
+    let mut buf = [0_u8; 16];
+    cur.read_exact(&mut buf)?;
 
-        _ => return parse_error!("unsupported A record class '{}'", class),
+    match class {
+        QClass::Internet => Ok(Ipv6Addr::from(buf)),
+
+        _ => bail!(InvalidData, "unsupported A record class '{}'", class),
     }
 }
 
-fn parse_qname(parser: &PacketParser, start: usize, len: usize) -> Result<String, ParseError> {
-    let (qname, size) = parser.read_qname(start)?;
+// TODO Remove parse_qname we don't need it
+fn parse_qname(cur: &mut Cursor<&[u8]>) -> io::Result<String> {
+    let qname = cur.read_qname()?;
+    /* TODO
     if len != size {
         return parse_error!(
             "qname length ({}) did not match expected record len ({})",
@@ -121,67 +121,50 @@ fn parse_qname(parser: &PacketParser, start: usize, len: usize) -> Result<String
             len
         );
     }
+    */
     Ok(qname)
 }
 
-fn parse_txt(buf: &[u8]) -> Result<Vec<String>, ParseError> {
+fn parse_txt(cur: &mut Cursor<&[u8]>, mut size: usize) -> io::Result<Vec<String>> {
     let mut txts = Vec::new();
-    let mut offset = 0;
 
-    while let Some(len) = buf.get(offset) {
-        let len = *len as usize;
-        offset += 1;
+    // Read each record, prefixed by a 1-byte length.
+    while size > 0 { // TODO Change this so it doesn't need size passed in, and instead hits EOF
+        let len = cur.read_u8()?;
 
-        match buf.get(offset..offset + len) {
-            None => return parse_error!("TXT record too short"), // TODO standardise the too short error
-            Some(txt) => {
-                // This string doesn't strictly need to be UTF-8, but I'm assuming it is.
-                // TODO maybe change this to just be byte arrays, and let the reader decide the encoding.
-                match String::from_utf8(txt.to_vec()) {
-                    Ok(s) => txts.push(s),
-                    Err(e) => return parse_error!("unable to parse TXT: {}", e),
-                }
-            }
+        let mut txt = vec![0; len.into()];
+        cur.read_exact(&mut txt)?;
+
+        size = size - 1 - len as usize;
+
+        // This string doesn't strictly need to be UTF-8, but I'm assuming it is.
+        // TODO maybe change this to just be byte arrays, and let the reader decide the encoding.
+        match String::from_utf8(txt) {
+            Ok(s) => txts.push(s),
+            Err(e) => bail!(InvalidData, "unable to parse TXT: {}", e),
         }
-
-        offset += len;
     }
 
     Ok(txts)
 }
 
 impl Soa {
-    pub(crate) fn from_slice(
-        parser: &PacketParser,
-        start: usize,
-        len: usize,
-    ) -> Result<Soa, ParseError> {
-        let mut offset = start;
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Soa> {
+        let mname = cur.read_qname()?;
+        let rname = cur.read_qname()?;
 
-        let (mname, size) = parser.read_qname(offset)?;
-        offset += size;
+        let serial = cur.read_u32::<BE>()?;
+        let refresh = cur.read_u32::<BE>()?;
+        let retry = cur.read_u32::<BE>()?; // u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
+        let expire = cur.read_u32::<BE>()?; // u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
+        let minimum = cur.read_u32::<BE>()?; // u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
 
-        let (rname, size) = parser.read_qname(offset)?;
-        offset += size;
-
-        let serial = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        offset += 4;
-
-        let refresh = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        offset += 4;
-
-        let retry = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        offset += 4;
-
-        let expire = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        offset += 4;
-
-        let minimum = u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        offset += 4;
-
+        // TODO
+        /*
         if offset - start != len {
             return parse_error!("failed to parse full SOA record");
         }
+        */
 
         Ok(Soa {
             mname,
@@ -197,18 +180,16 @@ impl Soa {
 }
 
 impl Mx {
-    pub(crate) fn from_slice(
-        parser: &PacketParser,
-        start: usize,
-        len: usize,
-    ) -> Result<Mx, ParseError> {
-        let preference = u16::from_be_bytes(*as_array![parser.buf, 0, 2]);
-        let (exchange, size) = parser.read_qname(start + 2)?;
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Mx> {
+        let preference = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, 0, 2]);
+        let exchange = cur.read_qname()?;
 
+        /* TODO
         if len != 2 + size {
             // TODO Standardise his kind of error.
             return parse_error!("failed to read full MX record");
         }
+        */
 
         Ok(Mx {
             preference,
@@ -218,25 +199,25 @@ impl Mx {
 }
 
 impl Srv {
-    pub(crate) fn from_slice(
-        parser: &PacketParser,
-        start: usize,
-        len: usize,
-    ) -> Result<Srv, ParseError> {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Srv> {
+        /* TODO
         if len < 7 {
             return parse_error!("SRV record too short");
         }
+        */
 
-        let priority = u16::from_be_bytes(*as_array![parser.buf, start, 2]);
-        let weight = u16::from_be_bytes(*as_array![parser.buf, start + 2, 2]);
-        let port = u16::from_be_bytes(*as_array![parser.buf, start + 4, 2]);
+        let priority = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, start, 2]);
+        let weight = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, start + 2, 2]);
+        let port = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, start + 4, 2]);
 
-        let (name, size) = parser.read_qname(start + 6)?;
+        let name = cur.read_qname()?;
 
+        /* TODO
         if len != 6 + size {
             // TODO Standardise his kind of error.
             return parse_error!("failed to read full SRV record");
         }
+        */
 
         Ok(Srv {
             priority,
@@ -248,53 +229,41 @@ impl Srv {
 }
 
 impl Extension {
-    pub fn from_slice(
+    pub fn parse(
+        cur: &mut Cursor<&[u8]>,
         domain: String,
         r#type: QType,
-        buf: &[u8],
-        start: usize,
-    ) -> Result<(Extension, usize), ParseError> {
+    ) -> io::Result<Extension> {
         assert!(r#type == QType::OPT);
 
         if domain != "." {
-            return parse_error!(
+            bail!(
+                InvalidData,
                 "expected root domain for EDNS(0) extension, got '{}'",
                 domain
             );
         }
 
-        let mut offset = start;
+        let payload_size = cur.read_u16::<BE>()?;
+        let extend_rcode = cur.read_u8()?;
 
-        let payload_size = u16::from_be_bytes(*as_array![buf, offset, 2]);
-        offset += 2;
+        let version = cur.read_u8()?;
+        let b = cur.read_u8()?;
+        let dnssec_ok = b & 0b1000_0000 == 0b1000_0000;
 
-        let extend_rcode = buf[offset];
-        offset += 1;
+        let _z = cur.read_u8()?;
 
-        let version = buf[offset];
-        offset += 1;
+        let _rd_len = cur.read_u16::<BE>()?; // TODO!
 
-        let b = buf[offset];
-        offset += 1;
-
-        let _z = buf[offset];
-        offset += 1;
-
-        let _rd_len = u16::from_be_bytes(*as_array![buf, offset, 2]);
-        offset += 2;
-
-        Ok((
-            Extension {
-                payload_size,
-                extend_rcode,
-                version,
-                dnssec_ok: b & 0b1000_0000 == 0b1000_0000,
-            },
-            offset - start,
-        ))
+        Ok(Extension {
+            payload_size,
+            extend_rcode,
+            version,
+            dnssec_ok,
+        })
     }
 
-    pub fn write(&self, buf: &mut Vec<u8>) -> Result<(), WriteError> {
+    pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         buf.push(0); // A single "." domain name         // 0-1
         buf.extend_from_slice(&(QType::OPT as u16).to_be_bytes()); // 1-3
         buf.extend_from_slice(&(self.payload_size as u16).to_be_bytes()); // 3-5

@@ -1,38 +1,147 @@
+use std::io::SeekFrom;
 use num_traits::FromPrimitive;
-use std::convert::TryInto;
 use std::fmt;
-
-use crate::as_array;
-use crate::errors::ParseError;
-use crate::errors::WriteError;
-use crate::parse_error;
+use std::io;
+use std::io::Cursor;
+use crate::bail;
 use crate::types::Record;
 use crate::types::*;
+use byteorder::{ReadBytesExt, BE};
 
-// A helper class to hold state while the parsing is happening
+/// All types that implement `Read` and `Seek` methods defined in `DNSReadExt`
+/// for free.
+impl<R: io::Read + ?Sized + io::Seek> DNSReadExt for R {}
+
+pub trait DNSReadExt: std::io::Read + std::io::Seek {
+    /// Reads a ASCII domain name from a byte array.
+    ///
+    /// Used for extracting a encoding ASCII domain name from a DNS packet. Will
+    /// returns the Unicode domain name, as well as the length of this name (ignoring
+    /// any compressed pointers) in bytes.
+    ///
+    /// # Errors
+    ///
+    /// TODO Will return a [`ParseError`] if the qname is invalid as a domain name.
+    fn read_qname(&mut self) -> io::Result<String> {
+        let mut qname = String::new();
+        let start = self.seek(SeekFrom::Current(0))?;
+
+        // Read each label one at a time, to build up the full domain name.
+        loop {
+            // Length of the first label
+            let len = self.read_u8()?;
+            if len == 0 {
+                break;
+            }
+
+            match len & 0xC0 {
+                // No compression
+                0x00 => {
+                    let mut label = vec![0; len.into()];
+                    self.read_exact(&mut label)?;
+
+                    // Really this is meant to be ASCII, but we read as utf8 (as that what Rust provides).
+                    let label = match std::str::from_utf8(&label) {
+                        Err(e) => bail!(InvalidData, "invalid label: {}", e),
+                        Ok(s) => s,
+                    };
+
+
+                    if !label.is_ascii() {
+                        bail!(InvalidData, "invalid label '{:}': not valid ascii", label);
+                    }
+
+                    // Now puny decode this label returning its original unicode.
+                    let label = match idna::domain_to_unicode(label) {
+                        (label, Err(e)) => bail!(InvalidData, "invalid label '{:}': {}", label, e),
+                        (label, Ok(_)) => label,
+                    };
+
+                    qname.push_str(&label);
+                    qname.push('.');
+                }
+
+                // Compression
+                0xC0 => {
+                    let b2 = self.read_u8()? as u16;
+                    let ptr = ((len as u16 & !0xC0) << 8 | b2) as u64;
+
+                    if ptr >= start {
+                        bail!(InvalidData, 
+                            "invalid compressed pointer pointing to future bytes"
+                        );
+                    }
+
+                    // We are going to jump backwards, so record where we currently
+                    // are. So we can reset it later.
+                    let current = self.seek(SeekFrom::Current(0))?;
+
+                    // Jump and start reading the qname again.
+                    self.seek(SeekFrom::Start(ptr))?;
+                    qname.push_str(&self.read_qname()?);
+
+                    // Reset ourselves.
+                    self.seek(SeekFrom::Start(current))?;
+
+                    break;
+                }
+
+                // Unknown
+                _ => bail!(InvalidData, "qname unsupported compression type {0:b}", len & 0xC0),
+            }
+        }
+
+        if qname.is_empty() {
+            qname = ".".to_string() // Root domain
+        }
+
+        Ok(qname)
+    }
+
+    /// Reads a Type.
+    fn read_type(&mut self) -> io::Result<QType> {
+        let r#type = self.read_u16::<BE>()?;
+        let r#type = match FromPrimitive::from_u16(r#type) {
+            Some(t) => t,
+            None => bail!(InvalidData, "invalid Type({})", r#type),
+        };
+
+        Ok(r#type)
+    }
+
+    /// Reads a Class.
+    fn read_class(&mut self) -> io::Result<QClass> {
+        let class = self.read_u16::<BE>()?;
+        let class = match FromPrimitive::from_u16(class) {
+            Some(t) => t,
+            None => bail!(InvalidData, "invalid Class({})", class),
+        };
+
+        Ok(class)
+    }
+
+}
+
+// A helper class to hold state while the parsing is happening.
 pub(crate) struct PacketParser<'a> {
-    pub buf: &'a [u8], // TODO Change to be private
+    cur: Cursor<&'a [u8]>,
 
     p: Packet,
     // TODO add list of parse errors
 }
 
-impl PacketParser<'_> {
+impl<'a> PacketParser<'a> {
     fn new(buf: &[u8]) -> PacketParser {
         PacketParser {
-            buf,
+            cur: Cursor::new(buf),
             p: Packet::default(),
         }
     }
 
-    fn parse(mut self) -> Result<Packet, ParseError> {
-        let buf = self.buf;
+    fn parse(mut self) -> io::Result<Packet> {
+        self.p.id = self.cur.read_u16::<BE>()?;
 
-        let header = as_array![buf, 0, 12];
-
-        self.p.id = u16::from_be_bytes(*as_array![header, 0, 2]);
-
-        let b = header[2];
+        let b = self.cur.read_u8()?;
         self.p.qr = QR::from_bool(0b1000_0000 & b != 0);
         let opcode = (0b0111_1000 & b) >> 3;
         self.p.aa = (0b0000_0100 & b) != 0;
@@ -41,10 +150,10 @@ impl PacketParser<'_> {
 
         self.p.opcode = match FromPrimitive::from_u8(opcode) {
             Some(t) => t,
-            None => return parse_error!("invalid Opcode({})", opcode),
+            None => bail!(InvalidData, "invalid Opcode({})", opcode),
         };
 
-        let b = header[3];
+        let b = self.cur.read_u8()?;
         self.p.ra = (0b1000_0000 & b) != 0;
         self.p.z = (0b0100_0000 & b) != 0; // Unused
         self.p.ad = (0b0010_0000 & b) != 0;
@@ -53,31 +162,32 @@ impl PacketParser<'_> {
 
         self.p.rcode = match FromPrimitive::from_u8(rcode) {
             Some(t) => t,
-            None => return parse_error!("invalid RCode({})", rcode),
+            None => bail!(InvalidData, "invalid RCode({})", opcode),
         };
 
-        let qd_count = u16::from_be_bytes(*as_array![header, 4, 2]);
-        let an_count = u16::from_be_bytes(*as_array![header, 6, 2]);
-        let ns_count = u16::from_be_bytes(*as_array![header, 8, 2]);
-        let ar_count = u16::from_be_bytes(*as_array![header, 10, 2]);
+        let qd_count = self.cur.read_u16::<BE>()?;
+        let an_count = self.cur.read_u16::<BE>()?;
+        let ns_count = self.cur.read_u16::<BE>()?;
+        let ar_count = self.cur.read_u16::<BE>()?;
+        // This assumes the current reservation is zero.
+        self.p.questions.reserve_exact(qd_count.into());
+        self.p.answers.reserve_exact(an_count.into());
+        self.p.authoritys.reserve_exact(ns_count.into());
+        self.p.additionals.reserve_exact(ar_count.into());
 
-        let mut offset = 12;
+        self.read_questions(qd_count)?;
 
-        let len = self.read_questions(offset, qd_count)?;
-        offset += len;
-
-        let (records, len) = self.read_records(offset, an_count, false)?;
-        offset += len;
+        let records = self.read_records(an_count, false)?;
         self.p.answers = records;
 
-        let (records, len) = self.read_records(offset, ns_count, false)?;
-        offset += len;
+        let records = self.read_records(ns_count, false)?;
         self.p.authoritys = records;
 
-        let (records, len) = self.read_records(offset, ar_count, true)?;
-        offset += len;
+        let records = self.read_records(ar_count, true)?;
         self.p.additionals = records;
 
+        /*
+        // TODO
         if offset != buf.len() {
             return parse_error!(
                 "failed to read full packet expected {} read {}",
@@ -85,46 +195,18 @@ impl PacketParser<'_> {
                 offset
             );
         }
+        */
 
         Ok(self.p)
     }
 
-    // TODO Move into the QType.
-    fn read_type(&self, buf: [u8; 2]) -> Result<QType, ParseError> {
-        let r#type = u16::from_be_bytes(buf);
-        let r#type = match FromPrimitive::from_u16(r#type) {
-            Some(t) => t,
-            None => return parse_error!("invalid Type({})", r#type),
-        };
-
-        Ok(r#type)
-    }
-
-    // TODO Move into the QClass.
-    fn read_class(&self, buf: [u8; 2]) -> Result<QClass, ParseError> {
-        let class = u16::from_be_bytes(buf);
-        let class = match FromPrimitive::from_u16(class) {
-            Some(t) => t,
-            None => return parse_error!("invalid Class({})", class),
-        };
-
-        Ok(class)
-    }
-
-    fn read_questions(&mut self, start: usize, count: u16) -> Result<usize, ParseError> {
-        let mut offset = start;
-        // TODO Vec::with_capacity(count.into());
+    fn read_questions(&mut self, count: u16) -> io::Result<()> {
         for _ in 0..count {
             // TODO Move into Question::from_slice()
+            let name = self.cur.read_qname()?;
 
-            let (name, len) = self.read_qname(offset)?;
-            offset += len;
-
-            let r#type = self.read_type(*as_array![self.buf, offset, 2])?;
-            offset += 2;
-
-            let class = self.read_class(*as_array![self.buf, offset, 2])?;
-            offset += 2;
+            let r#type = self.cur.read_type()?;
+            let class = self.cur.read_class()?;
 
             self.p.questions.push(Question {
                 name: name.to_string(), // TODO Fix
@@ -133,147 +215,64 @@ impl PacketParser<'_> {
             });
         }
 
-        Ok(offset - start)
+        Ok(())
     }
 
     fn read_records(
         &mut self,
-        start: usize,
         count: u16,
         allow_extension: bool,
-    ) -> Result<(Vec<Record>, usize), ParseError> {
-        let mut offset = start;
+    ) -> io::Result<Vec<Record>> {
         let mut records = Vec::with_capacity(count.into());
 
         for _ in 0..count {
-            let (name, len) = self.read_qname(offset)?;
-            offset += len;
-
-            let r#type = self.read_type(*as_array![self.buf, offset, 2])?;
-            offset += 2;
+            let name = self.cur.read_qname()?;
+            let r#type = self.cur.read_type()?;
 
             if allow_extension && r#type == QType::OPT {
                 if self.p.extension.is_some() {
-                    return parse_error!("multiple EDNS(0) extensions. Expected only one.");
+                    bail!(InvalidData, "multiple EDNS(0) extensions. Expected only one.");
                 }
 
-                let (ext, len) = Extension::from_slice(name, r#type, self.buf, offset)?;
-                offset += len;
+                let ext = Extension::parse(&mut self.cur, name, r#type)?;
 
                 self.p.extension = Some(ext);
             } else {
-                let class = self.read_class(*as_array![self.buf, offset, 2])?;
-                offset += 2;
-
-                let (record, len) = Record::from_slice(name, r#type, class, self, offset)?;
-                offset += len;
+                let class = self.cur.read_class()?;
+                let record = Record::parse(&mut self.cur, name, r#type, class)?;
 
                 records.push(record);
             }
         }
 
-        Ok((records, offset - start))
-    }
-
-    /// Reads a ASCII qname from a byte array.
-    ///
-    /// Used for extracting a encoding ASCII domain name from a DNS packet. Will
-    /// returns the Unicode domain name, as well as the length of this qname (ignoring
-    /// any compressed pointers) in bytes.
-    ///
-    /// # Errors
-    ///
-    /// Will return a [`ParseError`] if the qname is invalid as a domain name.
-    pub(crate) fn read_qname(&self, start: usize) -> Result<(String, usize), ParseError> {
-        let mut qname = String::new();
-        let mut offset = start;
-
-        // Read each label one at a time, to build up the full domain name.
-        loop {
-            // Length of the first label
-            let len = *match self.buf.get(offset) {
-                Some(len) => len,
-                None => return parse_error!("qname failed to read label length"),
-            } as usize;
-
-            offset += 1;
-            if len == 0 {
-                break;
-            }
-
-            match len & 0xC0 {
-                // No compression
-                0x00 => {
-                    let label = match self.buf.get(offset..offset + len) {
-                        None => return parse_error!("qname field too short"), // TODO standardise the too short error
-                        Some(label) => label,
-                    };
-
-                    // Really this is meant to be ASCII, but we read as utf8 (as that what Rust provides).
-                    let label = match std::str::from_utf8(label) {
-                        Err(e) => return parse_error!("unable to read qname: {}", e), // TODO standardise the too short error
-                        Ok(s) => s,
-                    };
-
-                    // Decode this label into the original unicode.
-                    let label = match idna::domain_to_unicode(label) {
-                        (label, Err(e)) => {
-                            return parse_error!("invalid label '{:}': {}", label, e)
-                        }
-                        (label, Ok(_)) => label,
-                    };
-
-                    qname.push_str(&label);
-                    qname.push('.');
-
-                    offset += len;
-                }
-
-                // Compression
-                0xC0 => {
-                    let b2 = *match self.buf.get(offset) {
-                        Some(b) => b,
-                        None => return parse_error!("qname too short missing compressed pointer"),
-                    } as usize;
-
-                    let ptr = (len & !0xC0) << 8 | b2;
-                    offset += 1;
-
-                    if ptr >= start {
-                        return parse_error!(
-                            "qname invalid compressed pointer pointing to future bytes"
-                        );
-                    }
-
-                    // Read the qname from elsewhere in the packet ignoring
-                    // the length of that segment.
-                    qname.push_str(&self.read_qname(ptr)?.0);
-                    break;
-                }
-
-                // Unknown
-                _ => return parse_error!("qname unsupported compression type {0:b}", len & 0xC0),
-            }
-        }
-
-        if qname.is_empty() {
-            qname = ".".to_string() // Root domain
-        }
-
-        Ok((qname, offset - start))
+        Ok(records)
     }
 }
 
 impl Packet {
-    pub fn from_slice(buf: &[u8]) -> Result<Packet, ParseError> {
+    pub fn from_slice(buf: &[u8]) -> io::Result<Packet> {
         PacketParser::new(&buf).parse()
     }
 
-    pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
-        let mut domain = domain.to_string();
-        if !domain.ends_with('.') {
-            domain.push('.')
+    // Takes a unicode domain, converts to ascii, and back to unicode.
+    // This has the effective of normalising it, so its easier to compare
+    // what was queried, and what was returned.
+    fn normalsie_domain(&mut self, domain: &str) -> Result<String, idna::Errors> {
+        let ascii = idna::domain_to_ascii(domain)?;
+        let (mut unicode, result) = idna::domain_to_unicode(&ascii);
+        match result {
+            Ok(_) => {
+                if !unicode.ends_with('.') {
+                    unicode.push('.')
+                }
+                Ok(unicode)
+            }
+            Err(errors) => Err(errors),
         }
+    }
+
+    pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
+        let domain = self.normalsie_domain(domain).expect("invalid domain"); // TODO fix
 
         // TODO Don't allow more than 255 questions.
         let q = Question {
@@ -293,7 +292,7 @@ impl Packet {
 
     // Returns this DNS packet as a Vec<u8>.
     // TODO Rename this to_vec()
-    pub fn as_vec(&self) -> Result<Vec<u8>, WriteError> {
+    pub fn as_vec(&self) -> io::Result<Vec<u8>> {
         let mut req = Vec::<u8>::with_capacity(512); // TODO Guess the best size
 
         req.extend_from_slice(&(self.id as u16).to_be_bytes());
@@ -344,7 +343,7 @@ impl Packet {
         Ok(req)
     }
 
-    /// Reads a Unicode domain name into the supplied `Vec<u8>`.
+    /// Writes a Unicode domain name into the supplied `Vec<u8>`.
     ///
     /// Used for writing out a encoded ASCII domain name into a DNS packet. Will
     /// returns the Unicode domain name, as well as the length of this qname (ignoring
@@ -354,14 +353,12 @@ impl Packet {
     ///
     /// Will return a [`WriteError`] if the domain name is invalid.
     // TODO Support compression.
-    fn write_qname(buf: &mut Vec<u8>, domain: &str) -> Result<(), WriteError> {
+    fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
         // Decode this label into the original unicode.
         // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
         let domain = match idna::domain_to_ascii(domain) {
             Err(e) => {
-                return Err(WriteError {
-                    msg: format!("invalid dns name '{0}': {1}", domain, e),
-                })
+                bail!(InvalidData, "invalid dns name '{0}': {1}", domain, e);
             }
             Ok(domain) => domain,
         };
@@ -369,15 +366,11 @@ impl Packet {
         if !domain.is_empty() && domain != "." {
             for label in domain.split_terminator('.') {
                 if label.is_empty() {
-                    return Err(WriteError {
-                        msg: "double dot found in domain name".to_string(),
-                    });
+                    bail!(InvalidData, "double dot found in domain name");
                 }
 
                 if label.len() > 63 {
-                    return Err(WriteError {
-                        msg: format!("label '{0}' longer than 63 characters", label),
-                    });
+                    bail!(InvalidData, "label '{0}' longer than 63 characters", label);
                 }
 
                 // Write the length.
