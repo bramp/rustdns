@@ -2,7 +2,7 @@ use crate::types::*;
 use std::io;
 
 use crate::bail;
-use crate::dns::{DNSReadExt, SeekExt};
+use crate::dns::{DNSReadExt, SeekExt, CursorExt};
 use byteorder::{ReadBytesExt, BE};
 use std::fmt;
 use std::io::Cursor;
@@ -21,11 +21,17 @@ impl Record {
         let len = cur.read_u16::<BE>()?;
 
         // Create a new Cursor that is limited to the len field.
+        //
+        // cur     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...]
+        //                      ^ pos & len = 2
+        // record  [0, 1, 2, 3, 4, 5, 6]
+        //                      ^ pos
+        // The record starts from zero, instead of being [4,6], this is
+        // so it can jump backwards for a qname (or similar) read.
+
         let pos = cur.position();
         let end = pos as usize + len as usize;
-        let buf = cur.get_ref();
-
-        let mut record = Cursor::new(&buf[0..end]);
+        let mut record = cur.sub_cursor(0, end)?;
         record.set_position(pos);
 
         let resource = match r#type {
@@ -37,7 +43,7 @@ impl Record {
             QType::CNAME => Resource::CNAME(parse_qname(&mut record)?),
             QType::PTR => Resource::PTR(parse_qname(&mut record)?),
             QType::MX => Resource::MX(Mx::parse(&mut record)?),
-            QType::TXT => Resource::TXT(parse_txt(&mut record, len.into())?),
+            QType::TXT => Resource::TXT(parse_txt(&mut record)?),
             QType::SRV => Resource::SRV(Srv::parse(&mut record)?),
 
             // This should never appear in a answer record unless we have invalid data.
@@ -46,8 +52,8 @@ impl Record {
             }
         };
 
-        // TODO This could be a warning, instead of a full error.
         if record.remaining()? > 0 {
+            // TODO This could be a warning, instead of a full error.
             bail!(
                 Other,
                 "finished '{}' parsing record with {} bytes left over",
@@ -56,7 +62,7 @@ impl Record {
             );
         }
 
-        // Now catch up
+        // Now catch up (this is safe since record.len() < cur.len())
         cur.set_position(record.position());
 
         Ok(Record {
@@ -83,7 +89,23 @@ impl fmt::Display for Resource {
             Resource::PTR(name) => name.fmt(f),
 
             Resource::SOA(soa) => soa.fmt(f),
-            Resource::TXT(txts) => write!(f, "\"{}\"", txts.join(" ")), // TODO I'm not sure the right way to display this
+            Resource::TXT(txts) => {
+                let output = txts.iter()
+                    .map(|txt| {
+                        match std::str::from_utf8(&txt) {
+                            // TODO Escape the " character (and maybe others)
+                            Ok(txt) => txt,
+
+                            // TODO Try our best to convert this to valid UTF, and use
+                            // https://doc.rust-lang.org/std/str/struct.Utf8Error.html to show what we can.
+                            Err(_e)  => "invalid",
+                        }
+                    })
+                    .collect::<Vec<&str>>()
+                    .join(" ");
+
+                write!(f, "{}", output)
+            }
             Resource::MX(mx) => mx.fmt(f),
             Resource::SRV(srv) => srv.fmt(f),
 
@@ -132,28 +154,25 @@ fn parse_qname(cur: &mut Cursor<&[u8]>) -> io::Result<String> {
     Ok(qname)
 }
 
-fn parse_txt(cur: &mut Cursor<&[u8]>, mut size: usize) -> io::Result<Vec<String>> {
+fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<Vec<Vec<u8>>> {
     let mut txts = Vec::new();
 
-    // Read each record, prefixed by a 1-byte length.
-    while size > 0 {
-        // TODO Change this so it doesn't need size passed in, and instead hits EOF
-        let len = cur.read_u8()?;
-
+    loop {
+        // Keep reading until EOF is reached.
+        let len = match cur.read_u8() {
+            Ok(len) => len,   
+            Err(e) => match e.kind() {
+                io::ErrorKind::UnexpectedEof => break,
+                _ => return Err(e)
+            }
+        };
+    
         let mut txt = vec![0; len.into()];
         cur.read_exact(&mut txt)?;
-
-        size = size - 1 - len as usize;
-
-        // This string doesn't strictly need to be UTF-8, but I'm assuming it is.
-        // TODO maybe change this to just be byte arrays, and let the reader decide the encoding.
-        match String::from_utf8(txt) {
-            Ok(s) => txts.push(s),
-            Err(e) => bail!(InvalidData, "unable to parse TXT: {}", e),
-        }
+        txts.push(txt)
     }
 
-    Ok(txts)
+    Ok(txts)    
 }
 
 impl Soa {

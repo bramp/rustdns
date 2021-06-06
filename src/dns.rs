@@ -9,20 +9,10 @@ use std::io;
 use std::io::Cursor;
 use std::io::SeekFrom;
 
-impl<'a> SeekExt for Cursor<&'a [u8]> {
-    fn remaining(self: &mut std::io::Cursor<&'a [u8]>) -> io::Result<u64> {
-        let pos = self.position() as usize;
-        let len = self.get_ref().len() as usize;
-
-        Ok((len - pos).try_into().unwrap())
-    }
-}
-
-// impl<S: io::Seek> SeekExt for S {}
 
 pub trait SeekExt: io::Seek {
-    // Returns the number of bytes remaining to be consumed.
-    // This is used as a way to check for malformed input.
+    /// Returns the number of bytes remaining to be consumed.
+    /// This is used as a way to check for malformed input.
     fn remaining(&mut self) -> io::Result<u64> {
         let pos = self.stream_position()?;
         let len = self.seek(SeekFrom::End(0))?;
@@ -34,15 +24,53 @@ pub trait SeekExt: io::Seek {
     }
 }
 
-/// All types that implement `Read` and `Seek` methods defined in `DNSReadExt`
-/// for free.
+impl<'a> SeekExt for Cursor<&'a [u8]> {
+    fn remaining(self: &mut std::io::Cursor<&'a [u8]>) -> io::Result<u64> {
+        let pos = self.position() as usize;
+        let len = self.get_ref().len() as usize;
+
+        Ok((len - pos).try_into().unwrap())
+    }
+}
+
+pub trait CursorExt<T> {
+    /// Return a cursor that is bounded over the original cursor by start-end.
+    ///
+    /// The returned cursor contains all values with start <= x < end. It is empty if start >= end.
+    /// 
+    /// Similar to `Take` but allows the start-end range to be specified, instead of just the next
+    /// N values.
+    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<T>>;
+}
+
+impl<'a> CursorExt<&'a [u8]> for Cursor<&'a [u8]> {
+    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<&'a [u8]>> {
+        //if start >= end {
+        //    end = start;
+        //}
+        // Create a new Cursor that is limited to the len field.
+        //let pos = self.position();
+        //let end = pos as usize + len as usize;
+        let buf = self.get_ref();
+
+        let start = num::clamp(start, 0, buf.len());
+        let end   = num::clamp(end, start, buf.len());
+
+        let record = Cursor::new(&buf[start..end]);
+        //record.set_position(self.pos); // TODO Check this pos is within the buf
+        Ok(record)
+    }
+}
+
+/// All types that implement `Read` and `Seek` get methods defined
+// in `DNSReadExt` for free.
 impl<R: io::Read + ?Sized + io::Seek> DNSReadExt for R {}
 
 /// Extensions to io::Read to add some DNS specific types.
 pub trait DNSReadExt: io::Read + io::Seek {
     /// Reads a puny encoded domain name from a byte array.
     ///
-    /// Used for extracting a encoding ASCII domain name from a DNS packet. Will
+    /// Used for extracting a encoding ASCII domain name from a DNS message. Will
     /// returns the Unicode domain name, as well as the length of this name (ignoring
     /// any compressed pointers) in bytes.
     ///
@@ -156,10 +184,10 @@ pub trait DNSReadExt: io::Read + io::Seek {
 }
 
 // A helper class to hold state while the parsing is happening.
-pub(crate) struct PacketParser<'a> {
+pub(crate) struct MessageParser<'a> {
     cur: Cursor<&'a [u8]>,
 
-    p: Packet,
+    m: Message,
     // TODO add list of parse errors
 }
 
@@ -170,37 +198,38 @@ enum RecordSection {
     Additionals,
 }
 
-impl<'a> PacketParser<'a> {
-    fn new(buf: &[u8]) -> PacketParser {
-        PacketParser {
+impl<'a> MessageParser<'a> {
+    fn new(buf: &[u8]) -> MessageParser {
+        MessageParser {
             cur: Cursor::new(buf),
-            p: Packet::default(),
+            m: Message::default(),
         }
     }
 
-    fn parse(mut self) -> io::Result<Packet> {
-        self.p.id = self.cur.read_u16::<BE>()?;
+    /// Consume the MessageParser and returned the resulting Message.
+    fn parse(mut self) -> io::Result<Message> {
+        self.m.id = self.cur.read_u16::<BE>()?;
 
         let b = self.cur.read_u8()?;
-        self.p.qr = QR::from_bool(0b1000_0000 & b != 0);
+        self.m.qr = QR::from_bool(0b1000_0000 & b != 0);
         let opcode = (0b0111_1000 & b) >> 3;
-        self.p.aa = (0b0000_0100 & b) != 0;
-        self.p.tc = (0b0000_0010 & b) != 0;
-        self.p.rd = (0b0000_0001 & b) != 0;
+        self.m.aa = (0b0000_0100 & b) != 0;
+        self.m.tc = (0b0000_0010 & b) != 0;
+        self.m.rd = (0b0000_0001 & b) != 0;
 
-        self.p.opcode = match FromPrimitive::from_u8(opcode) {
+        self.m.opcode = match FromPrimitive::from_u8(opcode) {
             Some(t) => t,
             None => bail!(InvalidData, "invalid Opcode({})", opcode),
         };
 
         let b = self.cur.read_u8()?;
-        self.p.ra = (0b1000_0000 & b) != 0;
-        self.p.z = (0b0100_0000 & b) != 0; // Unused
-        self.p.ad = (0b0010_0000 & b) != 0;
-        self.p.cd = (0b0001_0000 & b) != 0;
+        self.m.ra = (0b1000_0000 & b) != 0;
+        self.m.z = (0b0100_0000 & b) != 0; // Unused
+        self.m.ad = (0b0010_0000 & b) != 0;
+        self.m.cd = (0b0001_0000 & b) != 0;
         let rcode = 0b0000_1111 & b;
 
-        self.p.rcode = match FromPrimitive::from_u8(rcode) {
+        self.m.rcode = match FromPrimitive::from_u8(rcode) {
             Some(t) => t,
             None => bail!(InvalidData, "invalid RCode({})", opcode),
         };
@@ -223,18 +252,18 @@ impl<'a> PacketParser<'a> {
             );
         }
 
-        Ok(self.p)
+        Ok(self.m)
     }
 
     fn read_questions(&mut self, count: u16) -> io::Result<()> {
-        self.p.questions.reserve_exact(count.into());
+        self.m.questions.reserve_exact(count.into());
 
         for _ in 0..count {
             let name = self.cur.read_qname()?;
             let r#type = self.cur.read_type()?;
             let class = self.cur.read_class()?;
 
-            self.p.questions.push(Question {
+            self.m.questions.push(Question {
                 name,
                 r#type,
                 class,
@@ -246,9 +275,9 @@ impl<'a> PacketParser<'a> {
 
     fn read_records(&mut self, count: u16, section: RecordSection) -> io::Result<()> {
         let records = match section {
-            RecordSection::Answers => &mut self.p.answers,
-            RecordSection::Authorities => &mut self.p.authoritys,
-            RecordSection::Additionals => &mut self.p.additionals,
+            RecordSection::Answers => &mut self.m.answers,
+            RecordSection::Authorities => &mut self.m.authoritys,
+            RecordSection::Additionals => &mut self.m.additionals,
         };
         records.reserve_exact(count.into());
 
@@ -257,7 +286,7 @@ impl<'a> PacketParser<'a> {
             let r#type = self.cur.read_type()?;
 
             if section == RecordSection::Additionals && r#type == QType::OPT {
-                if self.p.extension.is_some() {
+                if self.m.extension.is_some() {
                     bail!(
                         InvalidData,
                         "multiple EDNS(0) extensions. Expected only one."
@@ -266,7 +295,7 @@ impl<'a> PacketParser<'a> {
 
                 let ext = Extension::parse(&mut self.cur, name, r#type)?;
 
-                self.p.extension = Some(ext);
+                self.m.extension = Some(ext);
             } else {
                 let class = self.cur.read_class()?;
                 let record = Record::parse(&mut self.cur, name, r#type, class)?;
@@ -279,9 +308,9 @@ impl<'a> PacketParser<'a> {
     }
 }
 
-impl Packet {
-    pub fn from_slice(buf: &[u8]) -> io::Result<Packet> {
-        PacketParser::new(&buf).parse()
+impl Message {
+    pub fn from_slice(buf: &[u8]) -> io::Result<Message> {
+        MessageParser::new(&buf).parse()
     }
 
     // Takes a unicode domain, converts to ascii, and back to unicode.
@@ -320,7 +349,7 @@ impl Packet {
         self.extension = Some(ext);
     }
 
-    /// Returns this DNS packet as a Vec<u8> ready to be sent, as defined by [rfc1035](https://datatracker.ietf.org/doc/html/rfc1035).
+    /// Returns this DNS Message as a Vec<u8> ready to be sent, as defined by [rfc1035](https://datatracker.ietf.org/doc/html/rfc1035).
     pub fn to_vec(&self) -> io::Result<Vec<u8>> {
         let mut req = Vec::<u8>::with_capacity(512);
 
@@ -352,7 +381,7 @@ impl Packet {
 
         for question in &self.questions {
             // TODO use Question::as_vec()
-            Packet::write_qname(&mut req, &question.name)?;
+            Message::write_qname(&mut req, &question.name)?;
 
             req.extend_from_slice(&(question.r#type as u16).to_be_bytes());
             req.extend_from_slice(&(question.class as u16).to_be_bytes());
@@ -374,13 +403,10 @@ impl Packet {
 
     /// Writes a Unicode domain name into the supplied `Vec<u8>`.
     ///
-    /// Used for writing out a encoded ASCII domain name into a DNS packet. Will
+    /// Used for writing out a encoded ASCII domain name into a DNS message. Will
     /// returns the Unicode domain name, as well as the length of this qname (ignoring
     /// any compressed pointers) in bytes.
     ///
-    /// # Errors
-    ///
-    /// Will return a [`WriteError`] if the domain name is invalid.
     // TODO Support compression.
     fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
         // Decode this label into the original unicode.
@@ -416,8 +442,8 @@ impl Packet {
     }
 }
 
-/// Displays this packet in a format resembling `dig` output.
-impl fmt::Display for Packet {
+/// Displays this message in a format resembling `dig` output.
+impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_header(f)?;
 
@@ -476,7 +502,7 @@ impl fmt::Display for Packet {
     }
 }
 
-impl Packet {
+impl Message {
     fn fmt_header(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,

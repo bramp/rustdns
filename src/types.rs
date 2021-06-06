@@ -6,7 +6,7 @@ use strum_macros::{Display, EnumString};
 
 #[derive(Default)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct Packet {
+pub struct Message {
     // A 16 bit identifier assigned by the program that generates any kind of
     // query. This identifier is copied the corresponding reply and can be used
     // by the requester to match up replies to outstanding queries.
@@ -82,7 +82,8 @@ pub struct Record {
     pub resource: Resource,
 }
 
-// EDNS(0) extension record [rfc6891]
+// EDNS(0) extension record as defined in [rfc2671] and [rfc6891].
+// TODO Support EDNS0_NSID (RFC 5001) and EDNS0_SUBNET (RFC 7871) records within the extension.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Extension {
     //pub name: String,  // Always "."
@@ -93,8 +94,6 @@ pub struct Extension {
     pub version: u8,
 
     pub dnssec_ok: bool, // DNSSEC OK bit as defined by [RFC3225].
-
-                         // TODO pub record: Record,
 }
 
 impl Default for Extension {
@@ -136,6 +135,12 @@ impl QR {
     }
 }
 
+/// Specifies kind of query in this message.
+/// 
+/// See:
+/// * [RFC1035]
+/// * [RFC6895]
+/// * https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u8)] // Really only 4 bits
@@ -155,6 +160,7 @@ impl Default for Opcode {
     }
 }
 
+/// Message Response Codes, see https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u16)] // In headers it is 4 bits, in extended opts it is 16.
@@ -242,17 +248,21 @@ impl Default for QType {
 pub enum QClass {
     Reserved = 0, // [RFC6895]
 
+    /// The Internet (IN), see [RFC1035]
     #[strum(serialize = "IN")]
-    Internet = 1, // (IN) The Internet [RFC1035]
+    Internet = 1, // (IN) The Internet 
 
+    /// CSNET (CS), obsolete - used only for examples in some obsolete RFCs).
     #[strum(serialize = "CS")]
-    CsNet = 2, // (CS) The CSNET class (Obsolete - used only for examples in some obsolete RFCs)
+    CsNet = 2, 
 
+    /// Chaosnet (CH), obsolete LAN protocol created at MIT in the mid-1970s. See [D. Moon, "Chaosnet", A.I. Memo 628, Massachusetts Institute of Technology Artificial Intelligence Laboratory, June 1981.]
     #[strum(serialize = "CH")]
-    Chaos = 3, // (CH) The Chaos class [D. Moon, "Chaosnet", A.I. Memo 628, Massachusetts Institute of Technology Artificial Intelligence Laboratory, June 1981.]
+    Chaos = 3,
 
+    /// Hesiod (HS), an information service developed by MIT’s Project Athena. See [Dyer, S., and F. Hsu, "Hesiod", Project Athena Technical Plan - Name Service, April 1987.]
     #[strum(serialize = "HS")]
-    Hesiod = 4, // (HS) [Dyer, S., and F. Hsu, "Hesiod", Project Athena Technical Plan - Name Service, April 1987.]
+    Hesiod = 4,
 
     // QCLASS fields below
     None = 254, // NONE [RFC2136]
@@ -275,7 +285,7 @@ impl Default for QClass {
 // TODO Can we merge this and QType? (when https://github.com/rust-lang/rust/issues/60553 is finished we can)
 #[allow(clippy::upper_case_acronyms)]
 pub enum Resource {
-    A(Ipv4Addr), // TODO Is this always a IpAddress for non-Internet classes?
+    A(Ipv4Addr), // Support non-Internet classes?
     AAAA(Ipv6Addr),
 
     CNAME(String),
@@ -283,7 +293,8 @@ pub enum Resource {
     PTR(String),
 
     // TODO Implement RFC 1464 for further parsing of the text
-    TXT(Vec<String>), // TODO Maybe change this to byte/u8/something
+    // TODO per RFC 4408 a TXT record is allowed to contain multiple strings
+    TXT(Vec<Vec<u8>>),
 
     MX(Mx),
     SOA(Soa),

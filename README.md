@@ -48,5 +48,6 @@ cargo fuzz run from_slice
 
 * https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
 * https://courses.cs.duke.edu//fall16/compsci356/DNS/DNS-primer.pdf
+* https://pkg.go.dev/github.com/miekg/dns
 
 

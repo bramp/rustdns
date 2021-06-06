@@ -2,7 +2,7 @@
 
 use pretty_assertions::assert_eq;
 use regex::Regex;
-use rustdns::types::Packet;
+use rustdns::Message;
 use serde::Deserialize;
 use std::fs;
 
@@ -45,13 +45,13 @@ fn test_from_slice(case: TestCase) {
         Err(e) => panic!("{}: Invalid test case input: {}", case.name, e),
         Ok(i) => i,
     };
-    let packet = match Packet::from_slice(&input) {
+    let m = match Message::from_slice(&input) {
         Err(e) => panic!("{}: Unable to parse: {}", case.name, e),
         Ok(p) => p,
     };
 
     // Normalise the formatted output a little (to allow little whitespace changes).
-    let got = normalise_whitespace(&format!("{}", packet));
+    let got = normalise_whitespace(&format!("{}", m));
     let want = normalise_whitespace(&case.string);
 
     assert_eq!(got, want, "{}: Formatted string doesn't match", case.name);

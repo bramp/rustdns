@@ -5,3 +5,5 @@ pub mod types;
 
 #[macro_use]
 extern crate num_derive;
+
+pub type Message = types::Message;

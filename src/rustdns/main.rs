@@ -27,7 +27,7 @@ fn main() -> std::io::Result<()> {
         .set_read_timeout(Some(Duration::new(5, 0)))
         .expect("set_read_timeout call failed");
 
-    let mut packet = Packet {
+    let mut m = Message {
         id: 0xeccb,
         qr: QR::Query,
         opcode: Opcode::Query,
@@ -37,19 +37,19 @@ fn main() -> std::io::Result<()> {
         ..Default::default()
     };
 
-    packet.add_question(domain, qtype, QClass::Internet);
+    m.add_question(domain, qtype, QClass::Internet);
 
-    packet.add_extension(Extension {
+    m.add_extension(Extension {
         payload_size: 4096,
 
         ..Default::default()
     });
 
-    let req = packet.to_vec().expect("failed to write packet");
+    let req = m.to_vec().expect("failed to write message");
 
     println!("request:");
     util::hexdump(&req);
-    println!("{}", packet);
+    println!("{}", m);
 
     socket
         .send_to(&req, "8.8.8.8:53")
@@ -61,8 +61,8 @@ fn main() -> std::io::Result<()> {
     println!("response: {0}", src);
     util::hexdump(&resp[0..amt]);
 
-    let packet = Packet::from_slice(&resp[0..amt]).expect("invalid response");
-    println!("{}", packet);
+    let m = Message::from_slice(&resp[0..amt]).expect("invalid response");
+    println!("{}", m);
 
     Ok(())
 }

@@ -62,7 +62,7 @@ fn main() -> std::io::Result<()> {
         let qtype = QType::from_str(&args[0]).expect("invalid qtype");
         let domain = &args[1];
 
-        let mut req = Packet {
+        let mut req = Message {
             id: 0xeccb, // randomise
             qr: QR::Query,
             opcode: Opcode::Query,
@@ -74,7 +74,7 @@ fn main() -> std::io::Result<()> {
 
         req.add_question(domain, qtype, QClass::Internet);
 
-        let req_buf = req.as_vec().expect("failed to encode packet");
+        let req_buf = req.as_vec().expect("failed to encode message");
 
         output.push(TestCase {
             name: "Request ".to_owned() + test,
@@ -92,7 +92,7 @@ fn main() -> std::io::Result<()> {
             .recv_from(&mut resp_buf)
             .expect("received no response");
 
-        let resp = Packet::from_slice(&resp_buf[0..amt]).expect("invalid response from server");
+        let resp = Message::from_slice(&resp_buf[0..amt]).expect("invalid response from server");
 
         output.push(TestCase {
             name: "Response ".to_owned() + test,
