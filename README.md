@@ -1,7 +1,8 @@
 [![Crates.io](https://img.shields.io/crates/v/rustdns.svg)](https://crates.io/crates/rustdns)
-[![Workflow Status](https://github.com/bramp/rustdns/workflows/rust/badge.svg)](https://github.com/bramp/rustdns)
+[![Documentation](https://docs.rs/rustdns/badge.svg)](https://docs.rs/rustdns)
+[![Build Status](https://github.com/bramp/rustdns/actions/workflows/rust.yml/badge.svg)](https://github.com/bramp/rustdns)
 
-# rustdns v0.1.0
+# rustdns
 
 rustdns is a simple, fast, and fully fledged DNS library for interacting
 with domain name services at a high or low level.
