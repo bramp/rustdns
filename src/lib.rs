@@ -132,6 +132,7 @@
 //!
 //! ```shell
 //! $ cargo readme > README.md
+//! $ cargo publish --dry-run
 //! ```
 //!
 //! # TODO (in order of priority)
