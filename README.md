@@ -1,5 +1,5 @@
 [![Crates.io](https://img.shields.io/crates/v/rustdns.svg)](https://crates.io/crates/rustdns)
-[![Workflow Status](https://github.com/bramp/rustdns/workflows/main/badge.svg)](https://github.com/bramp/rustdns/actions?query=workflow%3A%22main%22)
+[![Workflow Status](https://github.com/bramp/rustdns/workflows/rust/badge.svg)](https://github.com/bramp/rustdns)
 
 # rustdns v0.1.0
 

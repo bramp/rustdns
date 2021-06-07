@@ -1,5 +1,6 @@
-#![feature(custom_test_frameworks)]
-
+// TODO Switch this to use datatest after 0.6.3 (which is broken):
+// https://github.com/commure/datatest/pull/30
+// and custom_test_frameworks is supported https://github.com/rust-lang/rust/issues/50297
 use pretty_assertions::assert_eq;
 use regex::Regex;
 use rustdns::Message;
@@ -38,8 +39,7 @@ fn normalise_whitespace(s: &str) -> String {
     return re.replace_all(s, " ").to_string();
 }
 
-// TODO Switch this to use datatest after 0.6.3 (which is broken):
-// https://github.com/commure/datatest/pull/30
+
 fn test_from_slice(case: TestCase) {
     let input = match hex::decode(case.binary) {
         Err(e) => panic!("{}: Invalid test case input: {}", case.name, e),

@@ -1,7 +1,8 @@
 [![Crates.io](https://img.shields.io/crates/v/rustdns.svg)](https://crates.io/crates/rustdns)
-{{badges}}
+[![Documentation](https://docs.rs/rustdns/badge.svg)](https://docs.rs/rustdns)
+[![Build Status](https://github.com/bramp/rustdns/workflows/rust/badge.svg)](https://github.com/bramp/rustdns)
 
-# {{crate}} v{{version}}
+# {{crate}}
 
 {{readme}}
 
