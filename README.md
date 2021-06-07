@@ -39,6 +39,9 @@ The library has been extensively fuzzed. Try for yourself:
 cargo fuzz run from_slice
 ```
 
+## TODO
+
+[ ] Consider refactoring to use https://github.com/tokio-rs/bytes
 
 ## Reference
 

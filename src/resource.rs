@@ -1,10 +1,8 @@
-use crate::types::*;
-use std::io;
-
 use crate::bail;
-use crate::dns::{DNSReadExt, SeekExt, CursorExt};
+use crate::io::{CursorExt, DNSReadExt, SeekExt};
+use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
-use std::fmt;
+use std::io;
 use std::io::Cursor;
 use std::io::Read;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -14,8 +12,8 @@ impl Record {
     pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
         name: String,
-        r#type: QType,
-        class: QClass,
+        r#type: Type,
+        class: Class,
     ) -> io::Result<Record> {
         let ttl = cur.read_u32::<BE>()?;
         let len = cur.read_u16::<BE>()?;
@@ -24,8 +22,10 @@ impl Record {
         //
         // cur     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...]
         //                      ^ pos & len = 2
+        //
         // record  [0, 1, 2, 3, 4, 5, 6]
         //                      ^ pos
+        //
         // The record starts from zero, instead of being [4,6], this is
         // so it can jump backwards for a qname (or similar) read.
 
@@ -34,26 +34,29 @@ impl Record {
         let mut record = cur.sub_cursor(0, end)?;
         record.set_position(pos);
 
-        let resource = match r#type {
-            QType::A => Resource::A(parse_a(&mut record, class)?),
-            QType::AAAA => Resource::AAAA(parse_aaaa(&mut record, class)?),
+        // If parsing fails for this record, (and the length seems correct),
+        // we could turn this into a warning instead of a full error.
 
-            QType::NS => Resource::NS(parse_qname(&mut record)?),
-            QType::SOA => Resource::SOA(Soa::parse(&mut record)?),
-            QType::CNAME => Resource::CNAME(parse_qname(&mut record)?),
-            QType::PTR => Resource::PTR(parse_qname(&mut record)?),
-            QType::MX => Resource::MX(Mx::parse(&mut record)?),
-            QType::TXT => Resource::TXT(parse_txt(&mut record)?),
-            QType::SRV => Resource::SRV(Srv::parse(&mut record)?),
+        let resource = match r#type {
+            Type::A => Resource::A(parse_a(&mut record, class)?),
+            Type::AAAA => Resource::AAAA(parse_aaaa(&mut record, class)?),
+
+            Type::NS => Resource::NS(record.read_qname()?),
+            Type::SOA => Resource::SOA(SOA::parse(&mut record)?),
+            Type::CNAME => Resource::CNAME(record.read_qname()?),
+            Type::PTR => Resource::PTR(record.read_qname()?),
+            Type::MX => Resource::MX(MX::parse(&mut record)?),
+            Type::TXT => Resource::TXT(parse_txt(&mut record)?),
+            Type::SRV => Resource::SRV(SRV::parse(&mut record)?),
 
             // This should never appear in a answer record unless we have invalid data.
-            QType::Reserved | QType::OPT | QType::ANY => {
+            Type::Reserved | Type::OPT | Type::ANY => {
+                // TODO This could be a warning, instead of a full error.
                 bail!(InvalidData, "invalid record type '{}'", r#type);
             }
         };
 
         if record.remaining()? > 0 {
-            // TODO This could be a warning, instead of a full error.
             bail!(
                 Other,
                 "finished '{}' parsing record with {} bytes left over",
@@ -78,80 +81,53 @@ impl Record {
     }
 }
 
-impl fmt::Display for Resource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Resource::A(ip) => ip.fmt(f),
-            Resource::AAAA(ip) => ip.fmt(f),
-
-            Resource::NS(name) => name.fmt(f),
-            Resource::CNAME(name) => name.fmt(f),
-            Resource::PTR(name) => name.fmt(f),
-
-            Resource::SOA(soa) => soa.fmt(f),
-            Resource::TXT(txts) => {
-                let output = txts.iter()
-                    .map(|txt| {
-                        match std::str::from_utf8(&txt) {
-                            // TODO Escape the " character (and maybe others)
-                            Ok(txt) => txt,
-
-                            // TODO Try our best to convert this to valid UTF, and use
-                            // https://doc.rust-lang.org/std/str/struct.Utf8Error.html to show what we can.
-                            Err(_e)  => "invalid",
-                        }
-                    })
-                    .collect::<Vec<&str>>()
-                    .join(" ");
-
-                write!(f, "{}", output)
-            }
-            Resource::MX(mx) => mx.fmt(f),
-            Resource::SRV(srv) => srv.fmt(f),
-
-            Resource::OPT => write!(f, "OPT"),
-
-            Resource::TODO => write!(f, "TODO"),
-            Resource::ANY => write!(f, "*"),
-        }
-    }
+/// MX Record.
+pub struct MX {
+    pub preference: u16, // The preference given to this RR among others at the same owner.  Lower values are preferred.
+    pub exchange: String, // A host willing to act as a mail exchange for the owner name.
 }
 
-fn parse_a(cur: &mut Cursor<&[u8]>, class: QClass) -> io::Result<Ipv4Addr> {
+/// SOA Record.
+pub struct SOA {
+    pub mname: String, // The name server that was the original or primary source of data for this zone.
+    pub rname: String, // The mailbox of the person responsible for this zone.
+
+    pub serial: u32,
+
+    pub refresh: Duration,
+    pub retry: Duration,
+    pub expire: Duration,
+    pub minimum: Duration,
+}
+
+/// SRV Record, see <https://datatracker.ietf.org/doc/html/rfc2782>
+pub struct SRV {
+    pub priority: u16,
+    pub weight: u16,
+    pub port: u16,
+    pub name: String,
+}
+
+fn parse_a(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<Ipv4Addr> {
     let mut buf = [0_u8; 4];
     cur.read_exact(&mut buf)?;
 
     match class {
-        QClass::Internet => Ok(Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3])),
+        Class::Internet => Ok(Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3])),
 
         _ => bail!(InvalidData, "unsupported A record class '{}'", class),
     }
 }
 
-fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: QClass) -> io::Result<Ipv6Addr> {
+fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<Ipv6Addr> {
     let mut buf = [0_u8; 16];
     cur.read_exact(&mut buf)?;
 
     match class {
-        QClass::Internet => Ok(Ipv6Addr::from(buf)),
+        Class::Internet => Ok(Ipv6Addr::from(buf)),
 
         _ => bail!(InvalidData, "unsupported AAAA record class '{}'", class),
     }
-}
-
-// TODO Remove parse_qname we don't need it
-fn parse_qname(cur: &mut Cursor<&[u8]>) -> io::Result<String> {
-    let qname = cur.read_qname()?;
-    /* TODO
-    if len != size {
-        return parse_error!(
-            "qname length ({}) did not match expected record len ({})",
-            size,
-            len
-        );
-    }
-    */
-    Ok(qname)
 }
 
 fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<Vec<Vec<u8>>> {
@@ -160,40 +136,33 @@ fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<Vec<Vec<u8>>> {
     loop {
         // Keep reading until EOF is reached.
         let len = match cur.read_u8() {
-            Ok(len) => len,   
+            Ok(len) => len,
             Err(e) => match e.kind() {
                 io::ErrorKind::UnexpectedEof => break,
-                _ => return Err(e)
-            }
+                _ => return Err(e),
+            },
         };
-    
+
         let mut txt = vec![0; len.into()];
         cur.read_exact(&mut txt)?;
         txts.push(txt)
     }
 
-    Ok(txts)    
+    Ok(txts)
 }
 
-impl Soa {
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Soa> {
+impl SOA {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<SOA> {
         let mname = cur.read_qname()?;
         let rname = cur.read_qname()?;
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
-        let retry = cur.read_u32::<BE>()?; // u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        let expire = cur.read_u32::<BE>()?; // u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
-        let minimum = cur.read_u32::<BE>()?; // u32::from_be_bytes(*as_array![parser.buf, offset, 4]);
+        let retry = cur.read_u32::<BE>()?;
+        let expire = cur.read_u32::<BE>()?;
+        let minimum = cur.read_u32::<BE>()?;
 
-        // TODO
-        /*
-        if offset - start != len {
-            return parse_error!("failed to parse full SOA record");
-        }
-        */
-
-        Ok(Soa {
+        Ok(SOA {
             mname,
             rname,
 
@@ -206,105 +175,31 @@ impl Soa {
     }
 }
 
-impl Mx {
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Mx> {
-        let preference = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, 0, 2]);
+impl MX {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<MX> {
+        let preference = cur.read_u16::<BE>()?;
         let exchange = cur.read_qname()?;
 
-        /* TODO
-        if len != 2 + size {
-            // TODO Standardise his kind of error.
-            return parse_error!("failed to read full MX record");
-        }
-        */
-
-        Ok(Mx {
+        Ok(MX {
             preference,
             exchange,
         })
     }
 }
 
-impl Srv {
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Srv> {
-        /* TODO
-        if len < 7 {
-            return parse_error!("SRV record too short");
-        }
-        */
-
-        let priority = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, start, 2]);
-        let weight = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, start + 2, 2]);
-        let port = cur.read_u16::<BE>()?; // u16::from_be_bytes(*as_array![parser.buf, start + 4, 2]);
+impl SRV {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<SRV> {
+        let priority = cur.read_u16::<BE>()?;
+        let weight = cur.read_u16::<BE>()?;
+        let port = cur.read_u16::<BE>()?;
 
         let name = cur.read_qname()?;
 
-        /* TODO
-        if len != 6 + size {
-            // TODO Standardise his kind of error.
-            return parse_error!("failed to read full SRV record");
-        }
-        */
-
-        Ok(Srv {
+        Ok(SRV {
             priority,
             weight,
             port,
             name,
         })
-    }
-}
-
-impl Extension {
-    pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: QType) -> io::Result<Extension> {
-        assert!(r#type == QType::OPT);
-
-        if domain != "." {
-            bail!(
-                InvalidData,
-                "expected root domain for EDNS(0) extension, got '{}'",
-                domain
-            );
-        }
-
-        let payload_size = cur.read_u16::<BE>()?;
-        let extend_rcode = cur.read_u8()?;
-
-        let version = cur.read_u8()?;
-        let b = cur.read_u8()?;
-        let dnssec_ok = b & 0b1000_0000 == 0b1000_0000;
-
-        let _z = cur.read_u8()?;
-
-        let _rd_len = cur.read_u16::<BE>()?; // TODO!
-
-        Ok(Extension {
-            payload_size,
-            extend_rcode,
-            version,
-            dnssec_ok,
-        })
-    }
-
-    pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
-        buf.push(0); // A single "." domain name         // 0-1
-        buf.extend_from_slice(&(QType::OPT as u16).to_be_bytes()); // 1-3
-        buf.extend_from_slice(&(self.payload_size as u16).to_be_bytes()); // 3-5
-
-        buf.push(self.extend_rcode); // 5-6
-        buf.push(self.version); // 6-7
-
-        let mut b = 0_u8;
-        b |= if self.dnssec_ok { 0b1000_0000 } else { 0 };
-
-        // 16 bits
-        buf.push(b);
-        buf.push(0);
-
-        // 16 bit RDLEN - TODO
-        buf.push(0);
-        buf.push(0);
-
-        Ok(())
     }
 }

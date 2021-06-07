@@ -1,99 +1,155 @@
-use std::fmt;
-use std::net::Ipv4Addr;
-use std::net::Ipv6Addr;
+use crate::resource::{MX, SOA, SRV};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 use strum_macros::{Display, EnumString};
 
-#[derive(Default)]
+/// DNS Message that serves as the root of all DNS requests and responses.
+///
+/// # Examples
+///
+/// For constructing a message and encoding:
+///
+/// ```rust
+/// use rustdns::Message;
+/// use rustdns::types::*;
+/// use std::net::UdpSocket;
+/// use std::time::Duration;
+///
+/// // Setup some UDP socket for sending to a DNS server.
+/// let socket = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to address");
+/// socket.set_read_timeout(Some(Duration::new(5, 0))).expect("set_read_timeout call failed");
+/// socket.connect("8.8.8.8:53").expect("connect function failed");
+///
+/// // Construct a simple query.
+/// let mut m = Message::default();
+/// m.add_question("bramp.net", Type::A, Class::Internet);
+///
+/// // Encode the query as a Vec<u8>.
+/// let req = m.to_vec().expect("failed to encode DNS request");
+///
+/// // Send to the server
+/// socket.send(&req).expect("failed to send request");
+///
+/// // Some time passes
+///
+/// // Receive a response from the DNS server
+/// let mut resp = [0; 4096];
+/// let len = socket.recv(&mut resp).expect("failed to receive response");
+///
+/// // Take a Vec<u8> and turn it into a message.
+/// let m = Message::from_slice(&resp[0..len]).expect("invalid response");
+///
+/// // Now do something with `m`, in this case print it!
+/// println!("DNS Response:\n{}", m);
+/// ```
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
-    // A 16 bit identifier assigned by the program that generates any kind of
-    // query. This identifier is copied the corresponding reply and can be used
-    // by the requester to match up replies to outstanding queries.
+    /// 16-bit identifier assigned by the program that generates any kind of
+    /// query. This identifier is copied into the corresponding reply and can be
+    /// used by the requester to match up replies to outstanding queries.
     pub id: u16,
 
-    // Recursion Desired - this bit directs the name server to pursue the query
-    // recursively.
+    /// Recursion Desired - this bit directs the name server to pursue the query
+    /// recursively.
     pub rd: bool,
 
-    // Truncation - specifies that this message was truncated.
+    /// Truncation - specifies that this message was truncated.
     pub tc: bool,
 
-    // Authoritative Answer - Specifies that the responding name server is an
-    // authority for the domain name in question section.
+    /// Authoritative Answer - Specifies that the responding name server is an
+    /// authority for the domain name in question section.
     pub aa: bool,
 
-    // Specifies kind of query in this message. 0 represents a standard query.
-    // https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
+    /// Specifies kind of query in this message. 0 represents a standard query.
+    /// See <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5>
     pub opcode: Opcode,
 
-    // TODO Change with enum.
-    // Specifies whether this message is a query (0), or a response (1).
+    /// Specifies whether this message is a query (0), or a response (1).
     pub qr: QR,
 
-    // Response code.
+    /// Response code.
     pub rcode: Rcode,
 
-    // Checking Disabled - [RFC4035][RFC6840][RFC Errata 4927]
+    /// Checking Disabled. See [RFC4035] and [RFC6840].
+    ///
+    /// [rfc4035]: https://datatracker.ietf.org/doc/html/rfc4035
+    /// [rfc6840]: https://datatracker.ietf.org/doc/html/rfc6840
     pub cd: bool,
 
-    // Authentic Data - [RFC4035][RFC6840][RFC Errata 4924]
+    /// Authentic Data. See [RFC4035] and [RFC6840].
+    ///
+    /// [rfc4035]: https://datatracker.ietf.org/doc/html/rfc4035
+    /// [rfc6840]: https://datatracker.ietf.org/doc/html/rfc6840
     pub ad: bool,
 
-    // Z Reserved for future use. You must set this field to 0.
+    /// Z Reserved for future use. You must set this field to 0.
     pub z: bool,
 
-    // Recursion Available - this be is set or cleared in a response, and
-    // denotes whether recursive query support is available in the name server.
+    /// Recursion Available - this be is set or cleared in a response, and
+    /// denotes whether recursive query support is available in the name server.
     pub ra: bool,
 
+    /// The questions.
     pub questions: Vec<Question>,
+
+    /// The answer records.
     pub answers: Vec<Record>,
+
+    /// The authoritive records.
     pub authoritys: Vec<Record>,
+
+    /// The additional records.
     pub additionals: Vec<Record>,
 
+    /// Optional EDNS(0) record.
     pub extension: Option<Extension>,
 }
 
-/// A DNS Question.
+/// DNS Question.
 #[derive(Default)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// A valid UTF-8 encoded domain name.
     pub name: String,
-    pub r#type: QType,
-    pub class: QClass,
+    pub r#type: Type,
+    pub class: Class,
 }
 
-// RR or Resource Record
+/// Resource Record (RR)
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Record {
     pub name: String,
 
-    pub r#type: QType,
-    pub class: QClass, // TODO Really a Class (which is a subset of QClass)
+    pub r#type: Type,
+    pub class: Class,
 
-    // The number of seconds that the resource record may be cached
-    // before the source of the information should again be consulted.
-    // Zero is interpreted to mean that the RR can only be used for the
-    // transaction in progress.
+    /// The number of seconds that the resource record may be cached
+    /// before the source of the information should again be consulted.
+    /// Zero is interpreted to mean that the RR can only be used for the
+    /// transaction in progress.
     pub ttl: Duration,
 
     pub resource: Resource,
 }
 
-// EDNS(0) extension record as defined in [rfc2671] and [rfc6891].
+/// EDNS(0) extension record as defined in [rfc2671] and [rfc6891].
+///
+/// [rfc2671]: https://datatracker.ietf.org/doc/html/rfc2671
+/// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+//
 // TODO Support EDNS0_NSID (RFC 5001) and EDNS0_SUBNET (RFC 7871) records within the extension.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Extension {
-    //pub name: String,  // Always "."
-    //pub r#type: QType, // Always OPT(41)
-    pub payload_size: u16, // Requestor's UDP payload size
+    /// Requestor's UDP payload size.
+    pub payload_size: u16,
 
     pub extend_rcode: u8,
     pub version: u8,
 
-    pub dnssec_ok: bool, // DNSSEC OK bit as defined by [RFC3225].
+    /// DNSSEC OK bit as defined by [rfc3225].
+    ///
+    /// [rfc3225]: https://datatracker.ietf.org/doc/html/rfc3225
+    pub dnssec_ok: bool,
 }
 
 impl Default for Extension {
@@ -135,24 +191,38 @@ impl QR {
     }
 }
 
-/// Specifies kind of query in this message.
-/// 
-/// See:
-/// * [RFC1035]
-/// * [RFC6895]
-/// * https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
+/// Specifies kind of query in this message. See [rfc1035], [rfc6895] and <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5>
+///
+/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u8)] // Really only 4 bits
 pub enum Opcode {
-    Query = 0,  // [RFC1035]
-    IQuery = 1, // Inverse Query (OBSOLETE)    [RFC3425]
-    Status = 2, // [RFC1035]
-    Notify = 4, // [RFC1996]
-    Update = 5, // [RFC2136]
-    DSO = 6,    // DNS Stateful Operations (DSO)   [RFC8490]
-                // 3  Unassigned
-                // 7-15  Unassigned
+    /// Query.
+    Query = 0,
+
+    /// Inverse Query (OBSOLETE). See [rfc3425].
+    ///
+    /// [rfc3425]: https://datatracker.ietf.org/doc/html/rfc3425
+    IQuery = 1,
+    Status = 2,
+
+    /// See [rfc1996]
+    ///
+    /// [rfc1996]: https://datatracker.ietf.org/doc/html/rfc1996
+    Notify = 4,
+
+    /// See [rfc2136]
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    Update = 5,
+
+    /// DNS Stateful Operations (DSO). See [rfc8490]
+    ///
+    /// [rfc8490]: https://datatracker.ietf.org/doc/html/rfc8490
+    DSO = 6,
+    // 3 and 7-15 Remain unassigned.
 }
 impl Default for Opcode {
     fn default() -> Self {
@@ -160,34 +230,70 @@ impl Default for Opcode {
     }
 }
 
-/// Message Response Codes, see https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+/// Response Codes.
+/// See [rfc1035] and <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6>
+///
+/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
-#[repr(u16)] // In headers it is 4 bits, in extended opts it is 16.
+#[repr(u16)] // In headers it is 4 bits, in extended OPTS it is 16.
 pub enum Rcode {
-    NoError = 0,  // No Error    [RFC1035]
-    FormErr = 1,  // Format Error    [RFC1035]
-    ServFail = 2, // Server Failure  [RFC1035]
-    NXDomain = 3, // Non-Existent Domain [RFC1035]
-    NotImp = 4,   // Not Implemented [RFC1035]
-    Refused = 5,  // Query Refused   [RFC1035]
-    YXDomain = 6, // Name Exists when it should not  [RFC2136][RFC6672]
-    YXRRSet = 7,  // RR Set Exists when it should not    [RFC2136]
-    NXRRSet = 8,  // RR Set that should exist does not   [RFC2136]
+    /// No Error
+    NoError = 0,
 
-    // Note on error number 9 (NotAuth): This error number means either
-    // "Not Authoritative" [RFC2136] or "Not Authorized" [RFC2845].  If 9
-    // appears as the RCODE in the header of a DNS response without a
-    // TSIG RR or with a TSIG RR having a zero error field, then it means
-    // "Not Authoritative".  If 9 appears as the RCODE in the header of a
-    // DNS response that includes a TSIG RR with a non-zero error field,
-    //  then it means "Not Authorized".
+    /// Format Error
+    FormErr = 1,
+
+    /// Server Failure
+    ServFail = 2,
+
+    /// Non-Existent Domain
+    NXDomain = 3,
+
+    /// Not Implemented
+    NotImp = 4,
+
+    /// Query Refused
+    Refused = 5,
+
+    /// Name Exists when it should not. See [rfc2136] and [rfc6672].
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [rfc6672]: https://datatracker.ietf.org/doc/html/rfc6672
+    YXDomain = 6,
+
+    /// RR Set Exists when it should not. See [rfc2136].
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    YXRRSet = 7,
+
+    /// RR Set that should exist does not. See [rfc2136].
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    NXRRSet = 8,
+
+    /// Note on error number 9 (NotAuth): This error number means either
+    /// "Not Authoritative" [rfc2136] or "Not Authorized" [rfc2845].
+    /// If 9 appears as the RCODE in the header of a DNS response without a
+    /// TSIG RR or with a TSIG RR having a zero error field, then it means
+    /// "Not Authoritative".  If 9 appears as the RCODE in the header of a
+    /// DNS response that includes a TSIG RR with a non-zero error field,
+    /// then it means "Not Authorized".
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [rfc2845]: https://datatracker.ietf.org/doc/html/rfc2845
     NotAuth = 9,
 
-    NotZone = 10, // Name not contained in zone  [RFC2136]
-    DSOTYPENI = 11, // DSO-TYPE Not Implemented  [RFC8490]
+    /// Name not contained in zone. See [rfc2136].
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    NotZone = 10,
 
-                  // 12-15    Unassigned
+    /// DSO-TYPE Not Implemented. See [rfc8490].
+    ///
+    /// [rfc8490]: https://datatracker.ietf.org/doc/html/rfc8490
+    DSOTYPENI = 11,
+    // 12-15 Unassigned
 }
 
 impl Default for Rcode {
@@ -213,48 +319,71 @@ pub enum ExtendedRcode {
 }
 */
 
-// When adding a QType, a parsing funcion must be added in resource.rs.
-// TODO Rename to ResourceType
+/// Resource Record Type, for example, A, CNAME or SOA.
+///
+// When adding a Type, a parsing funcion must be added in resource.rs.
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u16)]
-pub enum QType {
+pub enum Type {
     Reserved = 0,
 
+    /// (Default) IPv4 Address.
     A = 1,
     NS = 2,
     CNAME = 5,
     SOA = 6,
-    PTR = 12,  // A domain name pointer
-    MX = 15,   // A mail exchange
-    TXT = 16,  // Text strings
-    AAAA = 28, // IP6 Address
-    SRV = 33,  // Server Selection
 
-    OPT = 41, // Opt type [RFC3225][RFC6891]
+    /// Domain name pointer.
+    PTR = 12,
 
-    // This is not a valid Resource Type, but is a valid Question Type
+    /// Mail exchange.
+    MX = 15,
+
+    /// Text strings.
+    TXT = 16,
+
+    /// IPv6 Address.
+    AAAA = 28,
+
+    /// Server Selection
+    SRV = 33,
+
+    /// EDNS(0) Opt type. See [rfc3225] and [rfc6891].
+    ///
+    /// [rfc3225]: https://datatracker.ietf.org/doc/html/rfc3225
+    /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+    OPT = 41,
+
+    /// Any record type.
+    /// Only valid as a Question Type.
     ANY = 255,
 }
 
-impl Default for QType {
+impl Default for Type {
     fn default() -> Self {
-        QType::A
+        Type::A
     }
 }
 
+/// Resource Record Class, for example Internet.
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[repr(u16)]
-pub enum QClass {
-    Reserved = 0, // [RFC6895]
+pub enum Class {
+    /// Reserved per [RFC6895]
+    ///
+    /// [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
+    Reserved = 0,
 
-    /// The Internet (IN), see [RFC1035]
+    /// (Default) The Internet (IN), see [rfc1035].
+    ///
+    /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
     #[strum(serialize = "IN")]
-    Internet = 1, // (IN) The Internet 
+    Internet = 1,
 
-    /// CSNET (CS), obsolete - used only for examples in some obsolete RFCs).
+    /// CSNET (CS), obsolete (used only for examples in some obsolete RFCs).
     #[strum(serialize = "CS")]
-    CsNet = 2, 
+    CsNet = 2,
 
     /// Chaosnet (CH), obsolete LAN protocol created at MIT in the mid-1970s. See [D. Moon, "Chaosnet", A.I. Memo 628, Massachusetts Institute of Technology Artificial Intelligence Laboratory, June 1981.]
     #[strum(serialize = "CH")]
@@ -264,25 +393,27 @@ pub enum QClass {
     #[strum(serialize = "HS")]
     Hesiod = 4,
 
-    // QCLASS fields below
     None = 254, // NONE [RFC2136]
 
+    /// * (ANY) See [rfc1035]
+    ///
+    /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
     #[strum(serialize = "*")]
-    Any = 255, // * (ANY)  [RFC1035]
-               //     5-253     Unassigned
-               //   256-65279   Unassigned
-               // 65280-65534   Reserved for Private Use    [RFC6895]
-               // 65535         Reserved    [RFC6895]
+    Any = 255,
+    //     5-253     Unassigned
+    //   256-65279   Unassigned
+    // 65280-65534   Reserved for Private Use    [RFC6895]
+    // 65535         Reserved    [RFC6895]
 }
 
-impl Default for QClass {
+impl Default for Class {
     fn default() -> Self {
-        QClass::Internet
+        Class::Internet
     }
 }
 
-// This should be kept in sync with QType.
-// TODO Can we merge this and QType? (when https://github.com/rust-lang/rust/issues/60553 is finished we can)
+// This should be kept in sync with Type.
+// TODO Merge this with Type (when https://github.com/rust-lang/rust/issues/60553 is finished).
 #[allow(clippy::upper_case_acronyms)]
 pub enum Resource {
     A(Ipv4Addr), // Support non-Internet classes?
@@ -296,82 +427,11 @@ pub enum Resource {
     // TODO per RFC 4408 a TXT record is allowed to contain multiple strings
     TXT(Vec<Vec<u8>>),
 
-    MX(Mx),
-    SOA(Soa),
-    SRV(Srv),
+    MX(MX),
+    SOA(SOA),
+    SRV(SRV),
 
     OPT,
 
-    ANY,  // Not a valid Record Type, but is a QType
-    TODO, // TODO Remove this placeholder. Figure out how to hide this type.
-}
-
-pub struct Mx {
-    pub preference: u16, // The preference given to this RR among others at the same owner.  Lower values are preferred.
-    pub exchange: String, // A host willing to act as a mail exchange for the owner name.
-}
-
-pub struct Soa {
-    pub mname: String, // The name server that was the original or primary source of data for this zone.
-    pub rname: String, // The mailbox of the person responsible for this zone.
-
-    pub serial: u32,
-
-    pub refresh: Duration,
-    pub retry: Duration,
-    pub expire: Duration,
-    pub minimum: Duration,
-}
-
-// https://datatracker.ietf.org/doc/html/rfc2782
-pub struct Srv {
-    pub priority: u16,
-    pub weight: u16,
-    pub port: u16,
-    pub name: String,
-}
-
-// TODO Can I move these into resources.rs
-
-impl fmt::Display for Mx {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // "10 aspmx.l.google.com."
-        write!(
-            f,
-            "{preference} {exchange}",
-            preference = self.preference,
-            exchange = self.exchange,
-        )
-    }
-}
-
-impl fmt::Display for Soa {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
-        write!(
-            f,
-            "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
-            mname = self.mname,
-            rname = self.rname,
-            serial = self.serial,
-            refresh = self.refresh.as_secs(),
-            retry = self.retry.as_secs(),
-            expire = self.expire.as_secs(),
-            minimum = self.minimum.as_secs(),
-        )
-    }
-}
-
-impl fmt::Display for Srv {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // "5 0 389 ldap.google.com."
-        write!(
-            f,
-            "{priority} {weight} {port} {name}",
-            priority = self.priority,
-            weight = self.weight,
-            port = self.port,
-            name = self.name,
-        )
-    }
+    ANY, // Not a valid Record Type, but is a Type
 }

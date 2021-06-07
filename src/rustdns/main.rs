@@ -14,12 +14,12 @@ fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 3 {
-        eprintln!("Usage: rustdns {{qtype}} {{domain}}");
+        eprintln!("Usage: rustdns {{type}} {{domain}}");
         process::exit(1);
     }
 
     // TODO Better parsing
-    let qtype = QType::from_str(&args[1]).expect("invalid qtype");
+    let r#type = Type::from_str(&args[1]).expect("invalid type");
     let domain = &args[2];
 
     let socket = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to address");
@@ -27,17 +27,9 @@ fn main() -> std::io::Result<()> {
         .set_read_timeout(Some(Duration::new(5, 0)))
         .expect("set_read_timeout call failed");
 
-    let mut m = Message {
-        id: 0xeccb,
-        qr: QR::Query,
-        opcode: Opcode::Query,
-        rd: true,
-        ad: true,
+    let mut m = Message::default();
 
-        ..Default::default()
-    };
-
-    m.add_question(domain, qtype, QClass::Internet);
+    m.add_question(domain, r#type, Class::Internet);
 
     m.add_extension(Extension {
         payload_size: 4096,

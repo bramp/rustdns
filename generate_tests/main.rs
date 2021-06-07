@@ -59,7 +59,7 @@ fn main() -> std::io::Result<()> {
             panic!("invalid number of arguments");
         }
 
-        let qtype = QType::from_str(&args[0]).expect("invalid qtype");
+        let r#type = Type::from_str(&args[0]).expect("invalid Type");
         let domain = &args[1];
 
         let mut req = Message {
@@ -72,9 +72,9 @@ fn main() -> std::io::Result<()> {
             ..Default::default()
         };
 
-        req.add_question(domain, qtype, QClass::Internet);
+        req.add_question(domain, r#type, Class::Internet);
 
-        let req_buf = req.as_vec().expect("failed to encode message");
+        let req_buf = req.to_vec().expect("failed to encode message");
 
         output.push(TestCase {
             name: "Request ".to_owned() + test,

@@ -1,201 +1,27 @@
 use crate::bail;
+use crate::io::{DNSReadExt, SeekExt};
 use crate::types::Record;
 use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
 use num_traits::FromPrimitive;
-use std::convert::TryInto;
-use std::fmt;
+use rand::Rng;
 use std::io;
+use std::io::BufRead;
 use std::io::Cursor;
-use std::io::SeekFrom;
-
-
-pub trait SeekExt: io::Seek {
-    /// Returns the number of bytes remaining to be consumed.
-    /// This is used as a way to check for malformed input.
-    fn remaining(&mut self) -> io::Result<u64> {
-        let pos = self.stream_position()?;
-        let len = self.seek(SeekFrom::End(0))?;
-
-        // reset position
-        self.seek(SeekFrom::Start(pos))?;
-
-        Ok(len - pos)
-    }
-}
-
-impl<'a> SeekExt for Cursor<&'a [u8]> {
-    fn remaining(self: &mut std::io::Cursor<&'a [u8]>) -> io::Result<u64> {
-        let pos = self.position() as usize;
-        let len = self.get_ref().len() as usize;
-
-        Ok((len - pos).try_into().unwrap())
-    }
-}
-
-pub trait CursorExt<T> {
-    /// Return a cursor that is bounded over the original cursor by start-end.
-    ///
-    /// The returned cursor contains all values with start <= x < end. It is empty if start >= end.
-    /// 
-    /// Similar to `Take` but allows the start-end range to be specified, instead of just the next
-    /// N values.
-    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<T>>;
-}
-
-impl<'a> CursorExt<&'a [u8]> for Cursor<&'a [u8]> {
-    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<&'a [u8]>> {
-        //if start >= end {
-        //    end = start;
-        //}
-        // Create a new Cursor that is limited to the len field.
-        //let pos = self.position();
-        //let end = pos as usize + len as usize;
-        let buf = self.get_ref();
-
-        let start = num::clamp(start, 0, buf.len());
-        let end   = num::clamp(end, start, buf.len());
-
-        let record = Cursor::new(&buf[start..end]);
-        //record.set_position(self.pos); // TODO Check this pos is within the buf
-        Ok(record)
-    }
-}
-
-/// All types that implement `Read` and `Seek` get methods defined
-// in `DNSReadExt` for free.
-impl<R: io::Read + ?Sized + io::Seek> DNSReadExt for R {}
-
-/// Extensions to io::Read to add some DNS specific types.
-pub trait DNSReadExt: io::Read + io::Seek {
-    /// Reads a puny encoded domain name from a byte array.
-    ///
-    /// Used for extracting a encoding ASCII domain name from a DNS message. Will
-    /// returns the Unicode domain name, as well as the length of this name (ignoring
-    /// any compressed pointers) in bytes.
-    ///
-    /// # Errors
-    ///
-    /// Will return a io::Error(InvalidData) if the read domain name is invalid, or
-    /// a more general io::Error on any other read failure.
-    fn read_qname(&mut self) -> io::Result<String> {
-        let mut qname = String::new();
-        let start = self.stream_position()?;
-
-        // Read each label one at a time, to build up the full domain name.
-        loop {
-            // Length of the first label
-            let len = self.read_u8()?;
-            if len == 0 {
-                if qname.is_empty() {
-                    qname.push('.') // Root domain
-                }
-                break;
-            }
-
-            match len & 0xC0 {
-                // No compression
-                0x00 => {
-                    let mut label = vec![0; len.into()];
-                    self.read_exact(&mut label)?;
-
-                    // Really this is meant to be ASCII, but we read as utf8
-                    // (as that what Rust provides).
-                    let label = match std::str::from_utf8(&label) {
-                        Err(e) => bail!(InvalidData, "invalid label: {}", e),
-                        Ok(s) => s,
-                    };
-
-                    if !label.is_ascii() {
-                        bail!(InvalidData, "invalid label '{:}': not valid ascii", label);
-                    }
-
-                    // Now puny decode this label returning its original unicode.
-                    let label = match idna::domain_to_unicode(label) {
-                        (label, Err(e)) => bail!(InvalidData, "invalid label '{:}': {}", label, e),
-                        (label, Ok(_)) => label,
-                    };
-
-                    qname.push_str(&label);
-                    qname.push('.');
-                }
-
-                // Compression
-                0xC0 => {
-                    // Read the 14 bit pointer.
-                    let b2 = self.read_u8()? as u16;
-                    let ptr = ((len as u16 & !0xC0) << 8 | b2) as u64;
-
-                    // Make sure we don't get into a loop.
-                    if ptr >= start {
-                        bail!(
-                            InvalidData,
-                            "invalid compressed pointer pointing to future bytes"
-                        );
-                    }
-
-                    // We are going to jump backwards, so record where we
-                    // currently are. So we can reset it later.
-                    let current = self.stream_position()?;
-
-                    // Jump and start reading the qname again.
-                    self.seek(SeekFrom::Start(ptr))?;
-                    qname.push_str(&self.read_qname()?);
-
-                    // Reset ourselves.
-                    self.seek(SeekFrom::Start(current))?;
-
-                    break;
-                }
-
-                // Unknown
-                _ => bail!(
-                    InvalidData,
-                    "unsupported compression type {0:b}",
-                    len & 0xC0
-                ),
-            }
-        }
-
-        Ok(qname)
-    }
-
-    /// Reads a Type.
-    fn read_type(&mut self) -> io::Result<QType> {
-        let r#type = self.read_u16::<BE>()?;
-        let r#type = match FromPrimitive::from_u16(r#type) {
-            Some(t) => t,
-            None => bail!(InvalidData, "invalid Type({})", r#type),
-        };
-
-        Ok(r#type)
-    }
-
-    /// Reads a Class.
-    fn read_class(&mut self) -> io::Result<QClass> {
-        let class = self.read_u16::<BE>()?;
-        let class = match FromPrimitive::from_u16(class) {
-            Some(t) => t,
-            None => bail!(InvalidData, "invalid Class({})", class),
-        };
-
-        Ok(class)
-    }
-}
-
-// A helper class to hold state while the parsing is happening.
-pub(crate) struct MessageParser<'a> {
-    cur: Cursor<&'a [u8]>,
-
-    m: Message,
-    // TODO add list of parse errors
-}
 
 #[derive(Copy, Clone, PartialEq)]
 enum RecordSection {
     Answers,
     Authorities,
     Additionals,
+}
+
+/// A helper class to hold state while the parsing is happening.
+// TODO add list of parse errors
+pub(crate) struct MessageParser<'a> {
+    cur: Cursor<&'a [u8]>,
+
+    m: Message,
 }
 
 impl<'a> MessageParser<'a> {
@@ -206,7 +32,7 @@ impl<'a> MessageParser<'a> {
         }
     }
 
-    /// Consume the MessageParser and returned the resulting Message.
+    /// Consume the [`MessageParser`] and returned the resulting Message.
     fn parse(mut self) -> io::Result<Message> {
         self.m.id = self.cur.read_u16::<BE>()?;
 
@@ -285,7 +111,7 @@ impl<'a> MessageParser<'a> {
             let name = self.cur.read_qname()?;
             let r#type = self.cur.read_type()?;
 
-            if section == RecordSection::Additionals && r#type == QType::OPT {
+            if section == RecordSection::Additionals && r#type == Type::OPT {
                 if self.m.extension.is_some() {
                     bail!(
                         InvalidData,
@@ -308,15 +134,49 @@ impl<'a> MessageParser<'a> {
     }
 }
 
+impl Default for Message {
+    /// Returns a [`Message`] with sensibles defaults for querying.
+    fn default() -> Self {
+        Message {
+            id: Message::random_id(),
+            rd: true,
+            tc: false,
+            aa: false,
+            opcode: Opcode::Query,
+            qr: QR::Query,
+            rcode: Rcode::NoError,
+            cd: false,
+            ad: true,
+            z: false,
+            ra: false,
+
+            questions: Vec::default(),
+            answers: Vec::default(),
+            authoritys: Vec::default(),
+            additionals: Vec::default(),
+            extension: None,
+        }
+    }
+}
+
 impl Message {
+    /// Returns a random u16 suitable for the [`Message`] id field.
+    ///
+    /// This is generated with the [`rand::rngs::StdRng`] which is a suitable
+    /// cryptographically secure pseudorandom number generator.
+    pub fn random_id() -> u16 {
+        rand::thread_rng().gen()
+    }
+
+    /// Decodes the supplied buffer and returns a [`Message`].
     pub fn from_slice(buf: &[u8]) -> io::Result<Message> {
         MessageParser::new(&buf).parse()
     }
 
-    // Takes a unicode domain, converts to ascii, and back to unicode.
-    // This has the effective of normalising it, so its easier to compare
-    // what was queried, and what was returned.
-    fn normalsie_domain(&mut self, domain: &str) -> Result<String, idna::Errors> {
+    /// Takes a unicode domain, converts to ascii, and back to unicode.
+    /// This has the effective of normalising it, so its easier to compare
+    /// what was queried, and what was returned.
+    fn normalise_domain(&mut self, domain: &str) -> Result<String, idna::Errors> {
         let ascii = idna::domain_to_ascii(domain)?;
         let (mut unicode, result) = idna::domain_to_unicode(&ascii);
         match result {
@@ -330,8 +190,9 @@ impl Message {
         }
     }
 
-    pub fn add_question(&mut self, domain: &str, r#type: QType, class: QClass) {
-        let domain = self.normalsie_domain(domain).expect("invalid domain"); // TODO fix
+    /// Adds a question to the message.
+    pub fn add_question(&mut self, domain: &str, r#type: Type, class: Class) {
+        let domain = self.normalise_domain(domain).expect("invalid domain"); // TODO fix
 
         // TODO Don't allow more than 255 questions.
         let q = Question {
@@ -343,13 +204,15 @@ impl Message {
         self.questions.push(q);
     }
 
-    /// Adds an EDNS(0) extension record, as defined by [rfc6891](https://datatracker.ietf.org/doc/html/rfc6891).
+    /// Adds a EDNS(0) extension record, as defined by [rfc6891](https://datatracker.ietf.org/doc/html/rfc6891).
     pub fn add_extension(&mut self, ext: Extension) {
         // Don't allow if self.additionals.len() + 1 > 255
         self.extension = Some(ext);
     }
 
-    /// Returns this DNS Message as a Vec<u8> ready to be sent, as defined by [rfc1035](https://datatracker.ietf.org/doc/html/rfc1035).
+    /// Encodes this DNS [`Message`] as a [`Vec<u8>`] ready to be sent, as defined by [rfc1035].
+    ///
+    /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
     pub fn to_vec(&self) -> io::Result<Vec<u8>> {
         let mut req = Vec::<u8>::with_capacity(512);
 
@@ -401,7 +264,7 @@ impl Message {
         Ok(req)
     }
 
-    /// Writes a Unicode domain name into the supplied `Vec<u8>`.
+    /// Writes a Unicode domain name into the supplied [`Vec<u8>`].
     ///
     /// Used for writing out a encoded ASCII domain name into a DNS message. Will
     /// returns the Unicode domain name, as well as the length of this qname (ignoring
@@ -442,136 +305,58 @@ impl Message {
     }
 }
 
-/// Displays this message in a format resembling `dig` output.
-impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt_header(f)?;
+impl Extension {
+    pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
+        assert!(r#type == Type::OPT);
 
-        // ;; OPT PSEUDOSECTION:
-        // ; EDNS: version: 0, flags:; udp: 512
-        if let Some(e) = &self.extension {
-            writeln!(f, ";; OPT PSEUDOSECTION:")?;
-            // TODO Support tthe flags
-            writeln!(
-                f,
-                "; EDNS: version: {version}, flags:; udp: {payload_size}",
-                version = e.version,
-                payload_size = e.payload_size,
-            )?;
+        if domain != "." {
+            bail!(
+                InvalidData,
+                "expected root domain for EDNS(0) extension, got '{}'",
+                domain
+            );
         }
 
-        // Always display the question section, but optionally
-        // display the other sections.
-        writeln!(f, ";; QUESTION SECTION:")?;
-        for question in &self.questions {
-            question.fmt(f)?;
-        }
-        writeln!(f)?;
+        let payload_size = cur.read_u16::<BE>()?;
+        let extend_rcode = cur.read_u8()?;
 
-        if !self.answers.is_empty() {
-            writeln!(f, "; ANSWER SECTION:")?;
-            for answer in &self.answers {
-                answer.fmt(f)?;
-            }
-            writeln!(f)?;
-        }
+        let version = cur.read_u8()?;
+        let b = cur.read_u8()?;
+        let dnssec_ok = b & 0b1000_0000 == 0b1000_0000;
 
-        if !self.authoritys.is_empty() {
-            writeln!(f, "; AUTHORITY SECTION:")?;
-            for answer in &self.authoritys {
-                answer.fmt(f)?;
-            }
-            writeln!(f)?;
-        }
+        let _z = cur.read_u8()?;
 
-        if !self.additionals.is_empty() {
-            writeln!(f, "; ADDITIONAL SECTION:")?;
-            for answer in &self.additionals {
-                answer.fmt(f)?;
-            }
-            writeln!(f)?;
-        }
+        // TODO implement this
+        let rd_len = cur.read_u16::<BE>()?;
+        cur.consume(rd_len.into());
 
-        // TODO
-        // ;; Query time: 46 msec
-        // ;; SERVER: 2601:646:ca00:43c::1#53(2601:646:ca00:43c::1)
-        // ;; WHEN: Fri May 28 14:06:26 PDT 2021
-        // ;; MSG SIZE  rcvd: 63
-
-        writeln!(f)
+        Ok(Extension {
+            payload_size,
+            extend_rcode,
+            version,
+            dnssec_ok,
+        })
     }
-}
 
-impl Message {
-    fn fmt_header(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            ";; ->>HEADER<<- opcode: {opcode}, status: {rcode}, id: {id}",
-            opcode = self.opcode,
-            rcode = self.rcode,
-            id = self.id,
-        )?;
+    pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        buf.push(0); // A single "." domain name                          // 0-1
+        buf.extend_from_slice(&(Type::OPT as u16).to_be_bytes()); // 1-3
+        buf.extend_from_slice(&(self.payload_size as u16).to_be_bytes()); // 3-5
 
-        let mut flags = String::new();
+        buf.push(self.extend_rcode); // 5-6
+        buf.push(self.version); // 6-7
 
-        if self.qr.to_bool() {
-            flags.push_str(" qr")
-        }
-        if self.aa {
-            flags.push_str(" aa")
-        }
-        if self.tc {
-            flags.push_str(" tc")
-        }
-        if self.rd {
-            flags.push_str(" rd")
-        }
-        if self.ra {
-            flags.push_str(" ra")
-        }
-        if self.ad {
-            flags.push_str(" ad")
-        }
-        if self.cd {
-            flags.push_str(" cd")
-        }
+        let mut b = 0_u8;
+        b |= if self.dnssec_ok { 0b1000_0000 } else { 0 };
 
-        let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
+        // 16 bits
+        buf.push(b);
+        buf.push(0);
 
-        writeln!(f, ";; flags:{flags}; QUERY: {qd_count}, ANSWER: {an_count}, AUTHORITY: {ns_count}, ADDITIONAL: {ar_count}", 
-            flags = flags,
-            qd_count = self.questions.len(),
-            an_count = self.answers.len(),
-            ns_count = self.authoritys.len(),
-            ar_count = ar_count,
-        )?;
+        // 16 bit RDLEN - TODO
+        buf.push(0);
+        buf.push(0);
 
-        writeln!(f)
-    }
-}
-
-impl fmt::Display for Question {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "; {name:<18}      {class:4} {type:6}\n",
-            name = self.name,
-            class = self.class,
-            r#type = self.r#type,
-        )
-    }
-}
-
-impl fmt::Display for Record {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "{name:<20} {ttl:>4} {class:4} {type:6} {resource}",
-            name = self.name,
-            ttl = self.ttl.as_secs(),
-            class = self.class,
-            r#type = self.r#type,
-            resource = self.resource,
-        )
+        Ok(())
     }
 }
