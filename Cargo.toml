@@ -4,14 +4,17 @@
 name = "rustdns"
 version = "0.1.0"
 authors = ["Andrew Brampton <brampton@gmail.com>"]
-edition = "2018"
-default-run = "rustdns"
-license = "Apache-2.0"
-keywords = ["dns", "idna", "serialization"]
 categories = ["encoding", "network-programming"]
+default-run = "rustdns"
 description = "A DNS parsing library"
-repository = "https://github.com/bramp/rustdns"
+edition = "2018"
+keywords = ["dns", "idna", "serialization"]
+license = "Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/bramp/rustdns"
+
+[badges]
+github = { repository = "bramp/rustdns" }
 
 
 [workspace]

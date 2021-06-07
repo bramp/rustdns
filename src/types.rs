@@ -1,5 +1,4 @@
-use crate::resource::{MX, SOA, SRV};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use crate::resource::*;
 use std::time::Duration;
 use strum_macros::{Display, EnumString};
 
@@ -105,22 +104,32 @@ pub struct Message {
     pub extension: Option<Extension>,
 }
 
-/// DNS Question.
+/// Question struct containing a domain name, question [`Type`] and question [`Class`].
 #[derive(Default)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
-    /// A valid UTF-8 encoded domain name.
+    /// The domain name in question. Must be a valid UTF-8 encoded domain name.
     pub name: String,
+
+    /// The question's type.
+    ///
+    /// All Type's are valid, including the pseudo types (e.g [`Type::ANY`]).
     pub r#type: Type,
+
+    /// The question's class.
     pub class: Class,
 }
 
-/// Resource Record (RR)
+/// Resource Record (RR) returned by DNS servers containing a answer to the question.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Record {
+    /// A valid UTF-8 encoded domain name.
     pub name: String,
 
+    /// The resource's type.
     pub r#type: Type,
+
+    /// The resource's class.
     pub class: Class,
 
     /// The number of seconds that the resource record may be cached
@@ -129,6 +138,7 @@ pub struct Record {
     /// transaction in progress.
     pub ttl: Duration,
 
+    /// The actual resource.
     pub resource: Resource,
 }
 
@@ -143,7 +153,10 @@ pub struct Extension {
     /// Requestor's UDP payload size.
     pub payload_size: u16,
 
+    /// Extended RCode.
     pub extend_rcode: u8,
+
+    /// Version of the extension.
     pub version: u8,
 
     /// DNSSEC OK bit as defined by [rfc3225].
@@ -155,7 +168,7 @@ pub struct Extension {
 impl Default for Extension {
     fn default() -> Self {
         Extension {
-            payload_size: 512, // The min valid size.
+            payload_size: 4096,
             extend_rcode: 0,
             version: 0,
             dnssec_ok: false,
@@ -163,12 +176,14 @@ impl Default for Extension {
     }
 }
 
+/// Query or Response bit.
 #[derive(Copy, Clone, Debug, EnumString, PartialEq)]
 pub enum QR {
     Query = 0,
     Response = 1,
 }
 
+/// Defaults to [`QR::Query`].
 impl Default for QR {
     fn default() -> Self {
         QR::Query
@@ -191,10 +206,11 @@ impl QR {
     }
 }
 
-/// Specifies kind of query in this message. See [rfc1035], [rfc6895] and <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5>
+/// Specifies kind of query in this message. See [rfc1035], [rfc6895] and [DNS Parameters].
 ///
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
+/// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u8)] // Really only 4 bits
@@ -224,6 +240,8 @@ pub enum Opcode {
     DSO = 6,
     // 3 and 7-15 Remain unassigned.
 }
+
+/// Defaults to [`Opcode::Query`].
 impl Default for Opcode {
     fn default() -> Self {
         Opcode::Query
@@ -231,9 +249,10 @@ impl Default for Opcode {
 }
 
 /// Response Codes.
-/// See [rfc1035] and <https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6>
+/// See [rfc1035] and [DNS Parameters].
 ///
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 #[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u16)] // In headers it is 4 bits, in extended OPTS it is 16.
@@ -296,6 +315,7 @@ pub enum Rcode {
     // 12-15 Unassigned
 }
 
+/// Defaults to [`Rcode::NoError`].
 impl Default for Rcode {
     fn default() -> Self {
         Rcode::NoError
@@ -360,9 +380,10 @@ pub enum Type {
     ANY = 255,
 }
 
+/// Defaults to [`Type::ANY`].
 impl Default for Type {
     fn default() -> Self {
-        Type::A
+        Type::ANY
     }
 }
 
@@ -393,7 +414,10 @@ pub enum Class {
     #[strum(serialize = "HS")]
     Hesiod = 4,
 
-    None = 254, // NONE [RFC2136]
+    /// No class specified, see [rfc2136]
+    ///
+    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    None = 254,
 
     /// * (ANY) See [rfc1035]
     ///
@@ -406,26 +430,28 @@ pub enum Class {
     // 65535         Reserved    [RFC6895]
 }
 
+/// Defaults to [`Class::Internet`].
 impl Default for Class {
     fn default() -> Self {
         Class::Internet
     }
 }
 
+/// Recource Record Definitions.
 // This should be kept in sync with Type.
 // TODO Merge this with Type (when https://github.com/rust-lang/rust/issues/60553 is finished).
 #[allow(clippy::upper_case_acronyms)]
 pub enum Resource {
-    A(Ipv4Addr), // Support non-Internet classes?
-    AAAA(Ipv6Addr),
+    A(A), // Support non-Internet classes?
+    AAAA(AAAA),
 
-    CNAME(String),
-    NS(String),
-    PTR(String),
+    CNAME(CNAME),
+    NS(NS),
+    PTR(PTR),
 
     // TODO Implement RFC 1464 for further parsing of the text
     // TODO per RFC 4408 a TXT record is allowed to contain multiple strings
-    TXT(Vec<Vec<u8>>),
+    TXT(TXT),
 
     MX(MX),
     SOA(SOA),

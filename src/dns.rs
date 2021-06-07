@@ -134,8 +134,8 @@ impl<'a> MessageParser<'a> {
     }
 }
 
+/// Defaults to a [`Message`] with sensibles values for querying.
 impl Default for Message {
-    /// Returns a [`Message`] with sensibles defaults for querying.
     fn default() -> Self {
         Message {
             id: Message::random_id(),

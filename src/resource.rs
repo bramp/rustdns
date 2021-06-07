@@ -8,6 +8,24 @@ use std::io::Read;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
+/// IPv4 Address (A) record.
+pub type A = Ipv4Addr;
+
+/// IPv6 Address (AAAA) record.
+pub type AAAA = Ipv6Addr;
+
+/// Name Server (NS) record for delegating a the given authoritative name servers.
+pub type NS = String;
+
+/// Canonical name (CNAME) record, for aliasing one name to another.
+pub type CNAME = String;
+
+/// Pointer (PTR) record most commonly used for most common use is for implementing reverse DNS lookups.
+pub type PTR = String;
+
+/// Text (TXT) record for arbitrary human-readable text in a DNS record.
+pub type TXT = Vec<Vec<u8>>;
+
 impl Record {
     pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
@@ -37,6 +55,8 @@ impl Record {
         // If parsing fails for this record, (and the length seems correct),
         // we could turn this into a warning instead of a full error.
 
+        // TODO Consider changing these parse methods to some kind of common function
+        // that accepts Cursor and Class.
         let resource = match r#type {
             Type::A => Resource::A(parse_a(&mut record, class)?),
             Type::AAAA => Resource::AAAA(parse_aaaa(&mut record, class)?),
@@ -81,16 +101,27 @@ impl Record {
     }
 }
 
-/// MX Record.
+/// Mail EXchanger (MX) record specifies the mail server responsible
+/// for accepting email messages on behalf of a domain name.
 pub struct MX {
-    pub preference: u16, // The preference given to this RR among others at the same owner.  Lower values are preferred.
-    pub exchange: String, // A host willing to act as a mail exchange for the owner name.
+    /// The preference given to this RR among others at the same owner.
+    /// Lower values are preferred.
+    pub preference: u16,
+
+    /// A host willing to act as a mail exchange for the owner name.
+    pub exchange: String,
 }
 
-/// SOA Record.
+/// Start of Authority (SOA) record containing administrative information
+/// about the zone. See [rfc1035].
+///
+/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 pub struct SOA {
-    pub mname: String, // The name server that was the original or primary source of data for this zone.
-    pub rname: String, // The mailbox of the person responsible for this zone.
+    /// The name server that was the original or primary source of data for this zone.
+    pub mname: String,
+
+    /// The mailbox of the person responsible for this zone.
+    pub rname: String,
 
     pub serial: u32,
 
@@ -100,7 +131,9 @@ pub struct SOA {
     pub minimum: Duration,
 }
 
-/// SRV Record, see <https://datatracker.ietf.org/doc/html/rfc2782>
+/// Service (SRV) record, containg hostname and port number information of specified services. See [rfc2782].
+///
+/// [rfc2782]: <https://datatracker.ietf.org/doc/html/rfc2782>
 pub struct SRV {
     pub priority: u16,
     pub weight: u16,
@@ -108,30 +141,30 @@ pub struct SRV {
     pub name: String,
 }
 
-fn parse_a(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<Ipv4Addr> {
+fn parse_a(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<A> {
     let mut buf = [0_u8; 4];
     cur.read_exact(&mut buf)?;
 
     match class {
-        Class::Internet => Ok(Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3])),
+        Class::Internet => Ok(A::new(buf[0], buf[1], buf[2], buf[3])),
 
         _ => bail!(InvalidData, "unsupported A record class '{}'", class),
     }
 }
 
-fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<Ipv6Addr> {
+fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<AAAA> {
     let mut buf = [0_u8; 16];
     cur.read_exact(&mut buf)?;
 
     match class {
-        Class::Internet => Ok(Ipv6Addr::from(buf)),
+        Class::Internet => Ok(AAAA::from(buf)),
 
         _ => bail!(InvalidData, "unsupported AAAA record class '{}'", class),
     }
 }
 
-fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<Vec<Vec<u8>>> {
-    let mut txts = Vec::new();
+fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
+    let mut txts = TXT::new();
 
     loop {
         // Keep reading until EOF is reached.
