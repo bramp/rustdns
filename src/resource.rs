@@ -12,18 +12,22 @@ use std::time::Duration;
 pub type A = Ipv4Addr;
 
 /// IPv6 Address (AAAA) record.
+#[allow(clippy::upper_case_acronyms)]
 pub type AAAA = Ipv6Addr;
 
 /// Name Server (NS) record for delegating a the given authoritative name servers.
 pub type NS = String;
 
 /// Canonical name (CNAME) record, for aliasing one name to another.
+#[allow(clippy::upper_case_acronyms)]
 pub type CNAME = String;
 
 /// Pointer (PTR) record most commonly used for most common use is for implementing reverse DNS lookups.
+#[allow(clippy::upper_case_acronyms)]
 pub type PTR = String;
 
 /// Text (TXT) record for arbitrary human-readable text in a DNS record.
+#[allow(clippy::upper_case_acronyms)]
 pub type TXT = Vec<Vec<u8>>;
 
 impl Record {
@@ -116,6 +120,7 @@ pub struct MX {
 /// about the zone. See [rfc1035].
 ///
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+#[allow(clippy::upper_case_acronyms)]
 pub struct SOA {
     /// The name server that was the original or primary source of data for this zone.
     pub mname: String,
@@ -134,6 +139,7 @@ pub struct SOA {
 /// Service (SRV) record, containg hostname and port number information of specified services. See [rfc2782].
 ///
 /// [rfc2782]: <https://datatracker.ietf.org/doc/html/rfc2782>
+#[allow(clippy::upper_case_acronyms)]
 pub struct SRV {
     pub priority: u16,
     pub weight: u16,
