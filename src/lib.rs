@@ -167,6 +167,7 @@ mod errors;
 mod io;
 pub mod resource;
 pub mod types;
+pub mod util;
 
 #[macro_use]
 extern crate num_derive;

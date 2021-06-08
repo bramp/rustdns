@@ -354,7 +354,9 @@ pub enum Type {
     CNAME = 5,
     SOA = 6,
 
-    /// Domain name pointer.
+    /// Domain name pointer. See [`util::reverse()`] to create a valid domain name from a IP address.
+    ///
+    /// [`util::reverse()`]: crate::util::reverse()
     PTR = 12,
 
     /// Mail exchange.

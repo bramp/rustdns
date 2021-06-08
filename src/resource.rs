@@ -15,14 +15,16 @@ pub type A = Ipv4Addr;
 #[allow(clippy::upper_case_acronyms)]
 pub type AAAA = Ipv6Addr;
 
-/// Name Server (NS) record for delegating a the given authoritative name servers.
+/// Name Server (NS) record for delegating a the given authoritative name
+/// servers.
 pub type NS = String;
 
 /// Canonical name (CNAME) record, for aliasing one name to another.
 #[allow(clippy::upper_case_acronyms)]
 pub type CNAME = String;
 
-/// Pointer (PTR) record most commonly used for most common use is for implementing reverse DNS lookups.
+/// Pointer (PTR) record most commonly used for most common use is for
+/// implementing reverse DNS lookups.
 #[allow(clippy::upper_case_acronyms)]
 pub type PTR = String;
 

@@ -39,7 +39,6 @@ fn normalise_whitespace(s: &str) -> String {
     return re.replace_all(s, " ").to_string();
 }
 
-
 fn test_from_slice(case: TestCase) {
     let input = match hex::decode(case.binary) {
         Err(e) => panic!("{}: Invalid test case input: {}", case.name, e),

@@ -9,18 +9,6 @@ use std::io;
 use std::io::Cursor;
 use std::io::SeekFrom;
 
-pub fn clamp<T: PartialOrd>(v: T, min: T, max: T) -> T {
-    assert!(min < max);
-
-    if v < min {
-        min
-    } else if v > max {
-        max
-    } else {
-        v
-    }
-}
-
 pub trait SeekExt: io::Seek {
     /// Returns the number of bytes remaining to be consumed.
     /// This is used as a way to check for malformed input.
@@ -58,8 +46,8 @@ impl<'a> CursorExt<&'a [u8]> for Cursor<&'a [u8]> {
     fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<&'a [u8]>> {
         let buf = self.get_ref();
 
-        let start = clamp(start, 0, buf.len());
-        let end = clamp(end, start, buf.len());
+        let start = start.clamp(0, buf.len());
+        let end = end.clamp(start, buf.len());
 
         let record = Cursor::new(&buf[start..end]);
         Ok(record)
