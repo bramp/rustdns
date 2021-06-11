@@ -145,7 +145,9 @@
 //! * [ ] RFC 1035 zone file parsing
 //! * [ ] NSID, Cookies, AXFR/IXFR, TSIG, SIG(0)
 //! * [ ] Refactoring to use <https://github.com/tokio-rs/bytes>
-//!
+//! * [ ] Runtime-independence
+//! * [ ] Change the API to have getters and setters.
+//! * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
 //!
 //! ## Reference
 //!
@@ -161,11 +163,12 @@
 //! [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 //! [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
 
+pub mod clients;
 mod display;
 mod dns;
 mod errors;
 mod io;
-pub mod resource;
+pub mod resource; // TODO Rename resources. OR rename the others to drop the plural
 pub mod types;
 pub mod util;
 

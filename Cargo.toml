@@ -27,6 +27,20 @@ num-derive = "0.3.3"
 idna = "0.2.3"         # Encodes internation domain names
 byteorder = "1.4.3"    # Simplifies the binary parsing
 rand = "0.8.3"
+bytes = "1.0.1"
+
+# Used for the clients
+hyper = { version = "0.14.9", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
+tokio = { version = "1.6.1", features = ["full"] } # TODO Reduce this.
+http = "0.2.4"
+url = "2.2.2"
+
+# Needed for DNS over HTTP (DoH)
+base64 = "0.13.0"      
+hyper-alpn = "0.3.0"      # Uses tokio-rustls
+
+###
+
 
 [dev-dependencies]
 pretty_assertions = "0.7.2"
