@@ -12,8 +12,13 @@ use pretty_assertions::assert_eq;
 /// # Example
 ///
 /// ```rust
-///    assert_eq!(reverse("127.0.0.1".parse()?), "1.0.0.127.in-addr.arpa.");
-///    assert_eq!(reverse("2001:db8::567:89ab".parse()?), "b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.");
+/// use rustdns::util::reverse;
+///
+/// let ip4 = "127.0.0.1".parse().unwrap();
+/// let ip6 = "2001:db8::567:89ab".parse().unwrap();
+///
+/// assert_eq!(reverse(ip4), "1.0.0.127.in-addr.arpa.");
+/// assert_eq!(reverse(ip6), "b.a.9.8.7.6.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.");
 /// ```
 ///
 /// [`Type::PTR`]: crate::Type::PTR
