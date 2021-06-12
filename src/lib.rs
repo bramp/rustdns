@@ -137,7 +137,7 @@
 //! ```
 //!
 //! # TODO (in order of priority)
-//! * [ ] UDP/TCP library
+//! * [ ] Document UDP/TCP library
 //! * [ ] Client side examples
 //! * [ ] Server side examples
 //! * [ ] DNS over TLS (DoT) and DNS over HTTPS (DoH)

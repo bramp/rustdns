@@ -50,7 +50,7 @@ fn main() -> std::io::Result<()> {
 
     let mut output = Vec::new();
 
-    for test in TESTS {
+    for test in &TESTS {
         println!("Running {}", test);
 
         let args: Vec<&str> = test.split_whitespace().collect();

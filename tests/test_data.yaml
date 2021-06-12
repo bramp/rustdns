@@ -3,20 +3,20 @@
   binary: eccb012000010000000000000377777706676f6f676c6503636f6d0000010001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   A     \n\n\n\n"
 - name: Response A www.google.com
-  binary: eccb818000010001000000000377777706676f6f676c6503636f6d0000010001c00c00010001000000c30004acd90564
-  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   A     \n\n\n; ANSWER SECTION:\nwww.google.com.       195 IN   A      172.217.5.100\n\n\n"
+  binary: eccb818000010001000000000377777706676f6f676c6503636f6d0000010001c00c000100010000003c0004acd9a464
+  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   A     \n\n\n; ANSWER SECTION:\nwww.google.com.        60 IN   A      172.217.164.100\n\n\n"
 - name: Request AAAA www.google.com
   binary: eccb012000010000000000000377777706676f6f676c6503636f6d00001c0001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   AAAA  \n\n\n\n"
 - name: Response AAAA www.google.com
-  binary: eccb818000010001000000000377777706676f6f676c6503636f6d00001c0001c00c001c00010000008800102607f8b0400508050000000000002004
-  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   AAAA  \n\n\n; ANSWER SECTION:\nwww.google.com.       136 IN   AAAA   2607:f8b0:4005:805::2004\n\n\n"
+  binary: eccb818000010001000000000377777706676f6f676c6503636f6d00001c0001c00c001c00010000002b00102607f8b0400508050000000000002004
+  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   AAAA  \n\n\n; ANSWER SECTION:\nwww.google.com.        43 IN   AAAA   2607:f8b0:4005:805::2004\n\n\n"
 - name: Request ANY www.google.com
   binary: eccb012000010000000000000377777706676f6f676c6503636f6d0000ff0001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   ANY   \n\n\n\n"
 - name: Response ANY www.google.com
-  binary: eccb818000010002000000000377777706676f6f676c6503636f6d0000ff0001c00c000100010000000f00048efa4404c00c001c00010000000f00102607f8b04007080f0000000000002004
-  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   ANY   \n\n\n; ANSWER SECTION:\nwww.google.com.        15 IN   A      142.250.68.4\nwww.google.com.        15 IN   AAAA   2607:f8b0:4007:80f::2004\n\n\n"
+  binary: eccb818000010002000000000377777706676f6f676c6503636f6d0000ff0001c00c000100010000003f0004acd90e64c00c001c00010000003f00102607f8b04007080e0000000000002004
+  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; www.google.com.         IN   ANY   \n\n\n; ANSWER SECTION:\nwww.google.com.        63 IN   A      172.217.14.100\nwww.google.com.        63 IN   AAAA   2607:f8b0:4007:80e::2004\n\n\n"
 - name: Request CNAME code.google.com
   binary: eccb0120000100000000000004636f646506676f6f676c6503636f6d0000050001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; code.google.com.        IN   CNAME \n\n\n\n"
@@ -27,20 +27,20 @@
   binary: eccb0120000100000000000006676f6f676c6503636f6d00000f0001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; google.com.             IN   MX    \n\n\n\n"
 - name: Response MX google.com
-  binary: eccb8180000100050000000006676f6f676c6503636f6d00000f0001c00c000f000100000157000c000a056173706d78016cc00cc00c000f0001000001570009001e04616c7432c02ac00c000f0001000001570009002804616c7433c02ac00c000f0001000001570009003204616c7434c02ac00c000f0001000001570009001404616c7431c02a
-  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 5, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; google.com.             IN   MX    \n\n\n; ANSWER SECTION:\ngoogle.com.           343 IN   MX     10 aspmx.l.google.com.\ngoogle.com.           343 IN   MX     30 alt2.aspmx.l.google.com.\ngoogle.com.           343 IN   MX     40 alt3.aspmx.l.google.com.\ngoogle.com.           343 IN   MX     50 alt4.aspmx.l.google.com.\ngoogle.com.           343 IN   MX     20 alt1.aspmx.l.google.com.\n\n\n"
+  binary: eccb8180000100050000000006676f6f676c6503636f6d00000f0001c00c000f0001000000f6000c000a056173706d78016cc00cc00c000f0001000000f60009001e04616c7432c02ac00c000f0001000000f60009001404616c7431c02ac00c000f0001000000f60009003204616c7434c02ac00c000f0001000000f60009002804616c7433c02a
+  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 5, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; google.com.             IN   MX    \n\n\n; ANSWER SECTION:\ngoogle.com.           246 IN   MX     10 aspmx.l.google.com.\ngoogle.com.           246 IN   MX     30 alt2.aspmx.l.google.com.\ngoogle.com.           246 IN   MX     20 alt1.aspmx.l.google.com.\ngoogle.com.           246 IN   MX     50 alt4.aspmx.l.google.com.\ngoogle.com.           246 IN   MX     40 alt3.aspmx.l.google.com.\n\n\n"
 - name: Request PTR 4.4.8.8.in-addr.arpa
   binary: eccb01200001000000000000013401340138013807696e2d61646472046172706100000c0001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; 4.4.8.8.in-addr.arpa.      IN   PTR   \n\n\n\n"
 - name: Response PTR 4.4.8.8.in-addr.arpa
-  binary: eccb81800001000100000000013401340138013807696e2d61646472046172706100000c0001c00c000c0001000047f3000c03646e7306676f6f676c6500
-  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; 4.4.8.8.in-addr.arpa.      IN   PTR   \n\n\n; ANSWER SECTION:\n4.4.8.8.in-addr.arpa. 18419 IN   PTR    dns.google.\n\n\n"
+  binary: eccb81800001000100000000013401340138013807696e2d61646472046172706100000c0001c00c000c0001000050aa000c03646e7306676f6f676c6500
+  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; 4.4.8.8.in-addr.arpa.      IN   PTR   \n\n\n; ANSWER SECTION:\n4.4.8.8.in-addr.arpa. 20650 IN   PTR    dns.google.\n\n\n"
 - name: Request SOA google.com
   binary: eccb0120000100000000000006676f6f676c6503636f6d0000060001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; google.com.             IN   SOA   \n\n\n\n"
 - name: Response SOA google.com
-  binary: eccb8180000100010000000006676f6f676c6503636f6d0000060001c00c00060001000000040026036e7331c00c09646e732d61646d696ec00c1682bff40000038400000384000007080000003c
-  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; google.com.             IN   SOA   \n\n\n; ANSWER SECTION:\ngoogle.com.             4 IN   SOA    ns1.google.com. dns-admin.google.com. 377667572 900 900 1800 60\n\n\n"
+  binary: eccb8180000100010000000006676f6f676c6503636f6d0000060001c00c00060001000000380026036e7331c00c09646e732d61646d696ec00c16978f7a0000038400000384000007080000003c
+  string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; google.com.             IN   SOA   \n\n\n; ANSWER SECTION:\ngoogle.com.            56 IN   SOA    ns1.google.com. dns-admin.google.com. 379031418 900 900 1800 60\n\n\n"
 - name: Request SRV _ldap._tcp.google.com
   binary: eccb01200001000000000000055f6c646170045f74637006676f6f676c6503636f6d0000210001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; _ldap._tcp.google.com.      IN   SRV   \n\n\n\n"
@@ -63,5 +63,5 @@
   binary: eccb0120000100000000000001610000010001
   string: ";; ->>HEADER<<- opcode: Query, status: NoError, id: 60619\n;; flags: rd ad; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; a.                      IN   A     \n\n\n\n"
 - name: Response A a
-  binary: eccb81a300010000000100000161000001000100000600010001517c004001610c726f6f742d73657276657273036e657400056e73746c640c766572697369676e2d67727303636f6d007876eff8000007080000038400093a8000015180
-  string: ";; ->>HEADER<<- opcode: Query, status: NXDomain, id: 60619\n;; flags: qr rd ra ad; QUERY: 1, ANSWER: 0, AUTHORITY: 1, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; a.                      IN   A     \n\n\n; AUTHORITY SECTION:\n.                    86396 IN   SOA    a.root-servers.net. nstld.verisign-grs.com. 2021060600 1800 900 604800 86400\n\n\n"
+  binary: eccb81a3000100000001000001610000010001000006000100015125004001610c726f6f742d73657276657273036e657400056e73746c640c766572697369676e2d67727303636f6d007876f251000007080000038400093a8000015180
+  string: ";; ->>HEADER<<- opcode: Query, status: NXDomain, id: 60619\n;; flags: qr rd ra ad; QUERY: 1, ANSWER: 0, AUTHORITY: 1, ADDITIONAL: 0\n\n;; QUESTION SECTION:\n; a.                      IN   A     \n\n\n; AUTHORITY SECTION:\n.                    86309 IN   SOA    a.root-servers.net. nstld.verisign-grs.com. 2021061201 1800 900 604800 86400\n\n\n"
