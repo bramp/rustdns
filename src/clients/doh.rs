@@ -1,6 +1,8 @@
 use crate::bail;
+use crate::clients::AsyncExchanger;
 use crate::Message;
 use crate::StatsBuilder;
+use async_trait::async_trait;
 use http::header::*;
 use http::{Method, Request};
 use hyper::client::connect::HttpInfo;
@@ -22,7 +24,7 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///
 /// ```rust
 /// use rustdns::types::*;
-/// use rustdns::clients::DoHClient;
+/// use rustdns::clients::*;
 /// use std::io::Result;
 ///
 /// #[tokio::main]
@@ -69,11 +71,14 @@ impl DoHClient {
             ..Default::default()
         })
     }
+}
 
+#[async_trait]
+impl AsyncExchanger for DoHClient {
     /// Sends the [`Message`] to the `server` via TCP and returns the result.
     // TODO Decide if this should be async or not.
     // Can return ::std::io::Error
-    pub async fn exchange(&self, query: &Message) -> Result<Message> {
+    async fn exchange(&self, query: &Message) -> Result<Message> {
         let mut query = query.clone();
         query.id = 0;
 

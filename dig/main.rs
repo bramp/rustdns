@@ -3,6 +3,7 @@
 mod util;
 
 use rustdns::clients::*;
+use rustdns::clients::Exchanger;
 use rustdns::types::*;
 use std::env;
 use std::process;

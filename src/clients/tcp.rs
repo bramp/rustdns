@@ -1,3 +1,4 @@
+use crate::clients::Exchanger;
 use crate::Message;
 use crate::StatsBuilder;
 use std::io;
@@ -14,7 +15,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use rustdns::types::*;
-/// use rustdns::clients::TcpClient;
+/// use rustdns::clients::*;
 /// use std::io::Result;
 ///
 /// fn main() -> Result<()> {
@@ -63,9 +64,11 @@ impl TcpClient {
             ..Default::default()
         })
     }
+}
 
+impl Exchanger for TcpClient {
     /// Sends the [`Message`] to the `server` via TCP and returns the result.
-    pub fn exchange(&self, query: &Message) -> io::Result<Message> {
+    fn exchange(&self, query: &Message) -> io::Result<Message> {
         let mut stream = TcpStream::connect_timeout(&self.servers[0], self.connect_timeout)?;
         stream.set_nodelay(true)?; // We send discrete packets, so we can send as soon as possible.
         stream.set_read_timeout(self.read_timeout)?;

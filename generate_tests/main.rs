@@ -4,7 +4,7 @@
 /// # Example
 ///
 /// ```
-/// cargo run --bin generate_tests
+/// cargo run -p generate_tests
 /// ```
 /// If the tool fails, that indicates maybe a problem with the library.
 use serde::Serialize;

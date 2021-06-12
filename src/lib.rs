@@ -111,10 +111,10 @@
 //! # Testing
 //!
 //! ```shell
-//! $ cargo test
+//! $ cargo test --all
 //!
 //! # or the handy
-//! $ cargo watch -- cargo test --lib -- --nocapture
+//! $ cargo watch -- cargo test --all -- --nocapture
 //! ```
 //!
 //! The test suite is full of stored real life examples, from querying real DNS records.
