@@ -1,4 +1,5 @@
 use crate::Message;
+use crate::StatsBuilder;
 use std::io;
 use std::io::Read;
 use std::io::Write;
@@ -72,6 +73,8 @@ impl TcpClient {
 
         let message = query.to_vec()?;
 
+        let stats = StatsBuilder::start(message.len() + 2);
+
         // Two byte length prefix followed by the message.
         // TODO Move this into a single message!
         stream.write_all(&(message.len() as u16).to_be_bytes())?;
@@ -84,9 +87,11 @@ impl TcpClient {
 
         // and finally the message
         let mut buf = vec![0; len.into()];
+
         stream.read_exact(&mut buf)?;
 
-        let resp = Message::from_slice(&buf)?;
+        let mut resp = Message::from_slice(&buf)?;
+        resp.stats = Some(stats.end(stream.peer_addr()?, (len + 2).into()));
 
         Ok(resp)
     }

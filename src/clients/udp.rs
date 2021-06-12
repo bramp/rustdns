@@ -1,4 +1,6 @@
 use crate::Message;
+use crate::StatsBuilder;
+
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -71,12 +73,17 @@ impl UdpClient {
         // from the server.
         socket.connect(self.servers.as_slice())?;
 
-        socket.send(&query.to_vec()?)?;
+        let req = query.to_vec()?;
+
+        let stats = StatsBuilder::start(req.len());
+        socket.send(&req)?;
 
         // TODO Set this to the size in req.
         let mut buf = [0; 4096];
         let len = socket.recv(&mut buf)?;
-        let resp = Message::from_slice(&buf[0..len])?;
+        let mut resp = Message::from_slice(&buf[0..len])?;
+
+        resp.stats = Some(stats.end(socket.peer_addr()?, len));
 
         Ok(resp)
     }

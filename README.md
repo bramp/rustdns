@@ -151,7 +151,8 @@ $ cargo publish
 * [ ] RFC 1035 zone file parsing
 * [ ] NSID, Cookies, AXFR/IXFR, TSIG, SIG(0)
 * [ ] Refactoring to use <https://github.com/tokio-rs/bytes>
-
+* [ ] Change the API to have getters and setters.
+* [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
 
 ### Reference
 

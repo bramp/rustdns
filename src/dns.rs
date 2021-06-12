@@ -19,8 +19,9 @@ enum RecordSection {
 /// A helper class to hold state while the parsing is happening.
 // TODO add list of parse errors
 pub(crate) struct MessageParser<'a> {
+    // TODO Once https://github.com/tokio-rs/bytes/issues/330 is resolved, consider
+    // switching to bytes:Buf
     cur: Cursor<&'a [u8]>,
-
     m: Message,
 }
 
@@ -155,6 +156,8 @@ impl Default for Message {
             authoritys: Vec::default(),
             additionals: Vec::default(),
             extension: None,
+
+            stats: None,
         }
     }
 }

@@ -1,12 +1,14 @@
+use crate::bail;
 use crate::Message;
+use crate::StatsBuilder;
+use http::header::*;
+use http::{Method, Request};
+use hyper::client::connect::HttpInfo;
 use hyper::{Body, Client};
 use hyper_alpn::AlpnConnector;
 use std::io;
 use std::time::Duration;
-use http::header::*;
-use http::{Method, Request};
 use url::Url;
-use crate::bail;
 
 // For use in Content-type and Accept headers
 const CONTENT_TYPE_APPLICATION_DNS_MESSAGE: &str = "application/dns-message";
@@ -30,6 +32,7 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///
 ///     let response = DoHClient::new("https://dns.google/dns-query")?
 ///        .exchange(&query)
+///        .await
 ///        .expect("could not exchange message");
 ///
 ///     println!("{}", response);
@@ -114,29 +117,47 @@ impl DoHClient {
                     .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
                     .body(Body::from(p)) // content-length header will be added.
             }
-            _ => panic!("only GET and POST allowed"), // TODO Return a error!
+            _ => bail!(InvalidInput, "only GET and POST allowed"),
         };
 
-        let req = req.unwrap();
-        // Await the response...
-        let resp = client.request(req).await?;
+        let stats = StatsBuilder::start(0);
+
+        let resp = client.request(req.unwrap()).await?;
         // TODO This media type restricts the maximum size of the DNS message to 65535 bytes
 
         if let Some(content_type) = resp.headers().get(CONTENT_TYPE) {
             if content_type != CONTENT_TYPE_APPLICATION_DNS_MESSAGE {
-                bail!(InvalidInput, "recevied invalid content-type: {:?}", content_type);
+                bail!(
+                    InvalidData,
+                    "recevied invalid content-type: {:?}",
+                    content_type
+                );
             }
         }
 
         if resp.status().is_success() {
+            // TODO check Content-Length, but don't allow us to consume a body longer than 65535 bytes!
+
+            // Get connection information (if available)
+            let remote_addr = match resp.extensions().get::<HttpInfo>() {
+                Some(http_info) => http_info.remote_addr(),
+                None => "0.0.0.0:0".parse()?, // Dummy address
+            };
+
             // Read the full body
             let body = hyper::body::to_bytes(resp.into_body()).await?;
 
-            let m = Message::from_slice(&body)?;
-            return Ok(m)
+            let mut m = Message::from_slice(&body)?;
+            m.stats = Some(stats.end(remote_addr, body.len()));
+
+            return Ok(m);
         }
 
         // TODO Retry on 500s. If this is a 4xx we should not retry. Should we follow 3xx?
-        bail!(InvalidInput, "recevied unexpected HTTP status code: {:}", resp.status());      
+        bail!(
+            InvalidInput,
+            "recevied unexpected HTTP status code: {:}",
+            resp.status()
+        );
     }
 }

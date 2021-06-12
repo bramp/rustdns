@@ -1,0 +1,20 @@
+# dig/Cargo.toml 
+
+[package]
+name = "dig"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+rustdns = {path = "../" }
+
+encoding8 = "0.3.2"    # Used for pretty-printing
+strum = "0.21"         # Simple macros for making Enum better
+strum_macros = "0.21"
+tokio = { version = "1.6.1", features = ["macros", "rt-multi-thread"] }
+clap = "3.0.0-beta.2"  # Command line parsing
+time = "0.2.26"
+
+[[bin]]
+name = "dig"
+path = "main.rs"

@@ -5,7 +5,6 @@ name = "rustdns"
 version = "0.1.0"
 authors = ["Andrew Brampton <brampton@gmail.com>"]
 categories = ["encoding", "network-programming"]
-default-run = "rustdns"
 description = "A DNS parsing library"
 edition = "2018"
 keywords = ["dns", "idna", "serialization"]
@@ -15,11 +14,12 @@ repository = "https://github.com/bramp/rustdns"
 
 [workspace]
 members = [
-    "generate_tests",
+    "generate_tests",   # Used to generate test data (by querying real servers)
+    "dig",              # Example dig client
+    # "nslookup",         # Example nslookup client
 ]
 
 [dependencies]
-encoding8 = "0.3.2"    # Used by rustdns for pretty-printing
 strum = "0.21"         # Simple macros for making Enum better
 strum_macros = "0.21"
 num-traits = "0.2.14"  # More macros for making Enum better
@@ -31,13 +31,13 @@ bytes = "1.0.1"
 
 # Used for the clients
 hyper = { version = "0.14.9", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
-tokio = { version = "1.6.1", features = ["full"] } # TODO Reduce this.
 http = "0.2.4"
 url = "2.2.2"
 
 # Needed for DNS over HTTP (DoH)
 base64 = "0.13.0"      
 hyper-alpn = "0.3.0"      # Uses tokio-rustls
+time = "0.2.26"
 
 ###
 
@@ -48,7 +48,4 @@ serde = { version = "1.0.126", features = ["derive"] }
 serde_yaml = "0.8.17"
 hex = "0.4.3"
 regex = "1.5.4"  # Used to cleanup the test cases for better comparison.
-
-[[bin]]
-name = "rustdns"
-path = "src/rustdns/main.rs"
+tokio = { version = "1.6.1", features = ["macros", "rt-multi-thread"] }

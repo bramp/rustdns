@@ -99,14 +99,14 @@
 //! ; ANSWER SECTION:
 //! www.google.com.       110 IN   A      142.250.72.196
 //!
-//! $ cargo run AAAA www.google.com
-//! $ cargo run ANY www.google.com
-//! $ cargo run CNAME code.google.com
-//! $ cargo run MX google.com
-//! $ cargo run PTR 4.4.8.8.in-addr.arpa
-//! $ cargo run SOA google.com
-//! $ cargo run SRV _ldap._tcp.google.com
-//! $ cargo run TXT google.com
+//! $ cargo run -p dig -- AAAA www.google.com
+//! $ cargo run -p dig -- ANY www.google.com
+//! $ cargo run -p dig -- CNAME code.google.com
+//! $ cargo run -p dig -- MX google.com
+//! $ cargo run -p dig -- PTR 4.4.8.8.in-addr.arpa
+//! $ cargo run -p dig -- SOA google.com
+//! $ cargo run -p dig -- SRV _ldap._tcp.google.com
+//! $ cargo run -p dig -- TXT google.com
 //! ```
 //! # Testing
 //!
@@ -144,10 +144,10 @@
 //! * [ ] DNSSEC: Signing, validating and key generation for DSA, RSA, ECDSA and Ed25519
 //! * [ ] RFC 1035 zone file parsing
 //! * [ ] NSID, Cookies, AXFR/IXFR, TSIG, SIG(0)
-//! * [ ] Refactoring to use <https://github.com/tokio-rs/bytes>
 //! * [ ] Runtime-independence
 //! * [ ] Change the API to have getters and setters.
 //! * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
+//! * [ ] Implement more dig features, such as +trace
 //!
 //! ## Reference
 //!

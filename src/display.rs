@@ -1,5 +1,6 @@
 //! Implements the Display trait for the various types, so they output
 //! in `dig` style.
+// Refer to https://github.com/tigeli/bind-utils/blob/master/bin/dig/dig.c for reference.
 
 use crate::resource::MX;
 use crate::resource::SOA;
@@ -8,10 +9,12 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
+use crate::Stats;
 use std::fmt;
 
 /// Displays this message in a format resembling `dig` output.
 impl fmt::Display for Message {
+    // TODO There seems to be whitespace/newlines in this output. Fix.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_header(f)?;
 
@@ -60,11 +63,9 @@ impl fmt::Display for Message {
             writeln!(f)?;
         }
 
-        // TODO
-        // ;; Query time: 46 msec
-        // ;; SERVER: 2601:646:ca00:43c::1#53(2601:646:ca00:43c::1)
-        // ;; WHEN: Fri May 28 14:06:26 PDT 2021
-        // ;; MSG SIZE  rcvd: 63
+        if let Some(stats) = &self.stats {
+            stats.fmt(f)?;
+        }
 
         writeln!(f)
     }
@@ -115,6 +116,22 @@ impl Message {
         )?;
 
         writeln!(f)
+    }
+}
+
+impl fmt::Display for Stats {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, ";; Query time: {} msec", self.duration.as_millis())?; // TODO Support usec as well
+        writeln!(f, ";; SERVER: {}", self.server)?;
+
+        let start: time::OffsetDateTime = self.start.into();
+        // ;; WHEN: Sat Jun 12 12:14:21 PDT 2021
+        writeln!(f, ";; WHEN: {}", start.format("%a %b %-d %H:%M:%S %z %-Y"))?;
+        writeln!(
+            f,
+            ";; MSG SIZE sent: {} rcvd: {}",
+            self.request_size, self.response_size
+        )
     }
 }
 

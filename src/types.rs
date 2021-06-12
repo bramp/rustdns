@@ -1,5 +1,8 @@
 use crate::resource::*;
+use std::net::SocketAddr;
 use std::time::Duration;
+use std::time::Instant;
+use std::time::SystemTime;
 use strum_macros::{Display, EnumString};
 
 /// DNS Message that serves as the root of all DNS requests and responses.
@@ -103,6 +106,9 @@ pub struct Message {
 
     /// Optional EDNS(0) record.
     pub extension: Option<Extension>,
+
+    /// Optional stats about this request, populated by the DNS client.
+    pub stats: Option<Stats>,
 }
 
 /// Question struct containing a domain name, question [`Type`] and question [`Class`].
@@ -175,6 +181,60 @@ impl Default for Extension {
             extend_rcode: 0,
             version: 0,
             dnssec_ok: false,
+        }
+    }
+}
+
+/// Stats related to the specific query, optionally filed in by the client
+/// and does not change the query behaviour.
+#[derive(Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct Stats {
+    /// The time the query was sent to the server.
+    pub start: SystemTime,
+
+    /// The duration of the request.
+    pub duration: Duration,
+
+    /// The server used to service this query.
+    pub server: SocketAddr,
+    // TODO Add another field for the requested server, vs the SocketAddr we actually used.
+    /// The size of the request sent to the server.
+    // TODO Should this include other overheads?
+    pub request_size: usize,
+
+    /// The size of the response from the server.
+    pub response_size: usize,
+}
+
+/// Builder class to aid in the construction of Metadata objects.
+pub(crate) struct StatsBuilder {
+    start: SystemTime,
+    timer: Instant,
+    request_size: usize,
+}
+
+impl StatsBuilder {
+    /// Call just before the request is sent, with the payload size.
+    pub fn start(request_size: usize) -> StatsBuilder {
+        StatsBuilder {
+            start: SystemTime::now(),
+            timer: Instant::now(),
+
+            request_size,
+        }
+    }
+
+    /// Call just after the response is receivesd. Consumes the MetadataBuilder and returns a Metadata.
+    pub fn end(self, server: SocketAddr, response_size: usize) -> Stats {
+        Stats {
+            start: self.start,
+            duration: self.timer.elapsed(),
+
+            request_size: self.request_size,
+
+            server,
+            response_size,
         }
     }
 }
