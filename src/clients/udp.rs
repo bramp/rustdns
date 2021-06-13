@@ -64,7 +64,7 @@ impl UdpClient {
 }
 
 impl Exchanger for UdpClient {
-    /// Sends the [`Message`] to the `server` via UDP and returns the result.
+    /// Sends the query [`Message`] to the `server` via UDP and returns the result.
     fn exchange(&self, query: &Message) -> io::Result<Message> {
         // TODO Implement retries, backoffs, and cycling of servers.
         // per https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1

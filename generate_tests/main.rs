@@ -17,7 +17,8 @@ use rustdns::types::*;
 const TEST_DATA_FILENAME: &str = "tests/test_data.yaml";
 
 // Set of actual queries we do, to get example output.
-const TESTS: [&str; 11] = [
+const TESTS: [&str; 19] = [
+    // Some Google domains I found.
     "A www.google.com",
     "AAAA www.google.com",
     "ANY www.google.com",
@@ -29,6 +30,15 @@ const TESTS: [&str; 11] = [
     "TXT google.com",
     "A ☺️.com",
     "A a", // Invalid TLD
+    // Some test domains I setup.
+    "A a.bramp.net",
+    "AAAA aaaa.bramp.net",
+    "CNAME aaaa.bramp.net",
+    "MX aaaa.bramp.net",
+    "CNAME cname-loop1.bramp.net",
+    "CNAME cname-loop2.bramp.net",
+    "NS ns.bramp.net",
+    "TXT txt.bramp.net",
 ];
 
 #[derive(Serialize)]

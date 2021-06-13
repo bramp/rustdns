@@ -2,13 +2,22 @@
 // rustdns {record} {domain}
 mod util;
 
-use rustdns::clients::*;
+use http::method::Method;
 use rustdns::clients::Exchanger;
+use rustdns::clients::*;
 use rustdns::types::*;
 use std::env;
+use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::process;
 use std::str::FromStr;
+use std::fmt;
+use std::io;
+use std::vec;
 use strum_macros::{Display, EnumString};
+use url::Url;
+
+#[macro_use] extern crate pretty_assertions;
 
 #[derive(Display, EnumString, PartialEq)]
 enum Client {
@@ -31,15 +40,104 @@ struct Args {
     domains: Vec<String>,
 }
 
+#[derive(Debug)]
+struct ArgParseError {
+    details: String,
+}
+
+impl fmt::Display for ArgParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"{}", self.details)
+    }
+}
+
+impl std::error::Error for ArgParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+
+
+/// Parses a string into a SocketAddr allowing for the port to be missing.
+fn sockaddr_parse_with_port(addr: &str, default_port: u16) -> io::Result<vec::IntoIter<SocketAddr>> {
+    match addr.to_socket_addrs() {
+        // Try parsing again, with the default port.
+        Err(_e) => (addr, default_port).to_socket_addrs(),
+        Ok(addrs) => Ok(addrs),
+    }
+}
+
+impl Args {
+    /// Helper function to return the list of servers as a `Vec[SocketAddr]`.
+    fn servers_to_sockaddrs(
+        &self,
+        default_port: u16
+    ) -> std::result::Result<Vec<SocketAddr>, ArgParseError> {
+        Ok(self.servers.iter().map(|addr| {
+            // Each address could be invalid, or return multiple SocketAddr.
+            match sockaddr_parse_with_port(addr, default_port) {
+                Err(e) => Err(ArgParseError{
+                    details: format!("failed to parse '{}': {}", addr, e),
+                }),
+                Ok(addrs) => Ok(addrs),
+            }
+        }).collect::<std::result::Result<Vec<_>, _>>()?
+
+        // We now have a collection of vec::IntoIter<SocketAddr>, flatten.
+        // We would use .flat_map(), but it doesn't handle the Error case :(
+        .into_iter()
+        .flatten()
+        .collect())
+    }
+
+    /// Helper function to return the list of servers as a `Vec[Url]`.
+    fn servers_to_urls(&self) -> std::result::Result<Vec<Url>, url::ParseError> {
+        self.servers.iter().map(|x| x.parse()).collect()
+    }
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Args {
+            client: Client::Udp,
+            servers: Vec::new(),
+
+            r#type: Type::A,
+            domains: Vec::new(),
+        }
+    }
+}
+
+
+#[test]
+fn test_servers_to_sockaddrs() {
+    let mut a = Args::default();
+    a.servers.push("1.2.3.4".to_string());         // This requires using the default port.
+    a.servers.push("aaaaa.bramp.net".to_string()); // This resolves to two records.
+    a.servers.push("5.6.7.8:453".to_string());     // This uses a different port.
+
+    // This test may be flakly, if it is running in an environment that doesn't
+    // have both IPv4 and IPv6, and has DNS queries that can fail.
+    // TODO Figure out a way to make this more robust.
+    let mut addrs = a.servers_to_sockaddrs(53).expect("resolution failed");
+    let mut want = vec![
+        "1.2.3.4:53".parse().unwrap(),
+        "127.0.0.1:53".parse().unwrap(),
+        "[::1]:53".parse().unwrap(),
+        "5.6.7.8:453".parse().unwrap(),
+    ];
+
+    // Sort because [::1]:53 or  127.0.0.1:53 may switch places.
+    addrs.sort();
+    want.sort();
+
+    assert_eq!(addrs, want);
+}
+
+
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
-    let mut result = Args {
-        client: Client::Udp,
-        servers: Vec::new(),
-
-        r#type: Type::A,
-        domains: Vec::new(),
-    };
-
+    let mut result = Args::default();
     let mut type_or_domain = Vec::<String>::new();
 
     for arg in args {
@@ -56,7 +154,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
                 if arg.starts_with('@') {
                     result
                         .servers
-                        .push(arg.strip_prefix("@").unwrap().to_string())
+                        .push(arg.strip_prefix("@").unwrap().to_string()) // Unwrap should not panic
                 } else {
                     type_or_domain.push(arg)
                 }
@@ -88,6 +186,48 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
         }
     }
 
+    if result.servers.is_empty() {
+        // TODO If no servers are provided determine the local server (from /etc/nslookup.conf for example)
+        eprintln!(";; No servers specified, using Google's DNS servers");
+        match result.client {
+            Client::Udp | Client::Tcp => {
+                result.servers.push("8.8.8.8".to_string());
+                result.servers.push("8.8.4.4".to_string());
+                result.servers.push("2001:4860:4860::8888".to_string());
+                result.servers.push("2001:4860:4860::8844".to_string());
+            }
+            Client::DoH => result
+                .servers
+                .push("https://dns.google/dns-query".to_string()),
+        }
+
+        /*
+        // TODO Create a function that returns the appropriate ones from this list:
+
+        Cisco OpenDNS:
+            208.67.222.222 and 208.67.220.220; TCP/UDP
+            https://doh.opendns.com/dns-query
+
+        Cloudflare:
+            1.1.1.1 and 1.0.0.1;
+            2606:4700:4700::1111
+            2606:4700:4700::1001
+            https://cloudflare-dns.com/dns-query
+
+        Google Public DNS:
+            8.8.8.8 and 8.8.4.4; and
+            2001:4860:4860::8888
+            2001:4860:4860::8844
+            https://dns.google/dns-query
+
+        Quad9: 9.9.9.9 and 149.112.112.112.
+            2620:fe::fe
+            2620:fe::9
+            https://dns.quad9.net/dns-query
+            tls://dns.quad9.net
+        */
+    }
+
     Ok(result)
 }
 
@@ -104,7 +244,7 @@ async fn main() -> Result<()> {
 
     let mut query = Message::default();
 
-    for domain in args.domains {
+    for domain in &args.domains {
         query.add_question(&domain, args.r#type, Class::Internet);
     }
     query.add_extension(Extension {
@@ -120,13 +260,15 @@ async fn main() -> Result<()> {
 
     // TODO make all DNS client implement a Exchange trait
     let resp = match args.client {
-        Client::Udp => UdpClient::new("8.8.8.8:53")?
+        Client::Udp => UdpClient::new(args.servers_to_sockaddrs(53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
-        Client::Tcp => TcpClient::new("8.8.8.8:53")?
+
+        Client::Tcp => TcpClient::new(args.servers_to_sockaddrs(53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
-        Client::DoH => DoHClient::new("https://dns.google/dns-query")?
+
+        Client::DoH => DoHClient::new(args.servers_to_urls()?.as_slice(), Method::GET)?
             .exchange(&query)
             .await
             .expect("could not exchange message"),

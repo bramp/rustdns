@@ -156,11 +156,14 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "encoding8",
+ "http",
+ "pretty_assertions",
  "rustdns",
  "strum",
  "strum_macros",
  "time",
  "tokio",
+ "url",
 ]
 
 [[package]]

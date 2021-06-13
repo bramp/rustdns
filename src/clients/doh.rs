@@ -1,5 +1,6 @@
 use crate::bail;
 use crate::clients::AsyncExchanger;
+use crate::clients::ToUrls;
 use crate::Message;
 use crate::StatsBuilder;
 use async_trait::async_trait;
@@ -25,6 +26,7 @@ const DNS_QUERY_PARAM: &str = "dns";
 /// ```rust
 /// use rustdns::types::*;
 /// use rustdns::clients::*;
+/// use http::method::Method;
 /// use std::io::Result;
 ///
 /// #[tokio::main]
@@ -32,7 +34,7 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///     let mut query = Message::default();
 ///     query.add_question("bramp.net", Type::A, Class::Internet);
 ///
-///     let response = DoHClient::new("https://dns.google/dns-query")?
+///     let response = DoHClient::new("https://dns.google/dns-query", Method::GET)?
 ///        .exchange(&query)
 ///        .await
 ///        .expect("could not exchange message");
@@ -45,15 +47,15 @@ const DNS_QUERY_PARAM: &str = "dns";
 /// See <https://datatracker.ietf.org/doc/html/rfc8484>
 // TODO Document all the options.
 pub struct DoHClient {
-    server: String,
+    servers: Vec<Url>,
     method: Method, // One of POST or GET
 }
 
 impl Default for DoHClient {
     fn default() -> Self {
         DoHClient {
-            server: "".to_string(),
-            method: Method::POST,
+            servers: Vec::default(),
+            method: Method::GET,
         }
     }
 }
@@ -62,13 +64,20 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 
 impl DoHClient {
     /// Creates a new DoHClient bound to the specific servers.
+    /// 
+    /// Be aware that the servers will typically be in the form of `https://domain_name/`. That
+    /// `domain_name` will be resolved by the system's standard DNS library. I don't have a good
+    /// work-around for this yet.
     // TODO Document how it fails.
-    pub fn new(server: &str) -> io::Result<Self> {
-        // https://dns.google/dns-query
-        Ok(Self {
-            server: server.to_string(),
+    pub fn new<A: ToUrls>(servers: A, method: Method) -> io::Result<Self> {
+        match method {
+            Method::GET | Method::POST => (), // Nothing,
+            _ => bail!(InvalidInput, "only GET and POST allowed"),
+        }
 
-            ..Default::default()
+        Ok(Self {
+            servers: servers.to_urls()?.collect(),
+            method,
         })
     }
 }
@@ -109,7 +118,7 @@ impl AsyncExchanger for DoHClient {
                 base64::encode_config_buf(p, base64::URL_SAFE_NO_PAD, &mut buf);
 
                 // and add to the query params.
-                let mut url = Url::parse(&self.server)?;
+                let mut url = self.servers[0].clone(); // TODO Support more than one server
                 url.query_pairs_mut().append_pair(DNS_QUERY_PARAM, &buf);
 
                 // We have to do this wierd as_str().parse() thing because the
@@ -118,7 +127,7 @@ impl AsyncExchanger for DoHClient {
                 req.uri(uri).body(Body::empty())
             }
             Method::POST => {
-                req.uri(&self.server)
+                req.uri(self.servers[0].as_str()) // TODO Support more than one server
                     .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
                     .body(Body::from(p)) // content-length header will be added.
             }

@@ -3,10 +3,12 @@ use std::io;
 
 pub use self::doh::DoHClient;
 pub use self::tcp::TcpClient;
+pub use self::to_urls::ToUrls;
 pub use self::udp::UdpClient;
 
 mod doh;
 mod tcp;
+mod to_urls;
 mod udp;
 
 /// Exchanger takes a query and returns a response.
