@@ -6,16 +6,13 @@ use nom::branch::alt;
 use nom::branch::permutation;
 use nom::bytes::complete::*;
 use nom::character::complete::*;
-use nom::combinator::success;
-
 use nom::combinator::all_consuming;
-use nom::combinator::{map, opt};
+use nom::combinator::map;
+use nom::combinator::success;
 use nom::error::context;
 use nom::error::ContextError;
-
 use nom::error::ParseError;
 use nom::error::VerboseError;
-
 use nom::sequence::pair;
 use nom::sequence::preceded;
 use nom::sequence::terminated;
@@ -242,12 +239,23 @@ fn parse_row<'a, E: ParseError<&'a str> + ContextError<&'a str>>(
     //         ,    , class
     //         ,    ,
 
+    // TODO Since TTL is digits, and would never be confused with a domain/class, I think
+    // we can refactor the below to make ttl a opt(ttl) thus halfing the number of branches.
+
     all_consuming(preceded(
         space0,
         map(
             alt((
-                tuple((some(domain1), permutation((some(ttl1), some(class1))), parse_rr_data)),
-                tuple((some(domain1), pair(some(ttl1), success(None)), parse_rr_data)),
+                tuple((
+                    some(domain1),
+                    permutation((some(ttl1), some(class1))),
+                    parse_rr_data,
+                )),
+                tuple((
+                    some(domain1),
+                    pair(some(ttl1), success(None)),
+                    parse_rr_data,
+                )),
                 tuple((
                     some(domain1),
                     pair(success(None), some(class1)),
@@ -258,7 +266,11 @@ fn parse_row<'a, E: ParseError<&'a str> + ContextError<&'a str>>(
                     pair(success(None), success(None)),
                     parse_rr_data,
                 )),
-                tuple((success(None), permutation((some(ttl1), some(class1))), parse_rr_data)),
+                tuple((
+                    success(None),
+                    permutation((some(ttl1), some(class1))),
+                    parse_rr_data,
+                )),
                 tuple((
                     success(None),
                     pair(some(ttl1), success(None)),
@@ -275,13 +287,11 @@ fn parse_row<'a, E: ParseError<&'a str> + ContextError<&'a str>>(
                     parse_rr_data,
                 )),
             )),
-            |ret| {
-                Row {
-                    name: ret.0,
-                    ttl : ret.1.0,
-                    class : ret.1.1,
-                    resource: ret.2,
-                }
+            |ret| Row {
+                name: ret.0,
+                ttl: ret.1 .0,
+                class: ret.1 .1,
+                resource: ret.2,
             },
         ),
     ))(s)
@@ -440,7 +450,5 @@ mod tests {
         mail2         IN  A     192.0.2.4             ; IPv4 address for mail2.example.com
         mail3         IN  A     192.0.2.5             ; IPv4 address for mail3.example.com
         */
-
-        panic!("blah");
     }
 }
