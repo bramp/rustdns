@@ -59,10 +59,11 @@ impl std::error::Error for ArgParseError {
     }
 }
 
-
-
 /// Parses a string into a SocketAddr allowing for the port to be missing.
-fn sockaddr_parse_with_port(addr: &str, default_port: u16) -> io::Result<vec::IntoIter<SocketAddr>> {
+fn sockaddr_parse_with_port(
+    addr: &str,
+    default_port: u16,
+) -> io::Result<vec::IntoIter<SocketAddr>> {
     match addr.to_socket_addrs() {
         // Try parsing again, with the default port.
         Err(_e) => (addr, default_port).to_socket_addrs(),
@@ -70,29 +71,31 @@ fn sockaddr_parse_with_port(addr: &str, default_port: u16) -> io::Result<vec::In
     }
 }
 
-impl Args {
-    /// Helper function to return the list of servers as a `Vec[SocketAddr]`.
-    fn servers_to_sockaddrs(
-        &self,
-        default_port: u16
-    ) -> std::result::Result<Vec<SocketAddr>, ArgParseError> {
-        Ok(self.servers.iter().map(|addr| {
+/// Helper function to take a vector of domain/port numbers, and return (a possibly larger) `Vec[SocketAddr]`.
+fn to_sockaddrs(
+    servers: Vec<String>,
+    default_port: u16,
+) -> std::result::Result<Vec<SocketAddr>, ArgParseError> {
+    Ok(servers
+        .iter()
+        .map(|addr| {
             // Each address could be invalid, or return multiple SocketAddr.
             match sockaddr_parse_with_port(addr, default_port) {
-                Err(e) => Err(ArgParseError{
+                Err(e) => Err(ArgParseError {
                     details: format!("failed to parse '{}': {}", addr, e),
                 }),
                 Ok(addrs) => Ok(addrs),
             }
-        }).collect::<std::result::Result<Vec<_>, _>>()?
-
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?
         // We now have a collection of vec::IntoIter<SocketAddr>, flatten.
         // We would use .flat_map(), but it doesn't handle the Error case :(
         .into_iter()
         .flatten()
         .collect())
-    }
+}
 
+impl Args {
     /// Helper function to return the list of servers as a `Vec[Url]`.
     fn servers_to_urls(&self) -> std::result::Result<Vec<Url>, url::ParseError> {
         self.servers.iter().map(|x| x.parse()).collect()
@@ -111,18 +114,18 @@ impl Default for Args {
     }
 }
 
-
+// TODO Move into a integration test (due to the use of network)
 #[test]
-fn test_servers_to_sockaddrs() {
-    let mut a = Args::default();
-    a.servers.push("1.2.3.4".to_string());         // This requires using the default port.
-    a.servers.push("aaaaa.bramp.net".to_string()); // This resolves to two records.
-    a.servers.push("5.6.7.8:453".to_string());     // This uses a different port.
+fn test_to_sockaddrs() {
+    let mut servers = Vec::new();
+    servers.push("1.2.3.4".to_string()); // This requires using the default port.
+    servers.push("aaaaa.bramp.net".to_string()); // This resolves to two records.
+    servers.push("5.6.7.8:453".to_string()); // This uses a different port.
 
     // This test may be flakly, if it is running in an environment that doesn't
     // have both IPv4 and IPv6, and has DNS queries that can fail.
     // TODO Figure out a way to make this more robust.
-    let mut addrs = a.servers_to_sockaddrs(53).expect("resolution failed");
+    let mut addrs = to_sockaddrs(servers, 53).expect("resolution failed");
     let mut want = vec![
         "1.2.3.4:53".parse().unwrap(),
         "127.0.0.1:53".parse().unwrap(),
@@ -136,7 +139,6 @@ fn test_servers_to_sockaddrs() {
 
     assert_eq!(addrs, want);
 }
-
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
     let mut result = Args::default();
@@ -262,11 +264,11 @@ async fn main() -> Result<()> {
 
     // TODO make all DNS client implement a Exchange trait
     let resp = match args.client {
-        Client::Udp => UdpClient::new(args.servers_to_sockaddrs(53)?.as_slice())?
+        Client::Udp => UdpClient::new(to_sockaddrs(args.servers, 53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
 
-        Client::Tcp => TcpClient::new(args.servers_to_sockaddrs(53)?.as_slice())?
+        Client::Tcp => TcpClient::new(to_sockaddrs(args.servers, 53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
 
