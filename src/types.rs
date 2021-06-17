@@ -128,14 +128,11 @@ pub struct Question {
 }
 
 /// Resource Record (RR) returned by DNS servers containing a answer to the question.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Record {
     /// A valid UTF-8 encoded domain name.
     pub name: String,
-
-    /// The resource's type.
-    pub r#type: Type,
 
     /// The resource's class.
     pub class: Class,
@@ -148,6 +145,12 @@ pub struct Record {
 
     /// The actual resource.
     pub resource: Resource,
+}
+
+impl Record {
+    pub fn r#type(&self) -> Type {
+        self.resource.r#type()
+    }
 }
 
 /// EDNS(0) extension record as defined in [rfc2671] and [rfc6891].
@@ -502,8 +505,6 @@ impl Default for Class {
 }
 
 /// Recource Record Definitions.
-// This should be kept in sync with Type.
-// TODO Merge this with Type (when https://github.com/rust-lang/rust/issues/60553 is finished).
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone)]
 pub enum Resource {
@@ -525,4 +526,24 @@ pub enum Resource {
     OPT,
 
     ANY, // Not a valid Record Type, but is a Type
+}
+
+impl Resource {
+    pub fn r#type(&self) -> Type {
+        // This should be kept in sync with Type.
+        // TODO Determine if I can generate this with a macro.
+        match self {
+            Resource::A(_) => Type::A,
+            Resource::AAAA(_) => Type::AAAA,
+            Resource::CNAME(_) => Type::CNAME,
+            Resource::NS(_) => Type::NS,
+            Resource::PTR(_) => Type::PTR,
+            Resource::TXT(_) => Type::TXT,
+            Resource::MX(_) => Type::MX,
+            Resource::SOA(_) => Type::SOA,
+            Resource::SRV(_) => Type::SRV,
+            Resource::OPT => Type::OPT,
+            Resource::ANY => Type::ANY,
+        }
+    }
 }

@@ -96,12 +96,8 @@ impl Record {
 
         Ok(Record {
             name,
-
-            r#type,
             class,
-
             ttl: Duration::from_secs(ttl.into()),
-
             resource,
         })
     }

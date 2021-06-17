@@ -155,7 +155,7 @@ impl fmt::Display for Record {
             name = self.name,
             ttl = self.ttl.as_secs(),
             class = self.class,
-            r#type = self.r#type,
+            r#type = self.r#type(),
             resource = self.resource,
         )
     }
