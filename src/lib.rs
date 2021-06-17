@@ -201,3 +201,6 @@ pub use crate::types::*;
 
 #[doc(inline)]
 pub use crate::resource::*;
+
+#[doc(inline)]
+pub use crate::clients::Resolver;
