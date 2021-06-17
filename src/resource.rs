@@ -105,7 +105,7 @@ impl Record {
 
 /// Mail EXchanger (MX) record specifies the mail server responsible
 /// for accepting email messages on behalf of a domain name.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MX {
     /// The preference given to this RR among others at the same owner.
     /// Lower values are preferred.
@@ -119,7 +119,7 @@ pub struct MX {
 /// about the zone. See [rfc1035].
 ///
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct SOA {
     /// The name server that was the original or primary source of data for this zone.
@@ -139,7 +139,7 @@ pub struct SOA {
 /// Service (SRV) record, containg hostname and port number information of specified services. See [rfc2782].
 ///
 /// [rfc2782]: <https://datatracker.ietf.org/doc/html/rfc2782>
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct SRV {
     pub priority: u16,

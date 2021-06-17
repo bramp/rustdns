@@ -49,6 +49,8 @@ fn test_from_slice(case: TestCase) {
         Ok(p) => p,
     };
 
+    // TODO Split this into a few tests. from_slice(), fmt(), to_vec()
+
     // Normalise the formatted output a little (to allow little whitespace changes).
     let got = normalise_whitespace(&format!("{}", m));
     let want = normalise_whitespace(&case.string);

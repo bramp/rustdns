@@ -44,7 +44,7 @@ use strum_macros::{Display, EnumString};
 /// // Now do something with `m`, in this case print it!
 /// println!("DNS Response:\n{}", m);
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
     /// 16-bit identifier assigned by the program that generates any kind of
@@ -112,7 +112,7 @@ pub struct Message {
 }
 
 /// Question struct containing a domain name, question [`Type`] and question [`Class`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// The domain name in question. Must be a valid UTF-8 encoded domain name.
@@ -159,7 +159,7 @@ impl Record {
 /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
 //
 // TODO Support EDNS0_NSID (RFC 5001) and EDNS0_SUBNET (RFC 7871) records within the extension.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Extension {
     /// Requestor's UDP payload size.
@@ -190,7 +190,7 @@ impl Default for Extension {
 
 /// Stats related to the specific query, optionally filed in by the client
 /// and does not change the query behaviour.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Stats {
     /// The time the query was sent to the server.
@@ -243,7 +243,7 @@ impl StatsBuilder {
 }
 
 /// Query or Response bit.
-#[derive(Copy, Clone, EnumString, PartialEq)]
+#[derive(Copy, Clone, Debug, EnumString, PartialEq)]
 pub enum QR {
     Query = 0,
     Response = 1,
@@ -277,7 +277,7 @@ impl QR {
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
-#[derive(Copy, Clone, Display, EnumString, FromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u8)] // Really only 4 bits
 pub enum Opcode {
@@ -319,7 +319,7 @@ impl Default for Opcode {
 ///
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
-#[derive(Copy, Clone, Display, EnumString, FromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u16)] // In headers it is 4 bits, in extended OPTS it is 16.
 pub enum Rcode {
@@ -407,7 +407,7 @@ pub enum ExtendedRcode {
 
 /// Resource Record Type, for example, A, CNAME or SOA.
 ///
-#[derive(Copy, Clone, Display, EnumString, FromPrimitive, PartialEq)]
+#[derive(Copy, Clone, Debug, Display, EnumString, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[repr(u16)]
 pub enum Type {
@@ -506,7 +506,7 @@ impl Default for Class {
 
 /// Recource Record Definitions.
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Resource {
     A(A), // Support non-Internet classes?
     AAAA(AAAA),

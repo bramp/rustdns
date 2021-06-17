@@ -194,6 +194,11 @@ impl Message {
     }
 
     /// Adds a question to the message.
+    ///
+    /// Note: DNS servers typically do not support more than one question. There is ambiguity in how to handle
+    /// rcode, etc. See [§4.1.2 of rfc1035] or <https://datatracker.ietf.org/doc/html/draft-bellis-dnsext-multi-qtypes-03>
+    ///
+    /// [§4.1.2 of rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2.
     pub fn add_question(&mut self, domain: &str, r#type: Type, class: Class) {
         let domain = self.normalise_domain(domain).expect("invalid domain"); // TODO fix
 

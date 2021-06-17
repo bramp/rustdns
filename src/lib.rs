@@ -128,7 +128,23 @@
 //! $ cargo fuzz run from_slice
 //! ```
 //!
-//! ## Releasing
+//! ## Test Data
+//!
+//! To aid in testing features, I have a set of pre-configured records setup:
+//!
+//! | Domain                | Description |
+//! | --------------------- | ----------- |
+//! | a.bramp.net           | Single A record pointing at 127.0.0.1 |
+//! | aaaa.bramp.net        | Single AAAA record pointing at ::1 |
+//! | aaaaa.bramp.net       | One A record, and one AAAA record resolving to 127.0.0.1 and ::1 |
+//! | cname.bramp.net       | Single CNAME record pointing at a.bramp.net |
+//! | cname-loop1.bramp.net | Single CNAME record pointing at cname-loop2.bramp.net |
+//! | cname-loop2.bramp.net | Single CNAME record pointing at cname-loop1.bramp.net |
+//! | mx.bramp.net          | Single MX record pointing at a.bramp.net |
+//! | ns.bramp.net          | Single NS record pointing at a.bramp.net |
+//! | txt.bramp.net         | Single TXT Record "A TXT record!" |
+//!
+//! # Releasing
 //!
 //! ```shell
 //! $ cargo readme > README.md
@@ -148,6 +164,7 @@
 //! * [ ] Change the API to have getters and setters.
 //! * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
 //! * [ ] Implement more dig features, such as +trace
+//! * [ ] Maybe convert the binary parsing to Nom format.
 //!
 //! ## Reference
 //!
