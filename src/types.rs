@@ -44,7 +44,7 @@ use strum_macros::{Display, EnumString};
 /// // Now do something with `m`, in this case print it!
 /// println!("DNS Response:\n{}", m);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
     /// 16-bit identifier assigned by the program that generates any kind of
@@ -112,7 +112,7 @@ pub struct Message {
 }
 
 /// Question struct containing a domain name, question [`Type`] and question [`Class`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// The domain name in question. Must be a valid UTF-8 encoded domain name.
@@ -128,7 +128,7 @@ pub struct Question {
 }
 
 /// Resource Record (RR) returned by DNS servers containing a answer to the question.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Record {
     /// A valid UTF-8 encoded domain name.
@@ -159,7 +159,7 @@ impl Record {
 /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
 //
 // TODO Support EDNS0_NSID (RFC 5001) and EDNS0_SUBNET (RFC 7871) records within the extension.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Extension {
     /// Requestor's UDP payload size.
@@ -190,7 +190,7 @@ impl Default for Extension {
 
 /// Stats related to the specific query, optionally filed in by the client
 /// and does not change the query behaviour.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Stats {
     /// The time the query was sent to the server.
@@ -506,7 +506,7 @@ impl Default for Class {
 
 /// Recource Record Definitions.
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Resource {
     A(A), // Support non-Internet classes?
     AAAA(AAAA),
