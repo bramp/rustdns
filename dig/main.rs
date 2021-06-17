@@ -7,17 +7,19 @@ use rustdns::clients::Exchanger;
 use rustdns::clients::*;
 use rustdns::types::*;
 use std::env;
+use std::fmt;
+use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::process;
 use std::str::FromStr;
-use std::fmt;
-use std::io;
 use std::vec;
 use strum_macros::{Display, EnumString};
 use url::Url;
 
-#[macro_use] extern crate pretty_assertions;
+#[cfg(test)]
+#[macro_use]
+extern crate pretty_assertions;
 
 #[derive(Display, EnumString, PartialEq)]
 enum Client {

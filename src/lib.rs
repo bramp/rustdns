@@ -188,6 +188,7 @@ mod io;
 pub mod resource; // TODO Rename resources. OR rename the others to drop the plural
 pub mod types;
 pub mod util;
+pub mod zones;
 
 #[macro_use]
 extern crate num_derive;

@@ -28,6 +28,7 @@ idna = "0.2.3"         # Encodes internation domain names
 byteorder = "1.4.3"    # Simplifies the binary parsing
 rand = "0.8.3"
 bytes = "1.0.1"
+nom = "6.1.2"
 
 # Used for the clients
 hyper = { version = "0.14.9", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
@@ -39,6 +40,7 @@ base64 = "0.13.0"
 hyper-alpn = "0.3.0"      # Uses tokio-rustls
 time = "0.2.26"
 async-trait = "0.1.50"
+
 
 ###
 
