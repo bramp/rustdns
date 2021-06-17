@@ -64,7 +64,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 
 impl DoHClient {
     /// Creates a new DoHClient bound to the specific servers.
-    /// 
+    ///
     /// Be aware that the servers will typically be in the form of `https://domain_name/`. That
     /// `domain_name` will be resolved by the system's standard DNS library. I don't have a good
     /// work-around for this yet.

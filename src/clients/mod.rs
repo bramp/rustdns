@@ -2,11 +2,13 @@ use crate::Message;
 use std::io;
 
 pub use self::doh::DoHClient;
+pub use self::resolver::Resolver;
 pub use self::tcp::TcpClient;
 pub use self::to_urls::ToUrls;
 pub use self::udp::UdpClient;
 
 mod doh;
+mod resolver;
 mod tcp;
 mod to_urls;
 mod udp;
