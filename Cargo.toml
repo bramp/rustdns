@@ -40,6 +40,7 @@ base64 = "0.13.0"
 hyper-alpn = "0.3.0"      # Uses tokio-rustls
 time = "0.2.26"
 async-trait = "0.1.50"
+nom_locate = "3.0.1"
 
 
 ###
