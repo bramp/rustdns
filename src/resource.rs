@@ -126,6 +126,7 @@ pub struct SOA {
     pub mname: String,
 
     /// The mailbox of the person responsible for this zone.
+    // TODO Convert this to a email address https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub rname: String,
 
     pub serial: u32,

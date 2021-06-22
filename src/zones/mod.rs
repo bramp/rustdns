@@ -4,8 +4,6 @@ use crate::zones::tokens::TokenType;
 use crate::zones::tokens::Tokens;
 use crate::Class;
 use crate::Resource;
-use nom::combinator::map_res;
-use nom::combinator::value;
 
 use nom::branch::alt;
 use nom::branch::permutation;
@@ -13,20 +11,25 @@ use nom::bytes::complete::*;
 use nom::combinator::all_consuming;
 use nom::combinator::cut;
 use nom::combinator::map;
+use nom::combinator::map_res;
+use nom::combinator::opt;
 use nom::combinator::success;
+use nom::combinator::value;
 use nom::combinator::verify;
 use nom::error::context;
 use nom::error::ContextError;
+use nom::error::ErrorKind;
 use nom::error::FromExternalError;
 use nom::error::ParseError;
 use nom::error::VerboseError;
 use nom::error::VerboseErrorKind;
-use nom::multi::many0;
+use nom::multi::separated_list0;
 use nom::sequence::delimited;
 use nom::sequence::pair;
 use nom::sequence::preceded;
 use nom::sequence::terminated;
 use nom::sequence::tuple;
+use nom::Finish;
 use nom::IResult;
 use nom_locate::LocatedSpan;
 
@@ -73,14 +76,18 @@ fn ipv6_addr<
 }
 
 /// Consumes and discards the prefix, then returns the result of the parser.
-fn prefixed<'a, O, E: ParseError<Tokens<'a>>, F>(
-    prefix: &'a str,
+fn prefixed<'a, O, E, F>(
+    prefix: &'static str,
     f: F,
 ) -> impl FnMut(Tokens<'a>) -> IResult<Tokens<'a>, O, E>
 where
+    E: ContextError<Tokens<'a>> + ParseError<Tokens<'a>>,
     F: nom::Parser<Tokens<'a>, O, E>,
 {
-    preceded(pair(keyword(prefix), tag(TokenType::Whitespace)), f)
+    context(
+        prefix,
+        preceded(pair(keyword(prefix), tag(TokenType::Whitespace)), f),
+    )
 }
 
 /// Matches a token with this word.
@@ -88,6 +95,7 @@ fn keyword<'a, E: ParseError<Tokens<'a>>>(
     word: &'a str,
 ) -> impl FnMut(Tokens<'a>) -> IResult<Tokens<'a>, Tokens<'a>, E> {
     verify(tag(TokenType::Word), move |tokens: &Tokens| {
+        // TODO Change this to be case insensitive
         tokens[0].as_str() == word
     })
 }
@@ -116,7 +124,7 @@ fn space<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
     value((), tag(TokenType::Whitespace))(s)
 }
 
-fn digit1<'a, O, E>(s: Tokens<'a>) -> IResult<Tokens, O, E>
+fn number<'a, O, E>(s: Tokens<'a>) -> IResult<Tokens, O, E>
 where
     O: std::str::FromStr<Err = std::num::ParseIntError>,
     E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>,
@@ -137,10 +145,7 @@ where
     E: FromExternalError<Tokens<'a>, std::num::ParseIntError>,
 {
     // TODO Bind supports different formats of TTL, such as "1d"
-    context(
-        "Duration",
-        terminated(map(digit1, |i: u64| Duration::new(i, 0)), space),
-    )(s)
+    context("Duration", map(number, |i: u64| Duration::new(i, 0)))(s)
 }
 
 /// Does this Token look like a domain name?
@@ -169,21 +174,17 @@ fn domain_space<'a, E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>>(
 }
 
 /// Parses a [`Class`], and one more whitespace.
-fn class_space<'a, E>(
-    input: Tokens<'a>,
-) -> IResult<Tokens, Class, E>
+fn class_space<'a, E>(input: Tokens<'a>) -> IResult<Tokens, Class, E>
 where
     E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>,
-    E: FromExternalError<Tokens<'a>, strum::ParseError>
+    E: FromExternalError<Tokens<'a>, strum::ParseError>,
 {
     context(
         "Class",
         terminated(
             map_res(
                 alt((keyword("IN"), keyword("CS"), keyword("CH"), keyword("HS"))),
-                |t: Tokens| {
-                    Class::from_str(t[0].as_str())
-                },
+                |t: Tokens| Class::from_str(t[0].as_str()),
             ),
             space,
         ),
@@ -201,12 +202,18 @@ where
 }
 
 /// Internal struct for capturing each row.
-///
-/// It is very similar to a [`Record`] but allows for
+#[derive(Debug, PartialEq)]
+enum Row<'a> {
+    Origin(String),
+    Ttl(Duration),
+    Record(Record<'a>),
+}
+
+/// Very similar to a [`rustdns::Record`] but allows for
 /// optional values. When parsing a full zone file
 /// those options can be derived from previous rows.
 #[derive(Debug, PartialEq)]
-struct Row<'a> {
+struct Record<'a> {
     name: Option<&'a str>,
     ttl: Option<Duration>,
     class: Option<Class>,
@@ -218,7 +225,7 @@ where
     E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>,
     E: FromExternalError<Tokens<'a>, std::num::ParseIntError>,
 {
-    map(tuple((digit1, space, domain)), |x| MX {
+    map(tuple((number, space, domain)), |x| MX {
         preference: x.0,
         exchange: x.2.to_string(),
     })(s)
@@ -231,7 +238,7 @@ where
 {
     map(
         tuple((
-            domain, space, string, space, digit1, space, duration, space, duration, space,
+            domain, space, string, space, number, space, duration, space, duration, space,
             duration, space, duration,
         )),
         |x| SOA {
@@ -263,43 +270,18 @@ where
             prefixed("PTR", map(domain, |x| Resource::PTR(x.to_string()))),
             prefixed("MX", map(mx_record, Resource::MX)),
             prefixed("SOA", map(soa_record, Resource::SOA)),
+            // TODO Add a catch all branch to improve the error message.
         )),
     )(input)
 }
 
-/// Parses a single row from the zone file.
-///
-/// ```text
-/// <blank>[<comment>]
-/// $ORIGIN <domain-name> [<comment>]
-/// <domain-name><rr> [<comment>]
-/// <blank><rr> [<comment>]
-/// ```
-///
-/// Not supported:
-/// ```text
-/// $INCLUDE <file-name> [<domain-name>] [<comment>]
-/// $TTL integer_value ; Sets the default value of TTL for following RRs in file (RFC2308, bind>8.1)
-/// ```
-///
-/// <rr> contents take one of the following forms:
-/// ```text
-/// [<TTL>] [<class>] <type> <RDATA>
-/// [<class>] [<TTL>] <type> <RDATA>
-/// ```
-/// See https://datatracker.ietf.org/doc/html/rfc1035#section-5
-/// More examples: https://datatracker.ietf.org/doc/html/rfc2308#section-10
-/// https://web.mit.edu/rhel-doc/5/RHEL-5-manual/Deployment_Guide-en-US/s1-bind-zone.html
-fn parse_row<'a, E>(input: Tokens<'a>) -> IResult<Tokens<'a>, Row, E>
+fn parse_record<'a, E>(input: Tokens<'a>) -> IResult<Tokens<'a>, Record, E>
 where
     E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>,
     E: FromExternalError<Tokens<'a>, std::net::AddrParseError>,
     E: FromExternalError<Tokens<'a>, std::num::ParseIntError>,
     E: FromExternalError<Tokens<'a>, strum::ParseError>,
 {
-    // TODO Check if the first field is a special field
-    // TODO Make sure this is case insensitive (AAAA is the same as aaaa)
-
     // Nom is a greedy parser, and doesn't seem to back-track
     // when there is ambiguity. For example, the record:
     //
@@ -329,53 +311,140 @@ where
     // TODO Since TTL is digits, and would never be confused with a domain/class, I think
     // we can refactor the below to make ttl a opt(ttl) thus halfing the number of branches.
 
-    all_consuming(delimited(
-        many0(space),
-        map(
-            alt((
-                tuple((
-                    some(domain_space),
-                    permutation((some(ttl_space), some(class_space))),
-                    // Use `cut` because if we have all three (domain, ttl, class), then the next thing must be a RR Data
-                    cut(rdata),
-                )),
-                tuple((
-                    some(domain_space),
-                    pair(some(ttl_space), success(None)),
-                    rdata,
-                )),
-                tuple((
-                    some(domain_space),
-                    pair(success(None), some(class_space)),
-                    rdata,
-                )),
-                tuple((
-                    some(domain_space),
-                    pair(success(None), success(None)),
-                    rdata,
-                )),
-                tuple((
-                    success(None),
-                    permutation((some(ttl_space), some(class_space))),
-                    rdata,
-                )),
-                tuple((
-                    success(None),
-                    pair(some(ttl_space), success(None)),
-                    cut(rdata),
-                )),
-                tuple((success(None), pair(success(None), some(class_space)), rdata)),
-                tuple((success(None), pair(success(None), success(None)), rdata)),
+    map(
+        alt((
+            tuple((
+                some(domain_space),
+                permutation((some(ttl_space), some(class_space))),
+                // Use `cut` because if we have all three (domain, ttl, class), then the next thing must be a RR Data
+                cut(rdata),
             )),
-            |ret| Row {
-                name: ret.0,
-                ttl: ret.1 .0,
-                class: ret.1 .1,
-                resource: ret.2,
-            },
-        ),
-        many0(space),
+            tuple((
+                some(domain_space),
+                pair(some(ttl_space), success(None)),
+                rdata,
+            )),
+            tuple((
+                some(domain_space),
+                pair(success(None), some(class_space)),
+                rdata,
+            )),
+            tuple((
+                some(domain_space),
+                pair(success(None), success(None)),
+                rdata,
+            )),
+            tuple((
+                success(None),
+                permutation((some(ttl_space), some(class_space))),
+                rdata,
+            )),
+            tuple((success(None), pair(some(ttl_space), success(None)), rdata)),
+            tuple((success(None), pair(success(None), some(class_space)), rdata)),
+            tuple((success(None), pair(success(None), success(None)), rdata)),
+        )),
+        |ret| Record {
+            name: ret.0,
+            ttl: ret.1 .0,
+            class: ret.1 .1,
+            resource: ret.2,
+        },
+    )(input)
+}
+
+/// Parses a single row from the zone file.
+///
+/// ```text
+/// <blank>[<comment>]
+/// $ORIGIN <domain-name> [<comment>]
+/// $TTL integer_value ; Sets the default value of TTL for following RRs in file (RFC2308, bind>8.1)
+/// <domain-name><rr> [<comment>]
+/// <blank><rr> [<comment>]
+/// ```
+///
+/// <rr> contents take one of the following forms:
+/// ```text
+/// [<TTL>] [<class>] <type> <RDATA>
+/// [<class>] [<TTL>] <type> <RDATA>
+/// ```
+///
+/// Not supported:
+/// ```text
+/// $INCLUDE <file-name> [<domain-name>] [<comment>]
+/// ```
+///
+/// See https://datatracker.ietf.org/doc/html/rfc1035#section-5
+/// More examples: https://datatracker.ietf.org/doc/html/rfc2308#section-10
+/// https://web.mit.edu/rhel-doc/5/RHEL-5-manual/Deployment_Guide-en-US/s1-bind-zone.html
+fn parse_row<'a, E>(input: Tokens<'a>) -> IResult<Tokens<'a>, Row, E>
+where
+    E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>,
+    E: FromExternalError<Tokens<'a>, std::net::AddrParseError>,
+    E: FromExternalError<Tokens<'a>, std::num::ParseIntError>,
+    E: FromExternalError<Tokens<'a>, strum::ParseError>,
+{
+    delimited(
+        opt(space),
+        alt((
+            map(tuple((keyword("$ORIGIN"), space, cut(domain))), |x| {
+                Row::Origin(x.2.to_string())
+            }),
+            map(tuple((keyword("$TTL"), space, cut(duration))), |x| {
+                Row::Ttl(x.2)
+            }),
+            // Standard row
+            map(parse_record, Row::Record),
+            // TODO Add a empty row
+        )),
+        opt(space),
+    )(input)
+}
+
+fn parse_tokens<'a, E>(input: Tokens<'a>) -> IResult<Tokens<'a>, Vec<Row>, E>
+where
+    E: ParseError<Tokens<'a>> + ContextError<Tokens<'a>>,
+    E: FromExternalError<Tokens<'a>, std::net::AddrParseError>,
+    E: FromExternalError<Tokens<'a>, std::num::ParseIntError>,
+    E: FromExternalError<Tokens<'a>, strum::ParseError>,
+{
+    all_consuming(separated_list0(
+        // Zero or more rows, seperated by a LineEnding
+        tag(TokenType::LineEnding), // TODO Does this support trailing line endings?
+        map(tuple((parse_row, opt(tag(TokenType::Comment)))), |x| x.0),
     ))(input)
+}
+
+fn parse<'a>(input: &'a str) -> Result<Vec<Row>, ()> {
+    let tokens = tokenise::<VerboseError<LocatedSpan<&str>>>(input.into()).unwrap(); // TODO Fix
+
+    // TODO Return a full zone file
+    // TODO Make pretty error messages
+    println!("Tokens:\n{}", tokens);
+
+    let ret = parse_tokens::<VerboseError<Tokens<'a>>>(tokens.clone()); // TODO remove clone
+
+    // TODO Turn this into a nice error message
+
+    //println!("parsed verbose: {:#?}", ret);
+    match ret {
+        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
+            println!("{}", my_convert_error(tokens, e));
+            Err(())
+        }
+
+        Err(nom::Err::Incomplete(_e)) => {
+            println!(
+                "incomplete input" // TODO!
+            );
+
+            Err(())
+        }
+
+        Ok((remaining, result)) => {
+            assert!(remaining.is_empty(), "all input should have been consumed.");
+            Ok(result)
+        }
+    }
 }
 
 fn my_convert_error(input: Tokens, e: VerboseError<Tokens>) -> String {
@@ -384,7 +453,7 @@ fn my_convert_error(input: Tokens, e: VerboseError<Tokens>) -> String {
     let mut result = String::new();
 
     for (i, (substring, kind)) in e.errors.iter().enumerate() {
-        if input.is_empty() {
+        if input.is_empty() || substring.is_empty() {
             match kind {
                 VerboseErrorKind::Char(c) => {
                     write!(&mut result, "{}: expected '{}', got empty input\n\n", i, c)
@@ -475,148 +544,110 @@ fn my_convert_error(input: Tokens, e: VerboseError<Tokens>) -> String {
     result
 }
 
-fn parse<'a>(input: &'a str) -> Result<Row, ()> {
-    let (remaining, tokens) = tokenise::<VerboseError<LocatedSpan<&str>>>(input.into()).unwrap(); // TODO Fix
-    assert!(remaining.is_empty());
-
-    // TODO Return a full zone file
-    // TODO Make pretty error messages
-    println!("Tokens:\n{}", tokens);
-
-    let ret = parse_row::<VerboseError<Tokens<'a>>>(tokens.clone()); // TODO remove clone
-                                                                     //println!("parsed verbose: {:#?}", ret);
-    match ret {
-        Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
-            println!("{}", my_convert_error(tokens, e));
-            Err(())
-        }
-
-        Err(nom::Err::Incomplete(_e)) => {
-            println!(
-                "incomplete input" // TODO!
-            );
-
-            Err(())
-        }
-
-        Ok((remaining, result)) => {
-            assert!(remaining.is_empty(), "all input should have been consumed.");
-            Ok(result)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nom::error::convert_error;
-    use nom::Err;
-
-    impl Row<'_> {
-        fn new(
-            name: Option<&str>,
-            class: Option<Class>,
-            ttl: Option<Duration>,
-            resource: Resource,
-        ) -> Row {
-            Row {
-                name,
-                ttl,
-                class,
-                resource,
-            }
-        }
-    }
-
-    fn print_err<I: std::fmt::Debug + std::ops::Deref<Target = str>, O: std::fmt::Debug>(
-        input: I,
-        err: IResult<I, O, VerboseError<I>>,
-    ) {
-        // If there is a error print a nice set of debugging.
-        println!("VerboseError: {:#?}", err);
-
-        match err {
-            Err(Err::Error(e)) | Err(Err::Failure(e)) => {
-                println!(
-                    "VerboseError - `root::<VerboseError>(data)`:\n{}",
-                    convert_error(input, e)
-                );
-            }
-            _ => {}
-        }
-    }
 
     #[test]
     fn test_parse_row() {
         let tests = vec![
+            // All the different record types.
             (
                 "A       A       26.3.0.103",
-                Row::new(
-                    Some("A"),
-                    None,
-                    None,
-                    Resource::A("26.3.0.103".parse().unwrap()),
-                ),
+                Row::Record(Record {
+                    name: Some("A"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("26.3.0.103".parse().unwrap()),
+                }),
             ),
             (
                 "VENERA  A       10.1.0.52",
-                Row::new(
-                    Some("VENERA"),
-                    None,
-                    None,
-                    Resource::A("10.1.0.52".parse().unwrap()),
-                ),
+                Row::Record(Record {
+                    name: Some("VENERA"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("10.1.0.52".parse().unwrap()),
+                }),
             ),
             (
                 "        A       128.9.0.32",
-                Row::new(None, None, None, Resource::A("128.9.0.32".parse().unwrap())),
+                Row::Record(Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("128.9.0.32".parse().unwrap()),
+                }),
             ),
             (
                 "        NS      VAXA",
-                Row::new(None, None, None, Resource::NS("VAXA".to_string())),
+                Row::Record(Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::NS("VAXA".to_string()),
+                }),
             ),
             (
                 "        MX      20      VAXA",
-                Row::new(
-                    None,
-                    None,
-                    None,
-                    Resource::MX(MX {
+                Row::Record(Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::MX(MX {
                         preference: 20,
                         exchange: "VAXA".to_string(),
                     }),
-                ),
+                }),
             ),
             (
                 "        AAAA    2400:cb00:2049:1::a29f:1804",
-                Row::new(
-                    None,
-                    None,
-                    None,
-                    Resource::AAAA("2400:cb00:2049:1::a29f:1804".parse().unwrap()),
-                ),
+                Row::Record(Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::AAAA("2400:cb00:2049:1::a29f:1804".parse().unwrap()),
+                }),
             ),
+            (
+                "@   IN  SOA     VENERA      Action\\.domains 20 7200 600 3600000 60",
+                Row::Record(Record {
+                    name: Some("@"),
+                    ttl: None,
+                    class: Some(Class::Internet),
+                    resource: Resource::SOA(SOA {
+                        mname: "VENERA".to_string(),
+                        rname: "Action\\.domains".to_string(), // TODO Fix the \\ thing
+                        serial: 20,
+                        refresh: Duration::new(7200, 0),
+                        retry: Duration::new(600, 0),
+                        expire: Duration::new(3600000, 0),
+                        minimum: Duration::new(60, 0),
+                    }),
+                }),
+            ),
+            // The other Row types
+            (
+                "$ORIGIN example.org.",
+                Row::Origin("example.org.".to_string()),
+            ),
+            ("$TTL 3600", Row::Ttl(Duration::new(3600, 0))),
         ];
 
         for (input, want) in tests {
-            /*
-            let ret = parse_row::<VerboseError<&str>>(input);
-            if ret.is_err() {
-                print_err(input, ret);
-                panic!("failed '{}'", input)
+            let tokens =
+                tokenise::<(LocatedSpan<&str>, ErrorKind)>(input.into()).expect("tokenise error");
+
+            println!("Tokens:\n{}", tokens);
+
+            let ret = parse_row::<VerboseError<Tokens>>(tokens.clone()).finish(); // TODO Remove the clone
+            if let Err(e) = ret {
+                panic!("\n{}", my_convert_error(tokens, e))
             }
 
             let (remaining, got) = ret.unwrap();
-            assert_eq!(got, want);
-            assert_eq!(remaining, "", "all input should have been consumed.");
-            */
 
-            // TODO
-            let ret = parse(input);
-            if ret.is_err() {
-                panic!("failed '{}'", input)
-            }
-            let got = ret.unwrap();
+            assert!(remaining.is_empty(), "expected all tokens to be consumed");
             assert_eq!(got, want);
         }
 

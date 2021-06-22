@@ -9,6 +9,7 @@ use nom::multi::many0;
 use nom::sequence::pair;
 use nom::Compare;
 use nom::CompareResult;
+use nom::Finish;
 use nom::IResult;
 use nom::InputLength;
 use nom::InputTake;
@@ -26,16 +27,16 @@ pub(crate) enum TokenType {
     /// Any valid word in the zone file.
     Word,
 
-    /// TODO Add numbers? Add String Literals
-
-    /// Line encoding
-    LineEnding,
-
     /// One or more whitespace characters (not including LineEndings)
     Whitespace,
 
+    /// TODO Add numbers? Add String Literals
+
     /// A comment
     Comment,
+
+    /// Line encoding
+    LineEnding,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -97,8 +98,8 @@ where
 /// us to more easily handle comments, and records split across new lines.
 pub(crate) fn tokenise<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(
     s: nom_locate::LocatedSpan<&'a str>,
-) -> IResult<Span, Tokens, ()> {
-    all_consuming(map(
+) -> Result<Tokens, E> {
+    let ret = all_consuming(map(
         many0(
             // The token is one of:
             alt((
@@ -125,6 +126,15 @@ pub(crate) fn tokenise<'a, E: ParseError<Span<'a>> + ContextError<Span<'a>>>(
         ),
         |tokens| Tokens::new(&tokens),
     ))(s)
+    .finish();
+
+    match ret {
+        Err(e) => Err(e),
+        Ok((remaining, result)) => {
+            assert!(remaining.is_empty(), "all input should have been consumed.");
+            Ok(result)
+        }
+    }
 }
 
 impl<'a> Tokens<'_> {
@@ -196,40 +206,6 @@ impl Compare<TokenType> for Tokens<'_> {
     }
 }
 
-/*
-impl Compare<&str> for Tokens<'_> {
-    fn compare(&self, token: &str) -> nom::CompareResult {
-        println!("compare {:?} {:?}", token, self);
-
-        if self.tokens.is_empty() {
-            return CompareResult::Incomplete
-        }
-
-        let t = self.tokens[0];
-        if t.r#type == TokenType::Word && t.as_str() == token {
-            CompareResult::Ok
-        } else {
-            CompareResult::Error
-        }
-    }
-
-    fn compare_no_case(&self, token: &str) -> CompareResult {
-        println!("compare_no_case {:?} {:?}", token, self);
-
-        if self.tokens.is_empty() {
-            return CompareResult::Incomplete
-        }
-
-        let t = self.tokens[0];
-        if t.r#type == TokenType::Word && t.as_str().eq_ignore_ascii_case(token) {
-            CompareResult::Ok
-        } else {
-            CompareResult::Error
-        }
-    }
-}
-*/
-
 impl InputLength for TokenType {
     fn input_len(&self) -> usize {
         1 // A single TokenType is one long
@@ -273,8 +249,7 @@ mod tests {
             // "$ORIGIN example.com.     ; designates the start of this zone file in the namespace
             "VENERA  A       10.1.0.52",
         );
-        let (remaining, tokens) = tokenise::<VerboseError<LocatedSpan<&str>>>(input).unwrap();
-        assert!(remaining.is_empty(), "all input should have been consumed.");
+        tokenise::<VerboseError<LocatedSpan<&str>>>(input).unwrap();
 
         /*
         TODO
