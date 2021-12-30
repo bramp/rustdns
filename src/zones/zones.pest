@@ -1,0 +1,81 @@
+/// DNS Zone file parsing
+///
+/// Format is defined in rfc1035 Section 5, extended rfc2308 Section 4.
+///
+/// <domain-name><rr> [<comment>]
+/// <blank><rr> [<comment>]
+/// ```
+///
+/// <rr> contents take one of the following forms:
+/// ```text
+/// [<TTL>] [<class>] <type> <RDATA>
+/// [<class>] [<TTL>] <type> <RDATA>
+/// ```
+
+// TODO Add comment handling
+
+ws = _{ (" " | "\t")+ }
+eol = _{ "\n" }
+
+domain = { ( "@" | (ASCII_ALPHANUMERIC | "." | "-")+ ) }
+string = { (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ } // TODO Should we call this string?
+ip4 = { (ASCII_DIGIT | ".")+ }
+ip6 = { (ASCII_HEX_DIGIT | ":")+ }
+number = { ASCII_DIGIT+ }
+duration = { ASCII_DIGIT+ }
+class = { ^"IN" | ^"CS" | ^"CH" | ^"HS" }
+resource = { 
+	resource_a | 
+	resource_aaaa | 
+	resource_ns | 
+	resource_mx | 
+	resource_soa
+}
+
+resource_a    = {^"A"    ~ ws ~ ip4}
+resource_aaaa = {^"AAAA" ~ ws ~ ip6}
+resource_ns   = {^"NS"   ~ ws ~ domain}
+resource_mx   = {^"MX"   ~ ws ~ number ~ ws ~ domain}
+resource_soa  = {^"SOA"  ~ ws ~ domain ~ ws ~ string ~ ws ~ number ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration}
+
+
+file = {
+	// TODO records can be split across many lines
+	SOI ~ (ws? ~ row ~ eol)* ~ EOI
+}
+
+row = {
+	  origin
+	| ttl
+      | (ws? ~ record)
+}
+
+origin = {
+	"$ORIGIN" ~ ws ~ domain
+}
+
+ttl = {
+	"$TTL" ~ ws ~ duration
+}
+
+record = { 
+	// This is perhaps more verbose than needed, but this ensures
+	// we parse this ambiguous text in a well defined order.
+	// For example, "IN" could be a domain, or a class.
+
+	  (domain ~ ws ~ duration ~ ws ~ class ~ ws ~ resource)
+	| (domain ~ ws ~ class ~ ws ~ duration ~ ws ~ resource)
+	| (domain ~ ws ~ class ~ ws ~ resource)
+	| (domain ~ ws ~ duration ~ ws ~ resource)
+
+	| (duration ~ ws ~ class ~ ws ~ resource)
+	| (class ~ ws ~ duration ~ ws ~ resource)
+	| (class ~ ws ~ resource)
+	| (duration ~ ws ~ resource)
+
+	| (domain ~ ws ~ resource)
+
+	// No domain, so we use the last valid domain
+	| resource
+}
+

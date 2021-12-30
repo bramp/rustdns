@@ -165,6 +165,7 @@
 //! * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
 //! * [ ] Implement more dig features, such as +trace
 //! * [ ] Maybe convert the binary parsing to Nom format.
+//! * [ ] Can I parse these https://www.iana.org/domains/root/files ?
 //!
 //! ## Reference
 //!
@@ -193,7 +194,8 @@ pub mod zones;
 #[macro_use]
 extern crate num_derive;
 
-// TODO Package level documentation!
+#[macro_use]
+extern crate pest_derive;
 
 // Pull up the various types that should be on the front page of the docs.
 #[doc(inline)]

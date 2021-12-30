@@ -3,7 +3,7 @@
 [package]
 name = "rustdns"
 version = "0.1.0"
-authors = ["Andrew Brampton <brampton@gmail.com>"]
+authors = ["Andrew Brampton <me@bramp.net>"]
 categories = ["encoding", "network-programming"]
 description = "A DNS parsing library"
 edition = "2018"
@@ -20,36 +20,42 @@ members = [
 ]
 
 [dependencies]
-strum = "0.21"         # Simple macros for making Enum better
-strum_macros = "0.21"
-num-traits = "0.2.14"  # More macros for making Enum better
+strum = "0.23.0"
+strum_macros = "0.23.1"
+num-traits = "0.2.14"
 num-derive = "0.3.3"
-idna = "0.2.3"         # Encodes internation domain names
-byteorder = "1.4.3"    # Simplifies the binary parsing
-rand = "0.8.3"
-bytes = "1.0.1"
-nom = "6.1.2"
+idna = "0.2.3"
+byteorder = "1.4.3"
+rand = "0.8.4"
+bytes = "1.1.0"
+log = "0.4.14"
 
 # Used for the clients
-hyper = { version = "0.14.9", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
-http = "0.2.4"
+hyper = { version = "0.14.16", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
+http = "0.2.5"
 url = "2.2.2"
 
 # Needed for DNS over HTTP (DoH)
-base64 = "0.13.0"      
-hyper-alpn = "0.3.0"      # Uses tokio-rustls
-time = "0.2.26"
-async-trait = "0.1.50"
-nom_locate = "3.0.1"
+base64 = "0.13.0"
+hyper-alpn = "0.3.0"
+time = "0.3.5"
+async-trait = "0.1.52"
+
+# Needed for Zone file parsing
+pest = "2.1.3"
+pest_derive = "2.1.0"
+chrono = "0.4.19"
 
 
 ###
 
 
 [dev-dependencies]
-pretty_assertions = "0.7.2"
-serde = { version = "1.0.126", features = ["derive"] }
-serde_yaml = "0.8.17"
+pretty_assertions = "1.0.0"
+serde = { version = "1.0.132", features = ["derive"] }
+serde_yaml = "0.8.23"
 hex = "0.4.3"
-regex = "1.5.4"  # Used to cleanup the test cases for better comparison.
-tokio = { version = "1.6.1", features = ["macros", "rt-multi-thread"] }
+regex = "1.5.4"
+tokio = { version = "1.15.0", features = ["macros", "rt-multi-thread"] }
+test-env-log = "0.2.8"
+env_logger = "0.9.0"

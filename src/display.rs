@@ -10,6 +10,7 @@ use crate::Question;
 use crate::Record;
 use crate::Resource;
 use crate::Stats;
+use chrono::prelude::*;
 use std::fmt;
 
 /// Displays this message in a format resembling `dig` output.
@@ -124,7 +125,7 @@ impl fmt::Display for Stats {
         writeln!(f, ";; Query time: {} msec", self.duration.as_millis())?; // TODO Support usec as well
         writeln!(f, ";; SERVER: {}", self.server)?;
 
-        let start: time::OffsetDateTime = self.start.into();
+        let start: chrono::DateTime<Local> = self.start.into();
         // ;; WHEN: Sat Jun 12 12:14:21 PDT 2021
         writeln!(f, ";; WHEN: {}", start.format("%a %b %-d %H:%M:%S %z %-Y"))?;
         writeln!(
