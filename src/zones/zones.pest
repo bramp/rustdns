@@ -14,15 +14,15 @@
 
 // TODO Add comment handling
 
-ws = _{ (" " | "\t")+ }
-eol = _{ "\n" }
+WHITESPACE = _{ " " | "\t" | eol }
+eol = _{ "\r\n" | "\n" | "\r" }
 
-domain = { ( "@" | (ASCII_ALPHANUMERIC | "." | "-")+ ) }
-string = { (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ } // TODO Should we call this string?
-ip4 = { (ASCII_DIGIT | ".")+ }
-ip6 = { (ASCII_HEX_DIGIT | ":")+ }
-number = { ASCII_DIGIT+ }
-duration = { ASCII_DIGIT+ }
+domain = @{ ( "@" | (ASCII_ALPHANUMERIC | "." | "-")+ ) }
+string = @{ (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ } // TODO Should we call this string?
+ip4 = @{ (ASCII_DIGIT | ".")+ }
+ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
+number = @{ ASCII_DIGIT+ }
+duration = @{ ASCII_DIGIT+ }
 class = { ^"IN" | ^"CS" | ^"CH" | ^"HS" }
 resource = { 
 	resource_a | 
@@ -32,30 +32,32 @@ resource = {
 	resource_soa
 }
 
-resource_a    = {^"A"    ~ ws ~ ip4}
-resource_aaaa = {^"AAAA" ~ ws ~ ip6}
-resource_ns   = {^"NS"   ~ ws ~ domain}
-resource_mx   = {^"MX"   ~ ws ~ number ~ ws ~ domain}
-resource_soa  = {^"SOA"  ~ ws ~ domain ~ ws ~ string ~ ws ~ number ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration}
+resource_a    = {^"A"    ~ ip4}
+resource_aaaa = {^"AAAA" ~ ip6}
+resource_ns   = {^"NS"   ~ domain}
+resource_mx   = {^"MX"   ~ number ~ domain}
+resource_soa  = {^"SOA"  ~ domain ~ string ~ number ~ duration ~ duration ~ duration ~ duration}
 
 
 file = {
 	// TODO records can be split across many lines
-	SOI ~ (ws? ~ row ~ eol)* ~ EOI
+	SOI ~ (row ~ (eol ~ row)*)? ~ EOI
 }
 
 row = {
+	SOI ~ (
 	  origin
 	| ttl
-      | (ws? ~ record)
+      | record
+      ) ~ EOI
 }
 
 origin = {
-	"$ORIGIN" ~ ws ~ domain
+	"$ORIGIN" ~ domain
 }
 
 ttl = {
-	"$TTL" ~ ws ~ duration
+	"$TTL" ~ duration
 }
 
 record = { 
@@ -63,19 +65,22 @@ record = {
 	// we parse this ambiguous text in a well defined order.
 	// For example, "IN" could be a domain, or a class.
 
-	  (domain ~ ws ~ duration ~ ws ~ class ~ ws ~ resource)
-	| (domain ~ ws ~ class ~ ws ~ duration ~ ws ~ resource)
-	| (domain ~ ws ~ class ~ ws ~ resource)
-	| (domain ~ ws ~ duration ~ ws ~ resource)
+	// All arguments are provided
+	  (domain ~ duration ~ class ~ resource)
+	| (domain ~ class ~ duration ~ resource)
 
-	| (duration ~ ws ~ class ~ ws ~ resource)
-	| (class ~ ws ~ duration ~ ws ~ resource)
-	| (class ~ ws ~ resource)
-	| (duration ~ ws ~ resource)
+	// No domain provided, but match these first, we assume IN means class, not domain
+	| (duration ~ class ~ resource)
+	| (duration ~ resource)
+	| (class ~ duration ~ resource)
+	| (class ~ resource)
 
-	| (domain ~ ws ~ resource)
+	// Match the ones listing domains
+	| (domain ~ class ~ resource)
+	| (domain ~ duration ~ resource)
+	| (domain ~ resource)
 
-	// No domain, so we use the last valid domain
+	// Finally no domain.
 	| resource
 }
 

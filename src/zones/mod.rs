@@ -185,7 +185,7 @@ fn parse_record(pair: Pair<Rule>) -> Result<Record> {
     Ok(r)
 }
 
-fn parse_row(pair: Pair<Rule>) -> Result<Row> {
+fn parse_single_row(pair: Pair<Rule>) -> Result<Row> {
     match pair.as_rule() {
         Rule::origin => Ok(Row::Origin(parse_domain(
             pair.into_inner().next().expect("one domain argument"),
@@ -199,14 +199,22 @@ fn parse_row(pair: Pair<Rule>) -> Result<Row> {
     }
 }
 
-// TODO Change to return a full zone file.
-pub fn parse(input: &str) -> Result<Row> {
+pub fn parse_row(input: &str) -> Result<Row> {
     let row = ZoneParser::parse(Rule::row, input)?.next().unwrap();
-    //println!("{:?}", row);
+    parse_single_row(row.into_inner().next().expect("atleast one row"))
+}
 
-    // TODO Loop
-
-    parse_row(row.into_inner().next().expect("atleast one row"))
+// TODO Change to return a full zone file.
+pub fn parse(input: &str) -> Result<Vec<Row>> {
+    // TODO Proper error handling
+    let mut rows = Vec::new();
+    let file = ZoneParser::parse(Rule::file, input)?.next().unwrap();
+    for row in file.into_inner() {
+        rows.push (
+            parse_single_row(row).expect("failed to parse row")
+        );
+    }
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -283,7 +291,6 @@ mod tests {
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
                 }),
             ),
-            /* TODO FIX
             (
                 "1       A       26.3.0.103",
                 Row::Record(Record {
@@ -296,7 +303,7 @@ mod tests {
             (
                 "IN       1       A       26.3.0.103",
                 Row::Record(Record {
-                    name: None, // TODO It thinks IN is the name
+                    name: None,
                     ttl: Some(Duration::new(1, 0)),
                     class: Some(Class::Internet),
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -311,11 +318,10 @@ mod tests {
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
                 }),
             ),
-            */
         ];
 
         for (input, want) in tests {
-            match parse(input) {
+            match parse_row(input) {
                 Ok(got) => assert_eq!(got, want, "incorrect result for '{}'", input),
                 Err(err) => panic!("'{}' failed:\n{}", input, err),
             }
@@ -325,7 +331,6 @@ mod tests {
     #[test]
     fn test_parse_row() {
         let tests = vec![
-            // All the different record types.
             (
                 "A       A       26.3.0.103",
                 Row::Record(Record {
@@ -344,8 +349,10 @@ mod tests {
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
                 }),
             ),
+
+            // All the different record types.
             (
-                "        A       128.9.0.32",
+                "A       128.9.0.32",
                 Row::Record(Record {
                     name: None,
                     ttl: None,
@@ -354,7 +361,7 @@ mod tests {
                 }),
             ),
             (
-                "        NS      VAXA",
+                "NS      VAXA",
                 Row::Record(Record {
                     name: None,
                     ttl: None,
@@ -363,7 +370,7 @@ mod tests {
                 }),
             ),
             (
-                "        MX      20      VAXA",
+                "MX      20      VAXA",
                 Row::Record(Record {
                     name: None,
                     ttl: None,
@@ -375,7 +382,7 @@ mod tests {
                 }),
             ),
             (
-                "        AAAA    2400:cb00:2049:1::a29f:1804",
+                "AAAA    2400:cb00:2049:1::a29f:1804",
                 Row::Record(Record {
                     name: None,
                     ttl: None,
@@ -406,10 +413,48 @@ mod tests {
                 Row::Origin("example.org.".to_string()),
             ),
             ("$TTL 3600", Row::Ttl(Duration::new(3600, 0))),
+
+            // Whitespace examples
+            (
+                "   VENERA A 10.1.0.52",
+                Row::Record(Record {
+                    name: Some("VENERA"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("10.1.0.52".parse().unwrap()),
+                }),
+            ),
+            (
+                "VENERA A 10.1.0.52   ",
+                Row::Record(Record {
+                    name: Some("VENERA"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("10.1.0.52".parse().unwrap()),
+                }),
+            ),
+            (
+                "   VENERA A 10.1.0.52   ",
+                Row::Record(Record {
+                    name: Some("VENERA"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("10.1.0.52".parse().unwrap()),
+                }),
+            ),
+            (
+                "\nVENERA A 10.1.0.52\n",
+                Row::Record(Record {
+                    name: Some("VENERA"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("10.1.0.52".parse().unwrap()),
+                }),
+            ),
         ];
 
         for (input, want) in tests {
-            match parse(input) {
+            match parse_row(input) {
                 Ok(got) => assert_eq!(got, want),
                 Err(err) => panic!("'{}' ailed:\n{}", input, err),
             }
