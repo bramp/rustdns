@@ -1,6 +1,6 @@
-/// TODO Add comments
-///
+/// 
 /// TODO https://github.com/Badcow/DNS-Parser has a nice custom format extension. Perhaps include?
+// TODO Use https://github.com/Nadrieril/pest_consume
 use crate::resource::*;
 use crate::Class;
 use crate::Resource;
@@ -412,7 +412,10 @@ mod tests {
                 "$ORIGIN example.org.",
                 Row::Origin("example.org.".to_string()),
             ),
-            ("$TTL 3600", Row::Ttl(Duration::new(3600, 0))),
+            (
+                "$TTL 3600",
+                Row::Ttl(Duration::new(3600, 0))
+            ),
 
             // Whitespace examples
             (
@@ -451,6 +454,17 @@ mod tests {
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
                 }),
             ),
+
+            // Comments
+            (
+                "VENERA A 10.1.0.52;Blah",
+                Row::Record(Record {
+                    name: Some("VENERA"),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("10.1.0.52".parse().unwrap()),
+                }),
+            ),
         ];
 
         for (input, want) in tests {
@@ -469,7 +483,6 @@ mod tests {
 
     // Test Full files
     #[test]
-    #[ignore] // TODO Re-enable
     fn test_parse() {
         let tests = vec![
             // Examples from https://www.nlnetlabs.nl/documentation/nsd/grammar-for-dns-zone-files/

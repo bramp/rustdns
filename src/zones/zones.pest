@@ -12,10 +12,8 @@
 /// [<class>] [<TTL>] <type> <RDATA>
 /// ```
 
-// TODO Add comment handling
-
-WHITESPACE = _{ " " | "\t" | eol }
-eol = _{ "\r\n" | "\n" | "\r" }
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT = _{ ";" ~ (!NEWLINE ~ ANY)* }
 
 domain = @{ ( "@" | (ASCII_ALPHANUMERIC | "." | "-")+ ) }
 string = @{ (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ } // TODO Should we call this string?
@@ -23,7 +21,7 @@ ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
 number = @{ ASCII_DIGIT+ }
 duration = @{ ASCII_DIGIT+ }
-class = { ^"IN" | ^"CS" | ^"CH" | ^"HS" }
+class = @{ ^"IN" | ^"CS" | ^"CH" | ^"HS" }
 resource = { 
 	resource_a | 
 	resource_aaaa | 
@@ -41,7 +39,7 @@ resource_soa  = {^"SOA"  ~ domain ~ string ~ number ~ duration ~ duration ~ dura
 
 file = {
 	// TODO records can be split across many lines
-	SOI ~ (row ~ (eol ~ row)*)? ~ EOI
+	SOI ~ (row ~ (NEWLINE ~ row)*)? ~ EOI
 }
 
 row = {
