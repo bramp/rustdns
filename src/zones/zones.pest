@@ -12,19 +12,27 @@
 /// [<class>] [<TTL>] <type> <RDATA>
 /// ```
 
-WHITESPACE = _{ " " | "\t" | "(" | ")" }
-COMMENT = _{
-	// Standard comment until end of line
-	  ( ";" ~ (!NEWLINE ~ ANY)* )
+// We use explict WHITESPACE to ensure there is whitespace between matching tokens
+// as opposed to optional WHITESPACE.
+ws = _{
+	( " "
+	| "\t"
 
 	// Also match ( and ) because after preprocessing, we can effectively
 	// ignore them. We only leave them in to make error printing, etc a
 	// little nicer.
-	| "("
-	| ")"
+	| "(" | ")"
+	)+
 }
 
-domain = @{ ( "@" | (ASCII_ALPHANUMERIC | "." | "-")+ ) }
+// Standard comment until end of line
+COMMENT = _{";" ~ (!NEWLINE ~ ANY)*}
+
+// TODO Merge domain and string together
+domain = @{
+	  "@"
+	| (ASCII_ALPHANUMERIC | "." | "-" )+
+}
 string = @{ (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ } // TODO Should we call this string?
 ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
@@ -34,40 +42,46 @@ class = @{ ^"IN" | ^"CS" | ^"CH" | ^"HS" }
 resource = _{
 	  resource_a
 	| resource_aaaa
+	| resource_cname
 	| resource_ns
 	| resource_mx
 	| resource_soa
 }
 
-resource_a    = {^"A"    ~ ip4}
-resource_aaaa = {^"AAAA" ~ ip6}
-resource_ns   = {^"NS"   ~ domain}
-resource_mx   = {^"MX"   ~ number ~ domain}
-resource_soa  = {^"SOA"  ~ domain ~ string ~ number ~ duration ~ duration ~ duration ~ duration}
+resource_a     = {^"A"     ~ ws ~ ip4}
+resource_aaaa  = {^"AAAA"  ~ ws ~ ip6}
+resource_cname = {^"CNAME" ~ ws ~ domain}
+resource_ns    = {^"NS"    ~ ws ~ domain}
+resource_mx    = {^"MX"    ~ ws ~ number ~ ws ~ domain}
+resource_soa   = {^"SOA"   ~ ws ~ domain ~ ws ~ string ~ ws ~ number ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration}
 
 // Entry for full file.
 file = {
 	// TODO records can be split across many lines
-	SOI ~ (entry ~ (NEWLINE ~ entry)*)? ~ EOI
+	//NEWLINE* ~ (entry? ~ NEWLINE?)* ~ EOI
+	entry ~ (NEWLINE ~ entry)* ~ EOI
 }
 
 // Entry for a single resource record.
 single_record = {
-	SOI ~ record ~ EOI
+	SOI ~ ws? ~ record ~ ws? ~ EOI
 }
 
 entry = _{
-	  origin
-	| ttl
-      | record
+	ws? ~ (
+		  origin
+		| ttl
+	      | record
+	      | ws? // blank record
+	) ~ ws?
 }
 
 origin = {
-	"$ORIGIN" ~ domain
+	^"$ORIGIN" ~ ws ~ domain
 }
 
 ttl = {
-	"$TTL" ~ duration
+	^"$TTL" ~ ws ~ duration
 }
 
 record = { 
@@ -76,19 +90,19 @@ record = {
 	// For example, "IN" could be a domain, or a class.
 
 	// All arguments are provided
-	  (domain ~ duration ~ class ~ resource)
-	| (domain ~ class ~ duration ~ resource)
+	  (domain ~ ws ~ duration ~ ws ~ class ~ ws ~ resource)
+	| (domain ~ ws ~ class ~ ws ~ duration ~ ws ~ resource)
 
 	// No domain provided, but match these first, we assume IN means class, not domain
-	| (duration ~ class ~ resource)
-	| (duration ~ resource)
-	| (class ~ duration ~ resource)
-	| (class ~ resource)
+	| (duration ~ ws ~ class ~ ws ~ resource)
+	| (duration ~ ws ~ resource)
+	| (class ~ ws ~ duration ~ ws ~ resource)
+	| (class ~ ws ~ resource)
 
 	// Match the ones listing domains
-	| (domain ~ class ~ resource)
-	| (domain ~ duration ~ resource)
-	| (domain ~ resource)
+	| (domain ~ ws ~ class ~ ws ~ resource)
+	| (domain ~ ws ~ duration ~ ws ~ resource)
+	| (domain ~ ws ~ resource)
 
 	// Finally no domain.
 	| resource

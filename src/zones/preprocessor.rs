@@ -9,7 +9,7 @@ use std::result;
 
 #[derive(Parser)]
 #[grammar = "zones/preprocessor.pest"]
-pub struct ZonePreprocessor;
+struct ZonePreprocessor;
 
 type Result<T> = result::Result<T, Error<Rule>>;
 
@@ -51,7 +51,7 @@ fn parse_tokens(pair: Pair<Rule>) -> Result<String> {
 /// replaces new lines with spaces when they are within braces.
 pub(crate) fn preprocess(input: &str) -> Result<String> {
     let mut result = String::new();
-    let file = ZonePreprocessor::parse(Rule::file, input)?.next().unwrap();
+    let file = ZonePreprocessor::parse(Rule::file, input)?.next().unwrap(); // TODO
     for pair in file.into_inner() {
         match pair.as_rule() {
             Rule::tokens => result.push_str(&parse_tokens(pair)?),

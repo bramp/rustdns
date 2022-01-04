@@ -186,7 +186,7 @@ mod display;
 mod dns;
 mod errors;
 mod io;
-pub mod resource; // TODO Rename resources. OR rename the others to drop the plural
+pub mod resource;
 pub mod types;
 pub mod util;
 pub mod zones;

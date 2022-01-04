@@ -1,24 +1,25 @@
 /// TODO Document
 // TODO https://github.com/Badcow/DNS-Parser has a nice custom format extension. Perhaps include?
-use crate::resource::*;
 use crate::Class;
 use crate::Resource;
-use std::string::ToString;
 use std::time::Duration;
 use strum_macros::Display;
 
 mod parser;
 mod preprocessor;
 
+pub use self::parser::parse;
+pub use self::parser::parse_record;
+
 extern crate pest;
 
 /// Internal struct for capturing each entry.
 #[derive(Debug, Display, PartialEq)]
-pub enum Entry<'input> {
-    Origin(&'input str),
+pub enum Entry {
+    Origin(String),
     Ttl(Duration),
     // TODO support $INCLUDE
-    Record(Record<'input>),
+    Record(Record),
 }
 
 /// Very similar to a [`rustdns::Record`] but allows for
@@ -26,14 +27,14 @@ pub enum Entry<'input> {
 /// those options can be derived from previous entries.
 // TODO Implement a Display to turn this back into Zone format.
 #[derive(Debug, PartialEq)]
-pub struct Record<'a> {
-    name: Option<&'a str>,
-    ttl: Option<Duration>,
-    class: Option<Class>,
-    resource: Resource,
+pub struct Record {
+    pub name: Option<String>,
+    pub ttl: Option<Duration>,
+    pub class: Option<Class>,
+    pub resource: Resource,
 }
 
-impl Default for Record<'_> {
+impl Default for Record {
     fn default() -> Self {
         Self {
             name: None,
@@ -47,6 +48,7 @@ impl Default for Record<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resource::*;
     use crate::zones::parser::parse;
     use crate::zones::parser::parse_record;
     use pretty_assertions::assert_eq;
@@ -58,7 +60,7 @@ mod tests {
             (
                 "A       A       26.3.0.103",
                 Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -67,7 +69,7 @@ mod tests {
             (
                 "A       IN       A       26.3.0.103",
                 Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     ttl: None,
                     class: Some(Class::Internet),
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -76,7 +78,7 @@ mod tests {
             (
                 "A       1       A       26.3.0.103",
                 Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     ttl: Some(Duration::new(1, 0)),
                     class: None,
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -85,7 +87,7 @@ mod tests {
             (
                 "A       IN       1       A       26.3.0.103",
                 Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     ttl: Some(Duration::new(1, 0)),
                     class: Some(Class::Internet),
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -94,7 +96,7 @@ mod tests {
             (
                 "A       1       IN       A       26.3.0.103",
                 Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     ttl: Some(Duration::new(1, 0)),
                     class: Some(Class::Internet),
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -162,7 +164,7 @@ mod tests {
             (
                 "A       A       26.3.0.103",
                 Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
@@ -171,7 +173,7 @@ mod tests {
             (
                 "VENERA  A       10.1.0.52",
                 Record {
-                    name: Some("VENERA"),
+                    name: Some("VENERA".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
@@ -188,12 +190,39 @@ mod tests {
                 },
             ),
             (
+                "AAAA    2400:cb00:2049:1::a29f:1804",
+                Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::AAAA("2400:cb00:2049:1::a29f:1804".parse().unwrap()),
+                },
+            ),
+            (
+                "CNAME example.com",
+                Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::CNAME("example.com".to_string()),
+                },
+            ),
+            (
                 "NS      VAXA",
                 Record {
                     name: None,
                     ttl: None,
                     class: None,
                     resource: Resource::NS("VAXA".to_string()),
+                },
+            ),
+            (
+                "NS      A.ISI.EDU.",
+                Record {
+                    name: None,
+                    ttl: None,
+                    class: None,
+                    resource: Resource::NS("A.ISI.EDU.".to_string()),
                 },
             ),
             (
@@ -209,18 +238,9 @@ mod tests {
                 },
             ),
             (
-                "AAAA    2400:cb00:2049:1::a29f:1804",
-                Record {
-                    name: None,
-                    ttl: None,
-                    class: None,
-                    resource: Resource::AAAA("2400:cb00:2049:1::a29f:1804".parse().unwrap()),
-                },
-            ),
-            (
                 "@   IN  SOA     VENERA      Action\\.domains 20 7200 600 3600000 60",
                 Record {
-                    name: Some("@"),
+                    name: Some("@".to_string()),
                     ttl: None,
                     class: Some(Class::Internet),
                     resource: Resource::SOA(SOA {
@@ -238,7 +258,7 @@ mod tests {
             (
                 "   VENERA A 10.1.0.52",
                 Record {
-                    name: Some("VENERA"),
+                    name: Some("VENERA".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
@@ -247,7 +267,7 @@ mod tests {
             (
                 "VENERA A 10.1.0.52   ",
                 Record {
-                    name: Some("VENERA"),
+                    name: Some("VENERA".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
@@ -256,7 +276,7 @@ mod tests {
             (
                 "   VENERA A 10.1.0.52   ",
                 Record {
-                    name: Some("VENERA"),
+                    name: Some("VENERA".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
@@ -266,7 +286,7 @@ mod tests {
             (
                 "VENERA A 10.1.0.52;Blah",
                 Record {
-                    name: Some("VENERA"),
+                    name: Some("VENERA".to_string()),
                     ttl: None,
                     class: None,
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
@@ -285,6 +305,8 @@ mod tests {
     #[test]
     fn test_parse_record_errors() {
         let tests = vec![
+            // We don't allow blank entries
+            "",
             // For sinle records, we don't allow new lines
             "VENERA A 10.1.0.52\n",
             "\nVENERA A 10.1.0.52\n",
@@ -303,14 +325,20 @@ mod tests {
     // Test Full files
     #[test]
     fn test_parse() {
+        // TODO add some bad data examples
+        // "$ORIGIN @"
+        // "$TTL blah"
+
         let tests = vec![
             // The control entry types
-            ("$ORIGIN example.org.", vec![Entry::Origin("example.org.")]),
+            ("$ORIGIN 1.example.org.", vec![Entry::Origin("1.example.org.".to_string())]),
             ("$TTL 3600", vec![Entry::Ttl(Duration::new(3600, 0))]),
 
-            // TODO add some bad data examples
-            // "$ORIGIN @"
-            // "$TTL blah"
+            // Wrapped with newlines
+            ("\n\n$ORIGIN 2.example.org.\n", vec![Entry::Origin("2.example.org.".to_string())]),
+
+            // Wrapped with various whitespace
+            ("\n \t \n \t \n \t $ORIGIN 3.example.org.  \n \t \n \t \n  ", vec![Entry::Origin("3.example.org.".to_string())]),
 
             // TODO Include
 
@@ -332,6 +360,23 @@ mod tests {
                 ]),
 
             ("SOA    soa    soa    ( 1 2 ) ( 3 4 ) ( 5 )",
+                vec![
+                    Entry::Record(Record {
+                        resource: Resource::SOA(SOA {
+                            mname: "soa".to_string(),
+                            rname: "soa".to_string(), // TODO Fix the \\ thing
+                            serial: 1,
+                            refresh: Duration::new(2, 0),
+                            retry: Duration::new(3, 0),
+                            expire: Duration::new(4, 0),
+                            minimum: Duration::new(5, 0),
+                        }),
+                        ..Default::default()
+                    }),
+                ]),
+
+            // Compact together
+            ("SOA soa soa (1 2)(3 4)(5)",
                 vec![
                     Entry::Record(Record {
                         resource: Resource::SOA(SOA {
@@ -371,9 +416,9 @@ mod tests {
             VAXA    A       10.2.0.27
                     A       128.9.0.33
             ", vec![
-                Entry::Origin("ISI.EDU."),
+                Entry::Origin("ISI.EDU.".to_string()),
                 Entry::Record(Record {
-                    name: Some("@"),
+                    name: Some("@".to_string()),
                     ttl: None,
                     class: Some(Class::Internet),
                     resource: Resource::SOA(SOA {
@@ -413,12 +458,12 @@ mod tests {
                     ..Default::default()
                 }),
                 Entry::Record(Record {
-                    name: Some("A"),
+                    name: Some("A".to_string()),
                     resource: Resource::A("26.3.0.103".parse().unwrap()),
                     ..Default::default()
                 }),
                 Entry::Record(Record {
-                    name: Some("VENERA"),
+                    name: Some("VENERA".to_string()),
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
                     ..Default::default()
                 }),
@@ -427,7 +472,7 @@ mod tests {
                     ..Default::default()
                 }),
                 Entry::Record(Record {
-                    name: Some("VAXA"),
+                    name: Some("VAXA".to_string()),
                     resource: Resource::A("10.2.0.27".parse().unwrap()),
                     ..Default::default()
                 }),
@@ -456,14 +501,229 @@ mod tests {
             mail          IN  A     192.0.2.3             ; IPv4 address for mail.example.com
             mail2         IN  A     192.0.2.4             ; IPv4 address for mail2.example.com
             mail3         IN  A     192.0.2.5             ; IPv4 address for mail3.example.com
-        ", vec![]),
+        ", vec![
+    Entry::Origin(
+        "example.com.".to_string(),
+    ),
+    Entry::Ttl(
+        Duration::new(3600, 0),
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "example.com.".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::SOA(
+                SOA {
+                    mname: "ns.example.com.".to_string(),
+                    rname: "username.example.com.".to_string(),
+                    serial: 2020091025,
+                    refresh: Duration::new(7200, 0),
+                    retry: Duration::new(3600, 0),
+                    expire: Duration::new(1209600, 0),
+                    minimum: Duration::new(3600, 0),
+                },
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "example.com.".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::NS(
+                "ns".to_string(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "example.com.".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::NS(
+                "ns.somewhere.example.".to_string(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "example.com.".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::MX(
+                MX {
+                    preference: 10,
+                    exchange: "mail.example.com.".to_string(),
+                },
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "@".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::MX(
+                MX {
+                    preference: 20,
+                    exchange: "mail2.example.com.".to_string(),
+                },
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "@".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::MX(
+                MX {
+                    preference: 50,
+                    exchange: "mail3".to_string(),
+                },
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "example.com.".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::A(
+                "192.0.2.1".parse().unwrap(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: None,
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::AAAA(
+                "2001:db8:10::1".parse().unwrap(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "ns".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::A(
+                "192.0.2.2".parse().unwrap(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: None,
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::AAAA(
+                "2001:db8:10::2".parse().unwrap(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "www".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::CNAME(
+                "example.com.".to_string(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "wwwtest".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::CNAME(
+                "www".to_string(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "mail".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::A(
+                "192.0.2.3".parse().unwrap(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "mail2".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::A(
+                "192.0.2.4".parse().unwrap(),
+            ),
+        },
+    ),
+    Entry::Record(Record {
+            name: Some(
+                "mail3".to_string(),
+            ),
+            ttl: None,
+            class: Some(
+                Class::Internet,
+            ),
+            resource: Resource::A(
+                "192.0.2.5".parse().unwrap(),
+            ),
+        },
+    ),
+]),
 
         ];
 
         for (input, want) in tests {
             match parse(input) {
                 Ok(got) => assert_eq!(got, want),
-                Err(err) => panic!("'{}' Failed:\n{}", input, err),
+                Err(err) => panic!("{} Failed:\n{}", input, err),
             }
         }
     }

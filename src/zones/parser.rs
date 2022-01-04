@@ -1,5 +1,6 @@
 extern crate pest;
 
+use crate::zones::preprocessor::preprocess;
 use crate::zones::Entry;
 use crate::zones::Record;
 use crate::zones::Resource;
@@ -16,7 +17,7 @@ use std::time::Duration;
 
 #[derive(Parser)]
 #[grammar = "zones/zones.pest"]
-pub struct ZoneParser;
+struct ZoneParser;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -25,7 +26,6 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 impl ZoneParser {
     fn EOI(input: Node) -> Result<()> {
         assert_eq!(input.as_rule(), Rule::EOI);
-
         Ok(())
     }
 
@@ -110,6 +110,15 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
+    fn resource_cname(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_cname);
+
+        Ok(match_nodes!(input.into_children();
+            [domain(name)] => Resource::CNAME(name.to_string()),
+        ))
+    }
+
+    #[alias(resource)]
     fn resource_ns(input: Node) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_ns);
 
@@ -148,7 +157,7 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::origin);
 
         Ok(match_nodes!(input.into_children();
-            [domain(d)] => Entry::Origin(d),
+            [domain(d)] => Entry::Origin(d.to_string()),
         ))
     }
 
@@ -215,7 +224,7 @@ impl ZoneParser {
                 Rule::domain => {
                     assert!(record.name.is_none(), "record domain was set twice");
 
-                    record.name = Some(Self::domain(node)?)
+                    record.name = Some(Self::domain(node)?.to_string())
                 }
                 Rule::duration => {
                     assert!(record.ttl.is_none(), "record ttl was set twice");
@@ -258,12 +267,15 @@ impl ZoneParser {
 /// For example:
 ///
 /// ```
-/// let entry = parse_entry("example.com.  A   192.0.2.1");
-/// assert_eq!(entry, Ok(Record {
-///    name: Some("example.com."),
-///    ttl: None,
-///    class: None,
-///    resource: Resource::A("192.0.2.1".parse().unwrap()),
+/// use rustdns::Resource;
+/// use rustdns::zones::{Record, parse_record};
+///
+/// let record = parse_record("example.com.  A   192.0.2.1");
+/// assert_eq!(record, Ok(Record {
+///   name: Some("example.com.".to_string()),
+///   ttl: None,
+///   class: None,
+///   resource: Resource::A("192.0.2.1".parse().unwrap()),
 /// }));
 /// ```
 ///
@@ -276,8 +288,27 @@ pub fn parse_record(input_str: &str) -> Result<Record> {
 }
 
 /// Parse a full zone file.
+///
+/// ```
+/// use rustdns::Resource;
+/// use rustdns::zones::{Entry, Record, parse};
+///
+/// let file = parse("$ORIGIN example.com.\n www  A   192.0.2.1");
+/// assert_eq!(file, Ok(vec![
+///   Entry::Origin("example.com.".to_string()),
+///   Entry::Record(Record {
+///     name: Some("www".to_string()),
+///     ttl: None,
+///     class: None,
+///     resource: Resource::A("192.0.2.1".parse().unwrap()),
+///   }),
+/// ]));
+/// ```
 pub fn parse(input_str: &str) -> Result<Vec<Entry>> {
-    let inputs = ZoneParser::parse(Rule::file, input_str)?;
+    // TODO Change this to a File return type
+    let input_str = preprocess(input_str).unwrap(); // TODO
+
+    let inputs = ZoneParser::parse(Rule::file, &input_str)?;
     let input = inputs.single()?;
     ZoneParser::file(input)
 }
