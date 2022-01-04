@@ -1,0 +1,27 @@
+/// DNS Zone file parsing (pre-processor)
+///
+/// Due to the rules around braces we preprocess the file, 
+/// and write out something easier to parse.
+
+
+comment = { ";" ~ (!NEWLINE ~ ANY)* }
+open = { "(" }
+close = { ")" }
+newline = { NEWLINE }
+token = { (!(comment | open | close | newline) ~ ANY)+ }
+
+// TODO We might want to capture " strings
+
+tokens = {
+	(
+	    comment
+	  | open
+	  | close
+	  | newline
+	  | token
+	)*
+}
+
+file = {
+	SOI ~ tokens ~ EOI
+}
