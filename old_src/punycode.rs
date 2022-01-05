@@ -39,7 +39,7 @@ fn from_char(c: char) -> u8 {
 fn to_char(i: u8) -> char {
     (match i {
         0..=25 => b'a' + i,
-        26..=35 => b'0' + (i-26),
+        26..=35 => b'0' + (i - 26),
         _ => panic!("invalid digit"), // TODO
     }) as char
 }
@@ -80,7 +80,7 @@ fn adapt(delta: u32, num_points: u32, first_time: bool) -> u32 {
 // Encodes a string into punycode.
 pub fn encode(input: &str) -> Result<String, ()> {
     let mut output = String::new();
-    let mut unicode = Vec::<char>::new();  // Non-basic code points (the ones we need to encode).
+    let mut unicode = Vec::<char>::new(); // Non-basic code points (the ones we need to encode).
     for c in input.chars() {
         if c.is_ascii() {
             // All basic code points appearing in the extended string are
@@ -103,7 +103,6 @@ pub fn encode(input: &str) -> Result<String, ()> {
         return Ok(output);
     }
 
-
     // "Insertion unsort coding" encodes the non-basic code points as deltas,
     // and processes the code points in numerical order rather than in order
     // of appearance, which typically results in smaller deltas.
@@ -115,7 +114,7 @@ pub fn encode(input: &str) -> Result<String, ()> {
         panic!("the input contains a non-basic code point < n");
     }
 
-    let mut last_char = INITIAL_N as u32;       // The first non-ASCII code point.
+    let mut last_char = INITIAL_N as u32; // The first non-ASCII code point.
     let mut bias = INITIAL_BIAS;
     let mut delta = 0;
     let mut h = basic_len;
@@ -182,7 +181,7 @@ pub fn encode(input: &str) -> Result<String, ()> {
                 h += 1;
             }
         }
-        
+
         delta += 1;
         last_char = cur_char + 1;
     }
@@ -197,27 +196,89 @@ pub fn encode(input: &str) -> Result<String, ()> {
 #[cfg(test)]
 static TESTS: [(&str, &str, &str); 47] = [
     // From rfc3492, various examples of "Why can't they just speak in <language>?"
-    ("ليهمابتكلموشعربي؟", "egbpdaj6bu4bxfgehfvwxn", "Arabic (Egyptian)"),
-    ("他们为什么不说中文", "ihqwcrb4cv8a8dqg056pqjye", "Chinese (simplified)"),
-    ("他們爲什麽不說中文", "ihqwctvzc91f659drss3x8bo0yb", "Chinese (traditional)"),
-    ("Pročprostěnemluvíčesky", "Proprostnemluvesky-uyb24dma41a", "Czech"),
-    ("למההםפשוטלאמדבריםעברית", "4dbcagdahymbxekheh6e0a7fei0b", "Hebrew"),
-    ("यहलोगहिन्दीक्योंनहींबोलसकतेहैं", "i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd", "Hindi (Devanagari)"),
-    ("なぜみんな日本語を話してくれないのか", "n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa", "Japanese (kanji and hiragana)"),
-    ("세계의모든사람들이한국어를이해한다면얼마나좋을까", "989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c", "Korean (Hangul syllables)"),
-    ("почемужеонинеговорятпорусски", "b1abfaaepdrnnbgefbadotcwatmq2g4l", "Russian (Cyrillic)"),
-    ("PorquénopuedensimplementehablarenEspañol", "PorqunopuedensimplementehablarenEspaol-fmd56a", "Spanish"),
-    ("TạisaohọkhôngthểchỉnóitiếngViệt", "TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g", "Vietnamese"),
-
+    (
+        "ليهمابتكلموشعربي؟",
+        "egbpdaj6bu4bxfgehfvwxn",
+        "Arabic (Egyptian)",
+    ),
+    (
+        "他们为什么不说中文",
+        "ihqwcrb4cv8a8dqg056pqjye",
+        "Chinese (simplified)",
+    ),
+    (
+        "他們爲什麽不說中文",
+        "ihqwctvzc91f659drss3x8bo0yb",
+        "Chinese (traditional)",
+    ),
+    (
+        "Pročprostěnemluvíčesky",
+        "Proprostnemluvesky-uyb24dma41a",
+        "Czech",
+    ),
+    (
+        "למההםפשוטלאמדבריםעברית",
+        "4dbcagdahymbxekheh6e0a7fei0b",
+        "Hebrew",
+    ),
+    (
+        "यहलोगहिन्दीक्योंनहींबोलसकतेहैं",
+        "i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd",
+        "Hindi (Devanagari)",
+    ),
+    (
+        "なぜみんな日本語を話してくれないのか",
+        "n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa",
+        "Japanese (kanji and hiragana)",
+    ),
+    (
+        "세계의모든사람들이한국어를이해한다면얼마나좋을까",
+        "989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c",
+        "Korean (Hangul syllables)",
+    ),
+    (
+        "почемужеонинеговорятпорусски",
+        "b1abfaaepdrnnbgefbadotcwatmq2g4l",
+        "Russian (Cyrillic)",
+    ),
+    (
+        "PorquénopuedensimplementehablarenEspañol",
+        "PorqunopuedensimplementehablarenEspaol-fmd56a",
+        "Spanish",
+    ),
+    (
+        "TạisaohọkhôngthểchỉnóitiếngViệt",
+        "TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g",
+        "Vietnamese",
+    ),
     // Japanese music artists, song titles, and TV programs, from rfc3492.
-    ("3年B組金八先生", "3B-ww4c5e180e575a65lsy2b", "3<nen>B<gumi><kinpachi><sensei>"),
-    ("安室奈美恵-with-SUPER-MONKEYS", "-with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n", "<amuro><namie>-with-SUPER-MONKEYS"),
-    ("Hello-Another-Way-それぞれの場所", "Hello-Another-Way--fc4qua05auwb3674vfr0b", "Hello-Another-Way-<sorezore><no><basho>"),
-    ("ひとつ屋根の下2", "2-u9tlzr9756bt3uc0v", "<hitotsu><yane><no><shita>2"),
-    ("MajiでKoiする5秒前", "MajiKoi5-783gue6qz075azm5e", "Maji<de>Koi<suru>5<byou><mae>"),
+    (
+        "3年B組金八先生",
+        "3B-ww4c5e180e575a65lsy2b",
+        "3<nen>B<gumi><kinpachi><sensei>",
+    ),
+    (
+        "安室奈美恵-with-SUPER-MONKEYS",
+        "-with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n",
+        "<amuro><namie>-with-SUPER-MONKEYS",
+    ),
+    (
+        "Hello-Another-Way-それぞれの場所",
+        "Hello-Another-Way--fc4qua05auwb3674vfr0b",
+        "Hello-Another-Way-<sorezore><no><basho>",
+    ),
+    (
+        "ひとつ屋根の下2",
+        "2-u9tlzr9756bt3uc0v",
+        "<hitotsu><yane><no><shita>2",
+    ),
+    (
+        "MajiでKoiする5秒前",
+        "MajiKoi5-783gue6qz075azm5e",
+        "Maji<de>Koi<suru>5<byou><mae>",
+    ),
     ("パフィーdeルンバ", "de-jg4avhby1noc0d", "<pafii>de<runba>"),
     ("そのスピードで", "d9juau41awczczp", "<sono><supiido><de>"),
-
     // From https://en.wikipedia.org/wiki/Punycode#Examples
     ("bücher", "bcher-kva", "Simple wikipedia example."),
     ("", "", "The empty string."),
@@ -226,27 +287,82 @@ static TESTS: [(&str, &str, &str); 47] = [
     ("3", "3-", "Only ASCII characters, one, a digit."),
     ("-", "--", "Only ASCII characters, one, a hyphen."),
     ("--", "---", "Only ASCII characters, two hyphens."),
-    ("London", "London-", "Only ASCII characters, more than one, no hyphens."),
-    ("Lloyd-Atkinson", "Lloyd-Atkinson-", "Only ASCII characters, one hyphen."),
-    ("This has spaces", "This has spaces-", "Only ASCII characters, with spaces."),
-    ("-> $1.00 <-", "-> $1.00 <--", "Only ASCII characters, mixed symbols."),
-    ("ü", "tda", "No ASCII characters, one Latin-1 Supplement character."),
+    (
+        "London",
+        "London-",
+        "Only ASCII characters, more than one, no hyphens.",
+    ),
+    (
+        "Lloyd-Atkinson",
+        "Lloyd-Atkinson-",
+        "Only ASCII characters, one hyphen.",
+    ),
+    (
+        "This has spaces",
+        "This has spaces-",
+        "Only ASCII characters, with spaces.",
+    ),
+    (
+        "-> $1.00 <-",
+        "-> $1.00 <--",
+        "Only ASCII characters, mixed symbols.",
+    ),
+    (
+        "ü",
+        "tda",
+        "No ASCII characters, one Latin-1 Supplement character.",
+    ),
     ("α", "mxa", "No ASCII characters, one Greek character."),
     ("例", "fsq", "No ASCII characters, one CJK character."),
     ("😉", "n28h", "No ASCII characters, one emoji character."),
-    ("αβγ", "mxacd", "No ASCII characters, more than one character."),
-    ("München", "Mnchen-3ya", "Mixed string, with one character that is not an ASCII character."),
-    ("Mnchen-3ya", "Mnchen-3ya-", "Double-encoded Punycode of \"München\"."),
-    ("München-Ost", "Mnchen-Ost-9db", "Mixed string, with one character that is not ASCII, and a hyphen."),
-    ("Bahnhof München-Ost", "Bahnhof Mnchen-Ost-u6b", "Mixed string, with one space, one hyphen, and one character that is not ASCII."),
-    ("abæcdöef", "abcdef-qua4k", "Mixed string, two non-ASCII characters."),
+    (
+        "αβγ",
+        "mxacd",
+        "No ASCII characters, more than one character.",
+    ),
+    (
+        "München",
+        "Mnchen-3ya",
+        "Mixed string, with one character that is not an ASCII character.",
+    ),
+    (
+        "Mnchen-3ya",
+        "Mnchen-3ya-",
+        "Double-encoded Punycode of \"München\".",
+    ),
+    (
+        "München-Ost",
+        "Mnchen-Ost-9db",
+        "Mixed string, with one character that is not ASCII, and a hyphen.",
+    ),
+    (
+        "Bahnhof München-Ost",
+        "Bahnhof Mnchen-Ost-u6b",
+        "Mixed string, with one space, one hyphen, and one character that is not ASCII.",
+    ),
+    (
+        "abæcdöef",
+        "abcdef-qua4k",
+        "Mixed string, two non-ASCII characters.",
+    ),
     ("правда", "80aafi6cg", "Russian, without ASCII."),
     ("ยจฆฟคฏข", "22cdfh1b8fsa", "Thai, without ASCII."),
     ("도메인", "hq1bm8jm9l", "Korean, without ASCII."),
-    ("ドメイン名例", "eckwd4c7cu47r2wf", "Japanese, without ASCII."),
-    ("MajiでKoiする5秒前", "MajiKoi5-783gue6qz075azm5e", "Japanese with ASCII."),
-    ("「bücher」", "bcher-kva8445foa", "Mixed non-ASCII scripts (Latin-1 Supplement and CJK)."),
-
+    (
+        "ドメイン名例",
+        "eckwd4c7cu47r2wf",
+        "Japanese, without ASCII.",
+    ),
+    (
+        "MajiでKoiする5秒前",
+        "MajiKoi5-783gue6qz075azm5e",
+        "Japanese with ASCII.",
+    ),
+    (
+        "「bücher」",
+        "bcher-kva8445foa",
+        "Mixed non-ASCII scripts (Latin-1 Supplement and CJK).",
+    ),
     // Others edge cases
     ("☺", "74h", "Smiling Face."),
     ("i❤", "i-7iq", "i❤️.ws"),

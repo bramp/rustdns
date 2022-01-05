@@ -3,14 +3,14 @@
 #[cfg(test)]
 mod tests {
     use crate::resource::*;
-    use crate::zones::parser::parse;
-    use crate::zones::parser::parse_record;
     use crate::zones::Entry;
+    use crate::zones::File;
     use crate::zones::Record;
     use crate::zones::Resource;
     use crate::Class;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
+    use std::str::FromStr;
 
     #[test]
     fn test_parse_combinations() {
@@ -110,7 +110,7 @@ mod tests {
         ];
 
         for (input, want) in tests {
-            match parse_record(input) {
+            match Record::from_str(input) {
                 Ok(got) => assert_eq!(got, want, "incorrect result for '{}'", input),
                 Err(err) => panic!("'{}' Failed:\n{}", input, err),
             }
@@ -254,7 +254,7 @@ mod tests {
         ];
 
         for (input, want) in tests {
-            match parse_record(input) {
+            match Record::from_str(input) {
                 Ok(got) => assert_eq!(got, want),
                 Err(err) => panic!("'{}' Failed:\n{}", input, err),
             }
@@ -272,7 +272,7 @@ mod tests {
         ];
 
         for input in tests {
-            match parse_record(input) {
+            match Record::from_str(input) {
                 Ok(_got) => panic!("'{}' incorrectly parsed correctly", input),
                 Err(_err) => (), // Expect a error. TODO Maybe check the error message,
             }
@@ -291,7 +291,7 @@ mod tests {
         let tests = vec![
             // The control entry types
             ("$ORIGIN 1.example.org.", vec![Entry::Origin("1.example.org.".to_string())]),
-            ("$TTL 3600", vec![Entry::Ttl(Duration::new(3600, 0))]),
+            ("$TTL 3600", vec![Entry::TTL(Duration::new(3600, 0))]),
 
             // Wrapped with newlines
             ("\n\n$ORIGIN 2.example.org.\n", vec![Entry::Origin("2.example.org.".to_string())]),
@@ -459,13 +459,10 @@ mod tests {
             wwwtest       IN  CNAME www                   ; wwwtest.example.com is another alias for www.example.com
             mail          IN  A     192.0.2.3             ; IPv4 address for mail.example.com
             mail2         IN  A     192.0.2.4             ; IPv4 address for mail2.example.com
-            mail3         IN  A     192.0.2.5             ; IPv4 address for mail3.example.com", vec![
-                Entry::Origin(
-                    "example.com.".to_string(),
-                ),
-                Entry::Ttl(
-                    Duration::new(3600, 0),
-                ),
+            mail3         IN  A     192.0.2.5             ; IPv4 address for mail3.example.com",
+            vec![
+                Entry::Origin("example.com.".to_string()),
+                Entry::TTL(Duration::new(3600, 0)),
                 Entry::Record(Record {
                         name: Some("example.com.".to_string(),),
                         ttl: None,
@@ -685,10 +682,10 @@ mod tests {
                                     )
             @  1814400  IN  NS      localhost.
             1  1814400  IN  PTR     localhost.", vec![
-                Entry::Ttl(Duration::new(1814400, 0)),
+                Entry::TTL(Duration::new(1814400, 0)),
                 Entry::Record(Record {
                         name: Some("@".to_string(),),
-                        ttl: Some(Duration::new(86400, 0)),
+                        ttl: Some(Duration::new(1814400, 0)),
                         class: Some(Class::Internet),
                         resource: Resource::SOA(
                             SOA {
@@ -718,12 +715,12 @@ mod tests {
                         resource: Resource::PTR("localhost.".to_string()),
                     },
                 ),
-                ]),
+            ]),
         ];
 
         for (input, want) in tests {
-            match parse(input) {
-                Ok(got) => assert_eq!(got, want),
+            match File::from_str(input) {
+                Ok(got) => assert_eq!(got.entries, want),
                 Err(err) => panic!("{} Failed:\n{}", input, err),
             }
         }

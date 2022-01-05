@@ -177,7 +177,7 @@ impl fmt::Display for Resource {
                 let output = txts
                     .iter()
                     .map(|txt| {
-                        match std::str::from_utf8(&txt) {
+                        match std::str::from_utf8(txt) {
                             // TODO Escape the " character (and maybe others)
                             Ok(txt) => txt,
 
@@ -215,11 +215,19 @@ impl fmt::Display for MX {
 impl fmt::Display for SOA {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
+
+        // It's arguable that dns-admin@google.com looks better, but
+        // for now we'll keep the format dns-admin.google.com.
+        let rname = match Self::email_to_rname(&self.rname) {
+            Ok(name) => name,
+            Err(_) => self.rname.to_owned(), // Ignore the error
+        };
+
         write!(
             f,
             "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
             mname = self.mname,
-            rname = self.rname,
+            rname = rname,
             serial = self.serial,
             refresh = self.refresh.as_secs(),
             retry = self.retry.as_secs(),

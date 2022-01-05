@@ -20,7 +20,7 @@ use strum_macros::{Display, EnumString};
 /// // Setup some UDP socket for sending to a DNS server.
 /// let socket = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to address");
 /// socket.set_read_timeout(Some(Duration::new(5, 0))).expect("set_read_timeout call failed");
-/// socket.connect("8.8.8.8:53").expect("connect function failed");
+/// socket.connect("8.8.8.8:53").expect("connect call failed");
 ///
 /// // Construct a simple query.
 /// let mut m = Message::default();
@@ -148,6 +148,15 @@ pub struct Record {
 }
 
 impl Record {
+    pub fn new(name: &str, class: Class, ttl: Duration, resource: Resource) -> Self {
+        Self {
+            name: name.to_owned(),
+            class,
+            ttl,
+            resource,
+        }
+    }
+
     pub fn r#type(&self) -> Type {
         self.resource.r#type()
     }

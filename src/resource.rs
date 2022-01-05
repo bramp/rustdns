@@ -126,7 +126,10 @@ pub struct SOA {
     pub mname: String,
 
     /// The mailbox of the person responsible for this zone.
-    // TODO Convert this to a email address https://datatracker.ietf.org/doc/html/rfc1035#section-8
+    ///
+    /// This is stored as a valid email address, e.g "dns.admin@example.com", as opposed
+    /// to the format it's typically stored in SOA records "dns\.admin.example.com". Use
+    /// [`rname_to_email`] and [`rname_to_email`] to convert between the formats.
     pub rname: String,
 
     pub serial: u32,
@@ -195,7 +198,7 @@ fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
 impl SOA {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<SOA> {
         let mname = cur.read_qname()?;
-        let rname = cur.read_qname()?;
+        let rname = Self::rname_to_email(&cur.read_qname()?).unwrap(); // TODO error handling
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
@@ -213,6 +216,50 @@ impl SOA {
             expire: Duration::from_secs(expire.into()),
             minimum: Duration::from_secs(minimum.into()),
         })
+    }
+
+    /// Converts rnames to email address, for example, "admin.example.com" is
+    /// converted to "admin@example.com", per the rules in
+    /// https://datatracker.ietf.org/doc/html/rfc1035#section-8
+    pub fn rname_to_email(domain: &str) -> Result<String, ()> {
+        // The logic is simple. Find the first unescaped '.' and replace with a '@'.
+
+        // Find first dot and replace with a @
+        if !domain.contains('.') {
+            todo!();
+            //            return Err(())
+        }
+
+        // Handle the escaping. Replace the first . which isn't escapated with a \
+        let mut result = String::with_capacity(domain.len());
+        let mut last_char = ' ';
+        let mut done = false;
+        for c in domain.chars() {
+            if last_char == '\\' {
+                // Last character was escape, so always append this one.
+                result.push(c);
+            } else if c == '.' && !done {
+                result.push('@');
+                done = true;
+            } else if c != '\\' {
+                // Otherwise append if not an escape.
+                result.push(c);
+            }
+
+            last_char = c;
+        }
+
+        Ok(result)
+    }
+
+    pub fn email_to_rname(email: &str) -> Result<String, ()> {
+        match email.split_once('@') {
+            None => todo!(),
+
+            // Escape all the dots to the left of the '@',
+            // replace the '@' with a '.', and leave everything after the '@' alone.
+            Some((left, right)) => Ok(left.replace('.', "\\.") + "." + right),
+        }
     }
 }
 
@@ -242,5 +289,38 @@ impl SRV {
             port,
             name,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::SOA;
+    use pretty_assertions::assert_eq;
+
+    static RNAME_TESTS: &[(&str, &str)] = &[
+        ("username.example.com", "username@example.com"),
+        ("root.localhost", "root@localhost"),
+        ("Action\\.domains.ISI.EDU", "Action.domains@ISI.EDU"),
+        ("a\\.b\\.c.ISI.EDU", "a.b.c@ISI.EDU"),
+    ];
+
+    #[test]
+    fn test_soa_rname_to_email() {
+        for (domain, email) in RNAME_TESTS {
+            match SOA::rname_to_email(domain) {
+                Ok(got) => assert_eq!(got, *email, "incorrect result for '{}'", domain),
+                Err(err) => panic!("'{}' Failed:\n{:?}", domain, err),
+            }
+        }
+    }
+
+    #[test]
+    fn test_soa_rname_from_email() {
+        for (domain, email) in RNAME_TESTS {
+            match SOA::email_to_rname(email) {
+                Ok(got) => assert_eq!(got, *domain, "incorrect result for '{}'", email),
+                Err(err) => panic!("'{}' Failed:\n{:?}", email, err),
+            }
+        }
     }
 }

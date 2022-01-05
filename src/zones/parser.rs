@@ -1,6 +1,5 @@
-extern crate pest;
+// Parses a Zone File following RFC 1035 (section 5).
 
-use crate::zones::preprocessor::preprocess;
 use crate::zones::Entry;
 use crate::zones::Record;
 use crate::zones::Resource;
@@ -15,9 +14,11 @@ use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::time::Duration;
 
+extern crate pest;
+
 #[derive(Parser)]
 #[grammar = "zones/zones.pest"]
-struct ZoneParser;
+pub(crate) struct ZoneParser;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -140,6 +141,15 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
+    fn resource_ptr(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_ptr);
+
+        Ok(match_nodes!(input.into_children();
+            [domain(name)] => Resource::PTR(name.to_string()),
+        ))
+    }
+
+    #[alias(resource)]
     fn resource_soa(input: Node) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_soa);
 
@@ -166,7 +176,7 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::ttl);
 
         Ok(match_nodes!(input.into_children();
-            [duration(ttl)] => Entry::Ttl(ttl),
+            [duration(ttl)] => Entry::TTL(ttl),
         ))
     }
 
@@ -180,7 +190,7 @@ impl ZoneParser {
         Ok(Entry::Record(record))
     }
 
-    fn single_record(input: Node) -> Result<Record> {
+    pub fn single_record(input: Node) -> Result<Record> {
         assert_eq!(input.as_rule(), Rule::single_record);
 
         match_nodes!(input.into_children();
@@ -188,12 +198,12 @@ impl ZoneParser {
         )
     }
 
-    fn file(input: Node) -> Result<Vec<Entry>> {
+    pub fn file(input: Node) -> Result<Vec<Entry>> {
         assert_eq!(input.as_rule(), Rule::file);
 
-        Ok(match_nodes!(input.into_children();
-            [entry(entrys).., _EOI] => entrys.collect(),
-        ))
+        match_nodes!(input.into_children();
+            [entry(entrys).., _EOI] => Ok(entrys.collect()),
+        )
     }
 }
 
@@ -260,55 +270,4 @@ impl ZoneParser {
 
         Ok(record)
     }
-}
-
-/// Parse a single zone file resource record.
-///
-/// For example:
-///
-/// ```
-/// use rustdns::Resource;
-/// use rustdns::zones::{Record, parse_record};
-///
-/// let record = parse_record("example.com.  A   192.0.2.1");
-/// assert_eq!(record, Ok(Record {
-///   name: Some("example.com.".to_string()),
-///   ttl: None,
-///   class: None,
-///   resource: Resource::A("192.0.2.1".parse().unwrap()),
-/// }));
-/// ```
-///
-/// This function is mostly useful for test code, or quickly parsing a
-/// single record. Please prefer to use [`parse`] to parse full files.
-pub fn parse_record(input_str: &str) -> Result<Record> {
-    let inputs = ZoneParser::parse(Rule::single_record, input_str)?;
-    let input = inputs.single()?;
-    ZoneParser::single_record(input)
-}
-
-/// Parse a full zone file.
-///
-/// ```
-/// use rustdns::Resource;
-/// use rustdns::zones::{Entry, Record, parse};
-///
-/// let file = parse("$ORIGIN example.com.\n www  A   192.0.2.1");
-/// assert_eq!(file, Ok(vec![
-///   Entry::Origin("example.com.".to_string()),
-///   Entry::Record(Record {
-///     name: Some("www".to_string()),
-///     ttl: None,
-///     class: None,
-///     resource: Resource::A("192.0.2.1".parse().unwrap()),
-///   }),
-/// ]));
-/// ```
-pub fn parse(input_str: &str) -> Result<Vec<Entry>> {
-    // TODO Change this to a File return type
-    let input_str = preprocess(input_str).unwrap(); // TODO
-
-    let inputs = ZoneParser::parse(Rule::file, &input_str)?;
-    let input = inputs.single()?;
-    ZoneParser::file(input)
 }

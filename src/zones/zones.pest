@@ -32,8 +32,10 @@ COMMENT = _{";" ~ (!NEWLINE ~ ANY)*}
 domain = @{
 	  "@"
 	| (ASCII_ALPHANUMERIC | "." | "-" )+
+	// TODO Handle escape characters
+	// TODO Handle quoted strings
 }
-string = @{ (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ } // TODO Should we call this string?
+string = @{ (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ }
 ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
 number = @{ ASCII_DIGIT+ }
@@ -45,6 +47,7 @@ resource = _{
 	| resource_cname
 	| resource_ns
 	| resource_mx
+	| resource_ptr
 	| resource_soa
 }
 
@@ -53,6 +56,7 @@ resource_aaaa  = {^"AAAA"  ~ ws ~ ip6}
 resource_cname = {^"CNAME" ~ ws ~ domain}
 resource_ns    = {^"NS"    ~ ws ~ domain}
 resource_mx    = {^"MX"    ~ ws ~ number ~ ws ~ domain}
+resource_ptr   = {^"PTR"   ~ ws ~ domain}
 resource_soa   = {^"SOA"   ~ ws ~ domain ~ ws ~ string ~ ws ~ number ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration}
 
 // Entry for full file.

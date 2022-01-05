@@ -173,7 +173,7 @@ impl Message {
 
     /// Decodes the supplied buffer and returns a [`Message`].
     pub fn from_slice(buf: &[u8]) -> io::Result<Message> {
-        MessageParser::new(&buf).parse()
+        MessageParser::new(buf).parse()
     }
 
     /// Takes a unicode domain, converts to ascii, and back to unicode.
