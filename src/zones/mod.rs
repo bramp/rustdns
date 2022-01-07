@@ -58,7 +58,7 @@ impl FromStr for File {
     /// use std::str::FromStr;
     ///
     /// let file = File::from_str("$ORIGIN example.com.\n www  A   192.0.2.1");
-    /// assert_eq!(file, Ok(File::from(vec![
+    /// assert_eq!(file, Ok(File::new(None, vec![
     ///   Entry::Origin("example.com.".to_string()),
     ///   Entry::Record(Record {
     ///     name: Some("www".to_string()),
