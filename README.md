@@ -105,22 +105,22 @@ response: 8.8.8.8:53
 ; ANSWER SECTION:
 www.google.com.       110 IN   A      142.250.72.196
 
-$ cargo run AAAA www.google.com
-$ cargo run ANY www.google.com
-$ cargo run CNAME code.google.com
-$ cargo run MX google.com
-$ cargo run PTR 4.4.8.8.in-addr.arpa
-$ cargo run SOA google.com
-$ cargo run SRV _ldap._tcp.google.com
-$ cargo run TXT google.com
+$ cargo run -p dig -- AAAA www.google.com
+$ cargo run -p dig -- ANY www.google.com
+$ cargo run -p dig -- CNAME code.google.com
+$ cargo run -p dig -- MX google.com
+$ cargo run -p dig -- PTR 4.4.8.8.in-addr.arpa
+$ cargo run -p dig -- SOA google.com
+$ cargo run -p dig -- SRV _ldap._tcp.google.com
+$ cargo run -p dig -- TXT google.com
 ```
 ## Testing
 
 ```shell
-$ cargo test
+$ cargo test --all
 
 # or the handy
-$ cargo watch -- cargo test --lib -- --nocapture
+$ cargo watch -- cargo test --all -- --nocapture
 ```
 
 The test suite is full of stored real life examples, from querying real DNS records.
@@ -134,25 +134,45 @@ The library has been extensively fuzzed. Try for yourself:
 $ cargo fuzz run from_slice
 ```
 
-### Releasing
+### Test Data
+
+To aid in testing features, I have a set of pre-configured records setup:
+
+| Domain                | Description |
+| --------------------- | ----------- |
+| a.bramp.net           | Single A record pointing at 127.0.0.1 |
+| aaaa.bramp.net        | Single AAAA record pointing at ::1 |
+| aaaaa.bramp.net       | One A record, and one AAAA record resolving to 127.0.0.1 and ::1 |
+| cname.bramp.net       | Single CNAME record pointing at a.bramp.net |
+| cname-loop1.bramp.net | Single CNAME record pointing at cname-loop2.bramp.net |
+| cname-loop2.bramp.net | Single CNAME record pointing at cname-loop1.bramp.net |
+| mx.bramp.net          | Single MX record pointing at a.bramp.net |
+| ns.bramp.net          | Single NS record pointing at a.bramp.net |
+| txt.bramp.net         | Single TXT Record "A TXT record!" |
+
+## Releasing
 
 ```shell
+# Bump version number
 $ cargo readme > README.md
 $ cargo publish --dry-run
 $ cargo publish
 ```
 
 ## TODO (in order of priority)
-* [ ] UDP/TCP library
+* [ ] Document UDP/TCP library
 * [ ] Client side examples
 * [ ] Server side examples
 * [ ] DNS over TLS (DoT) and DNS over HTTPS (DoH)
 * [ ] DNSSEC: Signing, validating and key generation for DSA, RSA, ECDSA and Ed25519
 * [ ] RFC 1035 zone file parsing
 * [ ] NSID, Cookies, AXFR/IXFR, TSIG, SIG(0)
-* [ ] Refactoring to use <https://github.com/tokio-rs/bytes>
+* [ ] Runtime-independence
 * [ ] Change the API to have getters and setters.
 * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
+* [ ] Implement more dig features, such as +trace
+* [ ] Maybe convert the binary parsing to Nom format.
+* [ ] Can I parse these https://www.iana.org/domains/root/files ?
 
 ### Reference
 

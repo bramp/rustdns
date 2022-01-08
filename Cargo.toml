@@ -2,7 +2,7 @@
 
 [package]
 name = "rustdns"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Andrew Brampton <me@bramp.net>"]
 categories = ["encoding", "network-programming"]
 description = "A DNS parsing library"

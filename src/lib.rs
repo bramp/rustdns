@@ -147,6 +147,7 @@
 //! # Releasing
 //!
 //! ```shell
+//! # Bump version number
 //! $ cargo readme > README.md
 //! $ cargo publish --dry-run
 //! $ cargo publish
