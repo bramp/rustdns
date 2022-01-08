@@ -198,6 +198,9 @@ extern crate num_derive;
 #[macro_use]
 extern crate pest_derive;
 
+#[macro_use]
+extern crate derivative;
+
 // Pull up the various types that should be on the front page of the docs.
 #[doc(inline)]
 pub use crate::types::*;
