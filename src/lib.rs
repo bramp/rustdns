@@ -157,9 +157,7 @@
 //! * [ ] Document UDP/TCP library
 //! * [ ] Client side examples
 //! * [ ] Server side examples
-//! * [ ] DNS over TLS (DoT) and DNS over HTTPS (DoH)
 //! * [ ] DNSSEC: Signing, validating and key generation for DSA, RSA, ECDSA and Ed25519
-//! * [ ] RFC 1035 zone file parsing
 //! * [ ] NSID, Cookies, AXFR/IXFR, TSIG, SIG(0)
 //! * [ ] Runtime-independence
 //! * [ ] Change the API to have getters and setters.
