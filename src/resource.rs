@@ -1,6 +1,7 @@
 use crate::bail;
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::types::*;
+use crate::ParseError;
 use byteorder::{ReadBytesExt, BE};
 use std::io;
 use std::io::Cursor;
@@ -30,7 +31,8 @@ pub type PTR = String;
 
 /// Text (TXT) record for arbitrary human-readable text in a DNS record.
 #[allow(clippy::upper_case_acronyms)]
-pub type TXT = Vec<Vec<u8>>;
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TXT(pub Vec<Vec<u8>>);
 
 impl Record {
     pub(crate) fn parse(
@@ -73,6 +75,7 @@ impl Record {
             Type::PTR => Resource::PTR(record.read_qname()?),
             Type::MX => Resource::MX(MX::parse(&mut record)?),
             Type::TXT => Resource::TXT(parse_txt(&mut record)?),
+            Type::SPF => Resource::SPF(parse_txt(&mut record)?),
             Type::SRV => Resource::SRV(SRV::parse(&mut record)?),
 
             // This should never appear in a answer record unless we have invalid data.
@@ -175,7 +178,7 @@ fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<AAAA> {
 }
 
 fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
-    let mut txts = TXT::new();
+    let mut txts = Vec::new();
 
     loop {
         // Keep reading until EOF is reached.
@@ -192,7 +195,7 @@ fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
         txts.push(txt)
     }
 
-    Ok(txts)
+    Ok(TXT(txts))
 }
 
 impl SOA {
@@ -221,14 +224,9 @@ impl SOA {
     /// Converts rnames to email address, for example, "admin.example.com" is
     /// converted to "admin@example.com", per the rules in
     /// https://datatracker.ietf.org/doc/html/rfc1035#section-8
-    pub fn rname_to_email(domain: &str) -> Result<String, ()> {
-        // The logic is simple. Find the first unescaped '.' and replace with a '@'.
-
-        // Find first dot and replace with a @
-        if !domain.contains('.') {
-            todo!();
-            //            return Err(())
-        }
+    pub fn rname_to_email(domain: &str) -> Result<String, ParseError> {
+        // The logic is simple.
+        // Find first unescaped dot and replace with a @
 
         // Handle the escaping. Replace the first . which isn't escapated with a \
         let mut result = String::with_capacity(domain.len());
@@ -249,12 +247,16 @@ impl SOA {
             last_char = c;
         }
 
+        if !done {
+            return Err(ParseError::InvalidRname(domain.to_string()));
+        }
+
         Ok(result)
     }
 
-    pub fn email_to_rname(email: &str) -> Result<String, ()> {
+    pub fn email_to_rname(email: &str) -> Result<String, ParseError> {
         match email.split_once('@') {
-            None => todo!(),
+            None => Err(ParseError::InvalidRname(email.to_string())),
 
             // Escape all the dots to the left of the '@',
             // replace the '@' with a '.', and leave everything after the '@' alone.
@@ -289,6 +291,18 @@ impl SRV {
             port,
             name,
         })
+    }
+}
+
+impl From<&str> for TXT {
+    fn from(txt: &str) -> TXT {
+        TXT(vec![txt.as_bytes().to_vec()])
+    }
+}
+
+impl From<&[&str]> for TXT {
+    fn from(txts: &[&str]) -> TXT {
+        TXT(txts.iter().map(|row| row.as_bytes().to_vec()).collect())
     }
 }
 

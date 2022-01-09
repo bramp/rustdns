@@ -186,6 +186,7 @@ pub mod clients;
 mod display;
 mod dns;
 mod errors;
+mod from_str;
 mod io;
 pub mod resource;
 pub mod types;
@@ -201,6 +202,9 @@ extern crate pest_derive;
 #[macro_use]
 extern crate derivative;
 
+#[macro_use]
+extern crate lazy_static;
+
 // Pull up the various types that should be on the front page of the docs.
 #[doc(inline)]
 pub use crate::types::*;
@@ -210,3 +214,6 @@ pub use crate::resource::*;
 
 #[doc(inline)]
 pub use crate::clients::Resolver;
+
+pub use crate::errors::Error;
+pub use crate::errors::ParseError;

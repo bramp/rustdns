@@ -1,4 +1,5 @@
 use crate::bail;
+use crate::clients::utils::content_type_equal;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::Message;
@@ -7,11 +8,15 @@ use async_trait::async_trait;
 use http::header::*;
 use http::{Method, Request};
 use hyper::client::connect::HttpInfo;
-use hyper::{Body, Client};
+use hyper::{Body, Client as HyperClient};
 use hyper_alpn::AlpnConnector;
-use std::io;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
+
+pub const GOOGLE: &str = "https://dns.google/dns-query";
 
 // For use in Content-type and Accept headers
 const CONTENT_TYPE_APPLICATION_DNS_MESSAGE: &str = "application/dns-message";
@@ -19,22 +24,22 @@ const CONTENT_TYPE_APPLICATION_DNS_MESSAGE: &str = "application/dns-message";
 // The param name that contains the DNS request.
 const DNS_QUERY_PARAM: &str = "dns";
 
-/// A DNS over HTTPS (DoH) Client.
+/// A DNS over HTTPS (DoH) Client (RFC 8484).
 ///
 /// # Example
 ///
 /// ```rust
-/// use rustdns::types::*;
-/// use rustdns::clients::*;
+/// use crate::rustdns::clients::AsyncExchanger;
 /// use http::method::Method;
-/// use std::io::Result;
+/// use rustdns::clients::doh::Client;
+/// use rustdns::types::*;
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<()> {
+/// async fn main() -> Result<(), rustdns::Error> {
 ///     let mut query = Message::default();
 ///     query.add_question("bramp.net", Type::A, Class::Internet);
 ///
-///     let response = DoHClient::new("https://dns.google/dns-query", Method::GET)?
+///     let response = Client::new("https://dns.google/dns-query", Method::GET)?
 ///        .exchange(&query)
 ///        .await
 ///        .expect("could not exchange message");
@@ -46,30 +51,28 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc8484>
 // TODO Document all the options.
-pub struct DoHClient {
+pub struct Client {
     servers: Vec<Url>,
     method: Method, // One of POST or GET
 }
 
-impl Default for DoHClient {
+impl Default for Client {
     fn default() -> Self {
-        DoHClient {
+        Client {
             servers: Vec::default(),
             method: Method::GET,
         }
     }
 }
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-impl DoHClient {
-    /// Creates a new DoHClient bound to the specific servers.
+impl Client {
+    /// Creates a new Client bound to the specific servers.
     ///
     /// Be aware that the servers will typically be in the form of `https://domain_name/`. That
     /// `domain_name` will be resolved by the system's standard DNS library. I don't have a good
     /// work-around for this yet.
     // TODO Document how it fails.
-    pub fn new<A: ToUrls>(servers: A, method: Method) -> io::Result<Self> {
+    pub fn new<A: ToUrls>(servers: A, method: Method) -> Result<Self, crate::Error> {
         match method {
             Method::GET | Method::POST => (), // Nothing,
             _ => bail!(InvalidInput, "only GET and POST allowed"),
@@ -83,25 +86,23 @@ impl DoHClient {
 }
 
 #[async_trait]
-impl AsyncExchanger for DoHClient {
-    /// Sends the [`Message`] to the `server` via TCP and returns the result.
+impl AsyncExchanger for Client {
+    /// Sends the [`Message`] to the `server` via HTTP and returns the result.
     // TODO Decide if this should be async or not.
     // Can return ::std::io::Error
-    async fn exchange(&self, query: &Message) -> Result<Message> {
+    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
         let mut query = query.clone();
         query.id = 0;
 
         let p = query.to_vec()?;
 
-        //let https = HttpsConnector::new();
-        //let https = hyper_rustls::HttpsConnector::with_native_roots();
-
         // Create a Alpn client, so our connection will upgrade to HTTP/2.
+        // TODO Move the client into the struct/new()
         // TODO Change the Connector Connect method to allow us to override the DNS
         // resolution in the connector!
         let alpn = AlpnConnector::new();
 
-        let client = Client::builder()
+        let client = HyperClient::builder()
             .pool_idle_timeout(Duration::from_secs(30))
             .http2_only(true) // TODO POST stop working when this is false. Figure that out.
             .build::<_, hyper::Body>(alpn);
@@ -140,11 +141,12 @@ impl AsyncExchanger for DoHClient {
         // TODO This media type restricts the maximum size of the DNS message to 65535 bytes
 
         if let Some(content_type) = resp.headers().get(CONTENT_TYPE) {
-            if content_type != CONTENT_TYPE_APPLICATION_DNS_MESSAGE {
+            if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_MESSAGE) {
                 bail!(
                     InvalidData,
-                    "recevied invalid content-type: {:?}",
-                    content_type
+                    "recevied invalid content-type: {:?} expected {}",
+                    content_type,
+                    CONTENT_TYPE_APPLICATION_DNS_MESSAGE,
                 );
             }
         }
@@ -155,7 +157,9 @@ impl AsyncExchanger for DoHClient {
             // Get connection information (if available)
             let remote_addr = match resp.extensions().get::<HttpInfo>() {
                 Some(http_info) => http_info.remote_addr(),
-                None => "0.0.0.0:0".parse()?, // Dummy address
+
+                // TODO Maybe remote_addr should be optional?
+                None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
             };
 
             // Read the full body

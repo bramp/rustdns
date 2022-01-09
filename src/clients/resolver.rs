@@ -1,12 +1,13 @@
 use crate::bail;
+use crate::clients::udp::Client as UdpClient;
 use crate::clients::Exchanger;
-use crate::clients::UdpClient;
 use crate::types::*;
 use crate::Extension;
 use crate::Message;
 use std::collections::HashSet;
-use std::io;
 use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 
 // TODO https://docs.rs/hyper/0.14.9/src/hyper/client/connect/http.rs.html#32-35
 // https://docs.rs/hyper/0.14.9/src/hyper/client/client.rs.html#26-31
@@ -34,7 +35,13 @@ impl Default for Resolver {
 impl Resolver {
     /// Creates a new Resolver using the system's default DNS server.
     pub fn new() -> Resolver<UdpClient> {
-        let client = UdpClient::new("8.8.8.8:53").unwrap(); // TODO Fix this
+        let servers = crate::clients::udp::GOOGLE
+            .iter()
+            .flat_map(|a| a.to_socket_addrs())
+            .flatten()
+            .collect::<Vec<SocketAddr>>();
+
+        let client = UdpClient::new(&servers[..]).unwrap(); // TODO Fix this
         Resolver::new_with_client(client)
     }
 }
@@ -58,8 +65,7 @@ where
     /// [rfc1034#section-5]: https://datatracker.ietf.org/doc/html/
     // TODO Should this return a Iterator, or a Vector? Check other APIs.
     // https://docs.rs/tokio/1.6.1/tokio/net/fn.lookup_host.html yield a iterator
-    pub fn lookup(&self, name: &str) -> io::Result<Vec<IpAddr>> {
-        //let client = UdpClient::new("8.8.8.8:53")?; // TODO
+    pub fn lookup(&self, name: &str) -> Result<Vec<IpAddr>, crate::Error> {
         let mut results = HashSet::new();
 
         // TODO Change this to make both DNS requests in parallel
@@ -69,7 +75,7 @@ where
         // Send two queries, a A and a AAAA.
         for r#type in &[Type::A, Type::AAAA] {
             let mut query = Message::default();
-            query.add_question(&name, *r#type, Class::Internet);
+            query.add_question(name, *r#type, Class::Internet);
             query.add_extension(Extension {
                 payload_size: 4096, // Allow for bigger responses.
 

@@ -5,8 +5,6 @@ use rustdns::types::*;
 use rustdns::Message;
 use rustdns::Record;
 use rustdns::Resource;
-
-use std::io;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -14,7 +12,7 @@ struct MockClient {}
 
 impl Exchanger for MockClient {
     /// Sends the query [`Message`] to the `server` via UDP and returns the result.
-    fn exchange(&self, _query: &Message) -> io::Result<Message> {
+    fn exchange(&self, _query: &Message) -> Result<Message, rustdns::Error> {
         //let mut records = HashMap::new();
 
         // TODO FINISH!

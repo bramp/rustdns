@@ -110,8 +110,8 @@ pub struct Message {
 
     /// Optional stats about this request, populated by the DNS client.
     /// TODO Maybe this field should be elsewhere, as it's metadata about a request
-    #[derivative(PartialEq="ignore")]
-    #[derivative(Hash="ignore")]
+    #[derivative(PartialEq = "ignore")]
+    #[derivative(Hash = "ignore")]
     pub stats: Option<Stats>,
 }
 
@@ -214,6 +214,7 @@ pub struct Stats {
 
     /// The server used to service this query.
     pub server: SocketAddr,
+
     // TODO Add another field for the requested server, vs the SocketAddr we actually used.
     /// The size of the request sent to the server.
     // TODO Should this include other overheads?
@@ -455,6 +456,13 @@ pub enum Type {
     /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
     OPT = 41,
 
+    /// Sender Policy Framework. See [rfc4408]
+    /// Discontinued in [rfc7208] due to widespread lack of support.
+    ///
+    /// [rfc4408]: https://datatracker.ietf.org/doc/html/rfc4408
+    /// [rfc7208]: https://datatracker.ietf.org/doc/html/rfc7208
+    SPF = 99,
+
     /// Any record type.
     /// Only valid as a Question Type.
     ANY = 255,
@@ -531,6 +539,7 @@ pub enum Resource {
     // TODO Implement RFC 1464 for further parsing of the text
     // TODO per RFC 4408 a TXT record is allowed to contain multiple strings
     TXT(TXT),
+    SPF(TXT),
 
     MX(MX),
     SOA(SOA),
@@ -555,6 +564,7 @@ impl Resource {
             Resource::MX(_) => Type::MX,
             Resource::SOA(_) => Type::SOA,
             Resource::SRV(_) => Type::SRV,
+            Resource::SPF(_) => Type::SPF,
             Resource::OPT => Type::OPT,
             Resource::ANY => Type::ANY,
         }

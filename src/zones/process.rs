@@ -103,6 +103,7 @@ impl File {
             Resource::A(_)
             | Resource::AAAA(_)
             | Resource::TXT(_)
+            | Resource::SPF(_)
             | Resource::OPT
             | Resource::ANY => resource.clone(),
 

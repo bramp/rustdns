@@ -1,7 +1,6 @@
 use crate::clients::Exchanger;
 use crate::Message;
 use crate::StatsBuilder;
-use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -9,20 +8,32 @@ use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 
+pub const GOOGLE_IPV4_PRIMARY: &str = "8.8.8.8:53";
+pub const GOOGLE_IPV4_SECONDARY: &str = "8.8.4.4:53";
+pub const GOOGLE_IPV6_PRIMARY: &str = "2001:4860:4860::8888:53";
+pub const GOOGLE_IPV6_SECONDARY: &str = "2001:4860:4860::8844:53";
+
+pub const GOOGLE: [&str; 4] = [
+    GOOGLE_IPV4_PRIMARY,
+    GOOGLE_IPV4_SECONDARY,
+    GOOGLE_IPV6_PRIMARY,
+    GOOGLE_IPV6_SECONDARY,
+];
+
 /// A TCP DNS Client.
 ///
 /// # Example
 ///
 /// ```rust
+/// use rustdns::clients::Exchanger;
+/// use rustdns::clients::tcp::Client;
 /// use rustdns::types::*;
-/// use rustdns::clients::*;
-/// use std::io::Result;
 ///
-/// fn main() -> Result<()> {
+/// fn main() -> Result<(), rustdns::Error> {
 ///     let mut query = Message::default();
 ///     query.add_question("bramp.net", Type::A, Class::Internet);
 ///
-///     let response = TcpClient::new("8.8.8.8:53")?
+///     let response = Client::new("8.8.8.8:53")?
 ///        .exchange(&query)
 ///        .expect("could not exchange message");
 ///
@@ -33,7 +44,7 @@ use std::time::Duration;
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.2>
 // TODO Document all the options.
-pub struct TcpClient {
+pub struct Client {
     servers: Vec<SocketAddr>,
 
     connect_timeout: Duration,
@@ -41,9 +52,9 @@ pub struct TcpClient {
     write_timeout: Option<Duration>,
 }
 
-impl Default for TcpClient {
+impl Default for Client {
     fn default() -> Self {
-        TcpClient {
+        Client {
             servers: Vec::default(),
             connect_timeout: Duration::new(5, 0),
             read_timeout: Some(Duration::new(5, 0)),
@@ -52,10 +63,10 @@ impl Default for TcpClient {
     }
 }
 
-impl TcpClient {
-    /// Creates a new TcpClient bound to the specific servers.
+impl Client {
+    /// Creates a new Client bound to the specific servers.
     // TODO Document how it fails.
-    pub fn new<A: ToSocketAddrs>(servers: A) -> io::Result<Self> {
+    pub fn new<A: ToSocketAddrs>(servers: A) -> Result<Self, crate::Error> {
         let servers = servers.to_socket_addrs()?.collect();
         // TODO Check for zero servers.
         Ok(Self {
@@ -66,9 +77,9 @@ impl TcpClient {
     }
 }
 
-impl Exchanger for TcpClient {
+impl Exchanger for Client {
     /// Sends the [`Message`] to the `server` via TCP and returns the result.
-    fn exchange(&self, query: &Message) -> io::Result<Message> {
+    fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
         let mut stream = TcpStream::connect_timeout(&self.servers[0], self.connect_timeout)?;
         stream.set_nodelay(true)?; // We send discrete packets, so we can send as soon as possible.
         stream.set_read_timeout(self.read_timeout)?;

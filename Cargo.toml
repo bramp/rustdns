@@ -20,44 +20,54 @@ members = [
 ]
 
 [dependencies]
-strum = "0.23.0"
-strum_macros = "0.23.1"
-num-traits = "0.2.14"
-num-derive = "0.3.3"
-idna = "0.2.3"
-byteorder = "1.4.3"
-rand = "0.8.4"
-bytes = "1.1.0"
-log = "0.4.14"
 
 # Used for the clients
-hyper = { version = "0.14.16", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
 http = "0.2.5"
+hyper = { version = "0.14.16", features = ["client", "runtime", "http1", "http2"] } # Used by the DoH client
 url = "2.2.2"
 
 # Needed for DNS over HTTP (DoH)
+async-trait = "0.1.52"
 base64 = "0.13.0"
 hyper-alpn = "0.3.0"
+mime = "0.3.16"
 time = "0.3.5"
-async-trait = "0.1.52"
+
+# Needed for DNS over HTTP Json
+serde = { version = "1.0.132", features = ["derive"] }
+serde_json = "1.0.74"
 
 # Needed for Zone file parsing
-pest = "2.1.3"
-pest_derive = "2.1.0"
 chrono = "0.4.19"
+pest = "2.1.3"
 pest_consume = "1.1.1"
+pest_derive = "2.1.0"
+
+# Everything else
+byteorder = "1.4.3"
+bytes = "1.1.0"
 derivative = "2.2.0"
+idna = "0.2.3"
+lazy_static = "1.4.0"
+log = "0.4.14"
+num-derive = "0.3.3"
+num-traits = "0.2.14"
+rand = "0.8.4"
+regex = "1.5.4"
+strum = "0.23.0"
+strum_macros = "0.23.1"
+thiserror = "1.0.30"
 
 
 ###
 
-
 [dev-dependencies]
+env_logger = "0.9.0"
+hex = "0.4.3"
 pretty_assertions = "1.0.0"
+regex = "1.5.4"
 serde = { version = "1.0.132", features = ["derive"] }
 serde_yaml = "0.8.23"
-hex = "0.4.3"
-regex = "1.5.4"
-tokio = { version = "1.15.0", features = ["macros", "rt-multi-thread"] }
+json_comments = "0.2.0"
 test-env-log = "0.2.8"
-env_logger = "0.9.0"
+tokio = { version = "1.15.0", features = ["macros", "rt-multi-thread"] }

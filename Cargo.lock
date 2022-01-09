@@ -195,6 +195,7 @@ dependencies = [
  "rustdns",
  "strum 0.21.0",
  "strum_macros 0.21.1",
+ "thiserror",
  "time 0.2.27",
  "tokio",
  "url",
@@ -547,6 +548,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "json_comments"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab25c689752fbb49903458495d3e71853229e262a2e6136325359e0705606483"
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -590,6 +597,12 @@ name = "memchr"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "308cc39be01b73d0d18f82a0e7b2a3df85245f84af96fdddc5d202d27e47b86a"
+
+[[package]]
+name = "mime"
+version = "0.3.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 
 [[package]]
 name = "mio"
@@ -926,7 +939,10 @@ dependencies = [
  "hyper",
  "hyper-alpn",
  "idna",
+ "json_comments",
+ "lazy_static",
  "log",
+ "mime",
  "num-derive",
  "num-traits",
  "pest",
@@ -936,10 +952,12 @@ dependencies = [
  "rand",
  "regex",
  "serde",
+ "serde_json",
  "serde_yaml",
  "strum 0.23.0",
  "strum_macros 0.23.1",
  "test-env-log",
+ "thiserror",
  "time 0.3.5",
  "tokio",
  "url",
@@ -1215,6 +1233,26 @@ name = "textwrap"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0066c8d12af8b5acd21e00547c3797fde4e8677254a7ee429176ccebbe93dd80"
+
+[[package]]
+name = "thiserror"
+version = "1.0.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "854babe52e4df1653706b98fcfc05843010039b406875930a70e4d9644e5c417"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa32fd3f627f367fe16f893e2597ae3c05020f8bba2666a4e6ea73d377e5714b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "time"

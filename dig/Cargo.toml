@@ -16,6 +16,7 @@ clap = "3.0.0-beta.2"  # Command line parsing
 time = "0.2.26"
 url = "2.2.2"
 http = "0.2.4"
+thiserror = "1.0.30"
 
 [dev-dependencies]
 pretty_assertions = "0.7.2"

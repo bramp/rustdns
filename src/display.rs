@@ -2,6 +2,7 @@
 //! in `dig` style.
 // Refer to https://github.com/tigeli/bind-utils/blob/master/bin/dig/dig.c for reference.
 
+use crate::resource::TXT;
 use crate::resource::MX;
 use crate::resource::SOA;
 use crate::resource::SRV;
@@ -173,24 +174,7 @@ impl fmt::Display for Resource {
             Resource::PTR(name) => name.fmt(f),
 
             Resource::SOA(soa) => soa.fmt(f),
-            Resource::TXT(txts) => {
-                let output = txts
-                    .iter()
-                    .map(|txt| {
-                        match std::str::from_utf8(txt) {
-                            // TODO Escape the " character (and maybe others)
-                            Ok(txt) => txt,
-
-                            // TODO Try our best to convert this to valid UTF, and use
-                            // https://doc.rust-lang.org/std/str/struct.Utf8Error.html to show what we can.
-                            Err(_e) => "invalid",
-                        }
-                    })
-                    .collect::<Vec<&str>>()
-                    .join(" ");
-
-                write!(f, "{}", output)
-            }
+            Resource::TXT(txts) | Resource::SPF(txts) => txts.fmt(f),
             Resource::MX(mx) => mx.fmt(f),
             Resource::SRV(srv) => srv.fmt(f),
 
@@ -248,5 +232,134 @@ impl fmt::Display for SRV {
             port = self.port,
             name = self.name,
         )
+    }
+}
+
+impl fmt::Display for TXT {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let output = self.0
+            .iter()
+            .map(|txt| {
+                match std::str::from_utf8(txt) {
+                    // TODO Escape the " character (and maybe others)
+                    Ok(txt) => "\"".to_owned() + txt + "\"",
+
+                    // TODO Try our best to convert this to valid UTF, and use
+                    // https://doc.rust-lang.org/std/str/struct.Utf8Error.html to show what we can.
+                    Err(_e) => "invalid".to_string(),
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        write!(f, "{}", output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TXT;
+    use crate::Resource;
+    use crate::MX;
+    use crate::SOA;
+    use crate::SRV;
+    use core::time::Duration;
+    use pretty_assertions::assert_eq;
+
+    lazy_static! {
+        static ref DISPLAY_TESTS : Vec<(Resource, &'static str)> = {
+            vec![
+                (
+                    Resource::A("172.217.164.100".parse().unwrap()),
+                    "172.217.164.100",
+                ),
+                (
+                    Resource::AAAA("2607:f8b0:4005:805::2004".parse().unwrap()),
+                    "2607:f8b0:4005:805::2004",
+                ),
+                (
+                    Resource::CNAME("code.l.google.com.".to_string()),
+                    "code.l.google.com.",
+                ),
+                (
+                    Resource::NS("ns4.google.com.".to_string()),
+                    "ns4.google.com.",
+                ),
+                (Resource::PTR("dns.google.".to_string()), "dns.google."),
+                (
+                    Resource::SOA(SOA {
+                        mname: "ns1.google.com.".to_string(),
+                        rname: "dns-admin@google.com.".to_string(),
+
+                        serial: 379031418,
+
+                        refresh: Duration::from_secs(900),
+                        retry: Duration::from_secs(900),
+                        expire: Duration::from_secs(1800),
+                        minimum: Duration::from_secs(60),
+                    }),
+                    "ns1.google.com. dns-admin.google.com. 379031418 900 900 1800 60",
+                ),
+                (
+                    Resource::MX(MX {
+                        preference: 10,
+                        exchange: "aspmx.l.google.com.".to_string(),
+                    }),
+                    "10 aspmx.l.google.com.",
+                ),
+                (
+                    Resource::SRV(SRV {
+                        priority: 5,
+                        weight: 0,
+                        port: 389,
+                        name: "ldap.google.com.".to_string(),
+                    }),
+                    "5 0 389 ldap.google.com.",
+                ),
+                (
+                    Resource::TXT(TXT::from("v=spf1 include:_spf.google.com ~all")),
+                    "\"v=spf1 include:_spf.google.com ~all\"",
+                ),
+            ]
+        };
+    }
+
+    #[test]
+    fn test_display() {
+        for (resource, display) in (*DISPLAY_TESTS).iter() {
+            assert_eq!(format!("{}", resource), *display);
+        }
+    }
+
+    #[test]
+    fn test_from_str() {
+        for (resource, display) in (*DISPLAY_TESTS).iter() {
+            match Resource::from_str(resource.r#type(), display) {
+                Ok(got) => assert_eq!(&got, resource),
+                Err(err) => panic!(
+                    "from_str({}, '{}') failed: {}",
+                    resource.r#type(),
+                    display,
+                    err
+                ),
+            }
+        }
+    }
+
+    /// Test resource->display->from_string to make sure we can round trip between types.
+    #[test]
+    fn test_identity() {
+        for (resource, _) in (*DISPLAY_TESTS).iter() {
+            let display = format!("{}", resource);
+            match Resource::from_str(resource.r#type(), &display) {
+                Ok(got) => assert_eq!(&got, resource),
+                Err(err) => panic!(
+                    "from_str({}, '{}') failed: {}",
+                    resource.r#type(),
+                    display,
+                    err
+                ),
+            }
+        }
     }
 }

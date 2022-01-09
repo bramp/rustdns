@@ -3,11 +3,14 @@
 mod util;
 
 use http::method::Method;
+use rustdns::clients::doh::Client as DohClient;
+use rustdns::clients::json::Client as JsonClient;
+use rustdns::clients::tcp::Client as TcpClient;
+use rustdns::clients::udp::Client as UdpClient;
+use rustdns::clients::AsyncExchanger;
 use rustdns::clients::Exchanger;
-use rustdns::clients::*;
 use rustdns::types::*;
 use std::env;
-use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -15,6 +18,7 @@ use std::process;
 use std::str::FromStr;
 use std::vec;
 use strum_macros::{Display, EnumString};
+use thiserror::Error;
 use url::Url;
 
 #[cfg(test)]
@@ -26,10 +30,19 @@ enum Client {
     Udp,
     Tcp,
     DoH,
+    Json,
 }
 
-// A simple type alias so as to DRY.
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+#[derive(Error, Debug)]
+enum DigError {
+    // A command line argument was bad.
+    // TODO Could I replace ArgParseError with rustdns::Error::IllegalArgument?
+    #[error("{0}")]
+    ArgParseError(String),
+
+    #[error(transparent)]
+    RustDnsError(#[from] rustdns::Error),
+}
 
 struct Args {
     client: Client,
@@ -40,23 +53,6 @@ struct Args {
 
     /// Across all these domains
     domains: Vec<String>,
-}
-
-#[derive(Debug)]
-struct ArgParseError {
-    details: String,
-}
-
-impl fmt::Display for ArgParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.details)
-    }
-}
-
-impl std::error::Error for ArgParseError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
 }
 
 /// Parses a string into a SocketAddr allowing for the port to be missing.
@@ -73,17 +69,18 @@ fn sockaddr_parse_with_port(
 
 /// Helper function to take a vector of domain/port numbers, and return (a possibly larger) `Vec[SocketAddr]`.
 fn to_sockaddrs(
-    servers: Vec<String>,
+    servers: &[String],
     default_port: u16,
-) -> std::result::Result<Vec<SocketAddr>, ArgParseError> {
+) -> std::result::Result<Vec<SocketAddr>, DigError> {
     Ok(servers
         .iter()
         .map(|addr| {
             // Each address could be invalid, or return multiple SocketAddr.
             match sockaddr_parse_with_port(addr, default_port) {
-                Err(e) => Err(ArgParseError {
-                    details: format!("failed to parse '{}': {}", addr, e),
-                }),
+                Err(e) => Err(DigError::ArgParseError(format!(
+                    "failed to parse '{}': {}",
+                    addr, e
+                ))),
                 Ok(addrs) => Ok(addrs),
             }
         })
@@ -97,8 +94,17 @@ fn to_sockaddrs(
 
 impl Args {
     /// Helper function to return the list of servers as a `Vec[Url]`.
-    fn servers_to_urls(&self) -> std::result::Result<Vec<Url>, url::ParseError> {
-        self.servers.iter().map(|x| x.parse()).collect()
+    fn servers_to_urls(&self) -> std::result::Result<Vec<Url>, DigError> {
+        self.servers
+            .iter()
+            .map(|url| match url.parse() {
+                Err(e) => Err(DigError::ArgParseError(format!(
+                    "failed to parse '{}': {}",
+                    url, e
+                ))),
+                Ok(url) => Ok(url),
+            })
+            .collect()
     }
 }
 
@@ -117,15 +123,16 @@ impl Default for Args {
 // TODO Move into a integration test (due to the use of network)
 #[test]
 fn test_to_sockaddrs() {
-    let mut servers = Vec::new();
-    servers.push("1.2.3.4".to_string()); // This requires using the default port.
-    servers.push("aaaaa.bramp.net".to_string()); // This resolves to two records.
-    servers.push("5.6.7.8:453".to_string()); // This uses a different port.
+    let servers = vec![
+        "1.2.3.4".to_string(),         // This requires using the default port.
+        "aaaaa.bramp.net".to_string(), // This resolves to two records.
+        "5.6.7.8:453".to_string(),     // This uses a different port.
+    ];
 
     // This test may be flakly, if it is running in an environment that doesn't
     // have both IPv4 and IPv6, and has DNS queries that can fail.
     // TODO Figure out a way to make this more robust.
-    let mut addrs = to_sockaddrs(servers, 53).expect("resolution failed");
+    let mut addrs = to_sockaddrs(&servers, 53).expect("resolution failed");
     let mut want = vec![
         "1.2.3.4:53".parse().unwrap(),
         "127.0.0.1:53".parse().unwrap(),
@@ -140,7 +147,7 @@ fn test_to_sockaddrs() {
     assert_eq!(addrs, want);
 }
 
-fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
+fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut result = Args::default();
     let mut type_or_domain = Vec::<String>::new();
 
@@ -149,16 +156,17 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
             "+udp" => result.client = Client::Udp,
             "+tcp" => result.client = Client::Tcp,
             "+doh" => result.client = Client::DoH,
+            "+json" => result.client = Client::Json,
 
             _ => {
                 if arg.starts_with('+') {
-                    return Err(format!("Unknown flag: {}", arg).into());
+                    return Err(format!("Unknown flag: {}", arg));
                 }
 
                 if arg.starts_with('@') {
                     result
                         .servers
-                        .push(arg.strip_prefix("@").unwrap().to_string()) // Unwrap should not panic
+                        .push(arg.strip_prefix('@').unwrap().to_string()) // Unwrap should not panic
                 } else {
                     type_or_domain.push(arg)
                 }
@@ -202,7 +210,11 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
             }
             Client::DoH => result
                 .servers
-                .push("https://dns.google/dns-query".to_string()),
+                .push(rustdns::clients::doh::GOOGLE.to_string()),
+
+            Client::Json => result
+                .servers
+                .push(rustdns::clients::json::GOOGLE.to_string()),
         }
 
         /*
@@ -236,20 +248,21 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args> {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), DigError> {
+    // TODO --help doesn't work
+
     let args = match parse_args(env::args().skip(1)) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{}", e);
-            eprintln!("Usage: dig [@server] {{domain}} {{type}}");
+            eprintln!("Usage: dig [@server] [+udp|+tcp|+doh|+json] {{domain}} {{type}}");
             process::exit(1);
         }
     };
 
     let mut query = Message::default();
-
     for domain in &args.domains {
-        query.add_question(&domain, args.r#type, Class::Internet);
+        query.add_question(domain, args.r#type, Class::Internet);
     }
     query.add_extension(Extension {
         payload_size: 4096,
@@ -257,22 +270,28 @@ async fn main() -> Result<()> {
         ..Default::default()
     });
 
-    println!("query:");
-    util::hexdump(&query.to_vec().expect("failed to encode the query"));
-    println!();
+    // TODO Add this as a extra verbose flag
+    // println!("query:");
+    // util::hexdump(&query.to_vec().expect("failed to encode the query"));
+    // println!();
     println!("{}", query);
 
     // TODO make all DNS client implement a Exchange trait
     let resp = match args.client {
-        Client::Udp => UdpClient::new(to_sockaddrs(args.servers, 53)?.as_slice())?
+        Client::Udp => UdpClient::new(to_sockaddrs(&args.servers, 53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
 
-        Client::Tcp => TcpClient::new(to_sockaddrs(args.servers, 53)?.as_slice())?
+        Client::Tcp => TcpClient::new(to_sockaddrs(&args.servers, 53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
 
-        Client::DoH => DoHClient::new(args.servers_to_urls()?.as_slice(), Method::GET)?
+        Client::DoH => DohClient::new(args.servers_to_urls()?.as_slice(), Method::GET)?
+            .exchange(&query)
+            .await
+            .expect("could not exchange message"),
+
+        Client::Json => JsonClient::new(args.servers_to_urls()?.as_slice())?
             .exchange(&query)
             .await
             .expect("could not exchange message"),
