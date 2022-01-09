@@ -137,6 +137,13 @@ impl FromStr for TXT {
             // TODO Handle escaped quotes
             static ref RE: Regex = Regex::new(r#""(.*?)""#).unwrap();
         }
+
+        if !s.starts_with('"') && !s.ends_with('"') {
+            // Assume a single unquoted string
+            return Ok(TXT::from(s))
+        }
+
+        // Otherparse parse multiple "..." strings
         let mut txts = Vec::new();
         for caps in RE.captures_iter(s) {
             txts.push(caps[1].as_bytes().to_vec());

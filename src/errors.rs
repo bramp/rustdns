@@ -1,3 +1,4 @@
+use crate::Type;
 use crate::from_str::FromStrError;
 use core::num::ParseIntError;
 use std::net::AddrParseError;
@@ -62,8 +63,8 @@ pub enum ParseError {
     #[error("invalid record type: '{0}'")]
     InvalidType(u16),
 
-    #[error("invalid resource: '{0}'")]
-    InvalidResource(FromStrError),
+    #[error("invalid {0} resource: '{1}'")]
+    InvalidResource(Type, FromStrError),
 
     #[error("invalid rname email address: '{0}'")]
     InvalidRname(String),

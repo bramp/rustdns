@@ -143,7 +143,7 @@ impl TryInto<Record> for RecordJson {
             FromPrimitive::from_u16(self.r#type).ok_or(ParseError::InvalidType(self.r#type))?;
 
         let resource =
-            Resource::from_str(r#type, &self.data).map_err(ParseError::InvalidResource)?;
+            Resource::from_str(r#type, &self.data).map_err(|x| ParseError::InvalidResource(r#type, x))?;
 
         Ok(Record {
             name: self.name, // TODO Do I need to remove the trailing dot?
@@ -311,10 +311,12 @@ impl AsyncExchanger for Client {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
     use std::convert::TryInto;
     use crate::clients::json::MessageJson;
     use json_comments::StripComments;
     use crate::Message;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_parse_response() {
@@ -419,10 +421,11 @@ mod tests {
             {
               "name": "s1024._domainkey.yahoo.com.", // Always matches Question name
               "type": 16,                            // TXT - Standard DNS RR type
+              "TTL": 21599,                          // Record's time-to-live in seconds
               "data": "\"k=rsa;  p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDrEee0Ri4Juz+QfiWYui/E9UGSXau/2P8LjnTD8V4Unn+2FAZVGE3kL23bzeoULYv4PeleB3gfm\"\"JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;\""
               // Data for TXT - multiple quoted strings
             }
-          ],
+          ]
         }"#,
 
         // From https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json
@@ -451,9 +454,15 @@ mod tests {
 
         for test in tests {
             // Strip comments in the test, as a easy way to keep this test data annotated.
-            let input = StripComments::new(test.as_bytes());
+            let mut stripped = String::new();
+            StripComments::new(test.as_bytes())
+                .read_to_string(&mut stripped)
+                .unwrap();
 
-            let m: MessageJson = serde_json::from_reader(input).expect("failed to parse JSON");
+            let m: MessageJson = match serde_json::from_str(&stripped) {
+                Ok(m) => m,
+                Err(err) => panic!("failed to parse JSON: {}\n{}", err, stripped),
+            };
             let _m: Message = m.try_into().expect("failed to turn MessageJson into a Message");
             // TODO Check this is what we expect
         }
