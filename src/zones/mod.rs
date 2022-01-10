@@ -1,8 +1,8 @@
-use crate::zones::parser::Rule;
-use crate::zones::parser::ZoneParser;
 /// TODO Document
 // TODO https://github.com/Badcow/DNS-Parser has a nice custom format extension. Perhaps include?
 use crate::zones::preprocessor::preprocess;
+use crate::zones::parser::Rule;
+use crate::zones::parser::ZoneParser;
 use crate::Class;
 use crate::Resource;
 use pest_consume::Parser;
@@ -14,8 +14,6 @@ mod parser;
 mod parser_tests;
 mod preprocessor;
 mod process;
-
-extern crate pest;
 
 /// A Zone File. This is the unprocessed version of the zone file
 /// where domains such as "@" have not yet been resolved, and fields

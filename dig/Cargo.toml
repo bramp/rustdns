@@ -6,7 +6,7 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-rustdns = {path = "../" }
+rustdns = { path = "../", default-features = false, features = ["clients"] }
 
 encoding8 = "0.3.2"    # Used for pretty-printing
 strum = "0.21"         # Simple macros for making Enum better

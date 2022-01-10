@@ -9,7 +9,7 @@ edition = "2018"
 serde = { version = "1.0.126", features = ["derive"] }
 serde_yaml = "0.8.17"
 hex = "0.4.3"
-rustdns = {path = "../" }
+rustdns = { path = "../", default-features = false, features = ["udp"] }
 
 
 [[bin]]

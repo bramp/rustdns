@@ -1,5 +1,5 @@
 use crate::bail;
-use crate::clients::utils::content_type_equal;
+use crate::clients::mime::content_type_equal;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::errors::ParseError;
@@ -9,7 +9,7 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
-use crate::StatsBuilder;
+use crate::clients::stats::StatsBuilder;
 use async_trait::async_trait;
 use core::convert::TryInto;
 use http::header::*;
@@ -316,7 +316,6 @@ mod tests {
     use crate::clients::json::MessageJson;
     use json_comments::StripComments;
     use crate::Message;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_parse_response() {

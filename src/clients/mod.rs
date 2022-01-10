@@ -1,16 +1,34 @@
 use crate::Message;
 
-pub use self::resolver::Resolver;
-pub use self::to_urls::ToUrls;
-
+#[cfg(feature = "doh")]
 pub mod doh;
-pub mod json;
-pub mod tcp;
-pub mod udp;
 
-mod resolver;
-mod to_urls;
-mod utils;
+#[cfg(feature = "json")]
+pub mod json;
+
+#[cfg(feature = "tcp")]
+pub mod tcp;
+
+cfg_feature! {
+    #![feature = "udp"]
+
+    pub mod udp;
+    mod resolver;
+    pub use self::resolver::Resolver;
+}
+
+cfg_feature! {
+    #![feature = "http_deps"]
+
+    mod to_urls;
+
+    pub use self::to_urls::ToUrls;
+}
+
+#[cfg(any(feature = "doh", feature = "json"))]
+mod mime;
+
+mod stats;
 
 /// Exchanger takes a query and returns a response.
 pub trait Exchanger {

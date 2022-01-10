@@ -1,7 +1,4 @@
 // TODO Use https://github.com/Nadrieril/pest_consume
-
-extern crate pest;
-
 use pest::error::Error;
 use pest::iterators::Pair;
 use pest::Parser;

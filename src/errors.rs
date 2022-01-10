@@ -29,12 +29,15 @@ pub enum Error {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
+    #[cfg(feature = "http")]
     #[error(transparent)]
     HttpError(#[from] http::Error),
 
+    #[cfg(feature = "hyper")]
     #[error(transparent)]
     HyperError(#[from] hyper::Error),
 
+    #[cfg(feature = "http")]
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
 
@@ -54,6 +57,7 @@ pub enum ParseError {
     AddrError(#[from] AddrParseError),
 
     /// Invalid JSON was parsed.
+    #[cfg(feature = "serde_json")]
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
 

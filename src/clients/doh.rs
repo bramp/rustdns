@@ -1,9 +1,9 @@
 use crate::bail;
-use crate::clients::utils::content_type_equal;
+use crate::clients::mime::content_type_equal;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::Message;
-use crate::StatsBuilder;
+use crate::clients::stats::StatsBuilder;
 use async_trait::async_trait;
 use http::header::*;
 use http::{Method, Request};
@@ -24,7 +24,7 @@ const CONTENT_TYPE_APPLICATION_DNS_MESSAGE: &str = "application/dns-message";
 // The param name that contains the DNS request.
 const DNS_QUERY_PARAM: &str = "dns";
 
-/// A DNS over HTTPS (DoH) Client (RFC 8484).
+/// A DNS over HTTPS (DoH) Client (rfc8484).
 ///
 /// # Example
 ///

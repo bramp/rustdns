@@ -14,8 +14,6 @@ use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::time::Duration;
 
-extern crate pest;
-
 #[derive(Parser)]
 #[grammar = "zones/zones.pest"]
 pub(crate) struct ZoneParser;
