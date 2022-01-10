@@ -4,6 +4,8 @@
 
 # rustdns
 
+## rustdns
+
 rustdns is a simple, fast, and fully fledged DNS library for interacting
 with domain name services at a high or low level.
 
@@ -81,19 +83,23 @@ bramp.net.            299 IN   A      104.21.62.200
 bramp.net.            299 IN   A      172.67.138.196
 ```
 
+## Features
+The following optional features are available:
+
+- `clients`: Enables the following clients:
+  - `doh`: DNS over HTTPS (DoH) client (rfc8484).
+  - `json`: DNS over HTTPS JSON client
+  - `tcp`: Enables the DNS over TCP client
+  - `udp`: Enables the DNS over UDP client
+- `zones`: Enable a Zone File Parser
+
 ## Usage (cli)
 
-To use the [demo CLI](https://github.com/bramp/rustdns/blob/main/src/rustdns/main.rs):
+To use the [demo CLI](https://github.com/bramp/rustdns/blob/main/src/rustdns/dig/main.rs):
 
 ```shell
-$ cargo run A www.google.com
+$ cargo run -p dig -- A www.google.com
 ...
-response: 8.8.8.8:53
-00000000: 86 17 81 80 00 01 00 01 00 00 00 01 03 77 77 77  ..........www
-00000010: 06 67 6F 6F 67 6C 65 03 63 6F 6D 00 00 01 00 01  .google.com.....
-00000020: C0 0C 00 01 00 01 00 00 00 6E 00 04 8E FA 48 C4  À........n..úHÄ
-00000030: 00 00 29 02 00 00 00 00 00 00 00                 ..)........
-
 ;; ->>HEADER<<- opcode: Query, status: NoError, id: 34327
 ;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
 
@@ -105,6 +111,7 @@ response: 8.8.8.8:53
 ; ANSWER SECTION:
 www.google.com.       110 IN   A      142.250.72.196
 
+# More examples
 $ cargo run -p dig -- AAAA www.google.com
 $ cargo run -p dig -- ANY www.google.com
 $ cargo run -p dig -- CNAME code.google.com
@@ -154,6 +161,7 @@ To aid in testing features, I have a set of pre-configured records setup:
 
 ```shell
 # Bump version number
+$ cargo test-all-features
 $ cargo readme > README.md
 $ cargo publish --dry-run
 $ cargo publish
