@@ -31,10 +31,10 @@ pub const GOOGLE: &str = "https://dns.google/resolve";
 pub const CLOUDFLARE: &str = "https://cloudflare-dns.com/dns-query";
 
 // For use in Content-type and Accept headers
-// Google actually uses "application/x-javascript", but Cloud Flare requires "application/dns-json".
+// Google actually uses "application/json", but Cloud Flare requires "application/dns-json".
 // Since Google's API seems to accept either, we default to dns-json.
 const CONTENT_TYPE_APPLICATION_DNS_JSON: &str = "application/dns-json";
-const CONTENT_TYPE_APPLICATION_X_JAVASCRIPT: &str = "application/x-javascript";
+const CONTENT_TYPE_APPLICATION_JSON: &str = "application/json";
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -266,14 +266,14 @@ impl AsyncExchanger for Client {
 
         if let Some(content_type) = resp.headers().get(CONTENT_TYPE) {
             if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_JSON)
-                && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_X_JAVASCRIPT)
+                && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_JSON)
             {
                 bail!(
                     InvalidData,
                     "recevied invalid content-type: {:?} expected {} or {}",
                     content_type,
                     CONTENT_TYPE_APPLICATION_DNS_JSON,
-                    CONTENT_TYPE_APPLICATION_X_JAVASCRIPT,
+                    CONTENT_TYPE_APPLICATION_JSON,
                 );
             }
         }
