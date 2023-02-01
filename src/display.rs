@@ -2,10 +2,10 @@
 //! in `dig` style.
 // Refer to https://github.com/tigeli/bind-utils/blob/master/bin/dig/dig.c for reference.
 
-use crate::resource::TXT;
 use crate::resource::MX;
 use crate::resource::SOA;
 use crate::resource::SRV;
+use crate::resource::TXT;
 use crate::Message;
 use crate::Question;
 use crate::Record;
@@ -237,7 +237,8 @@ impl fmt::Display for SRV {
 
 impl fmt::Display for TXT {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let output = self.0
+        let output = self
+            .0
             .iter()
             .map(|txt| {
                 match std::str::from_utf8(txt) {
@@ -252,17 +253,17 @@ impl fmt::Display for TXT {
             .collect::<Vec<String>>()
             .join(" ");
 
-        write!(f, "{}", output)
+        write!(f, "{output}")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::TXT;
     use crate::Resource;
     use crate::MX;
     use crate::SOA;
     use crate::SRV;
+    use crate::TXT;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
 

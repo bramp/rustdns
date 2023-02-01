@@ -283,7 +283,7 @@ impl AsyncExchanger for Client {
             // Read the full body
             let body = hyper::body::to_bytes(resp.into_body()).await?;
 
-            println!("{:?}", body);
+            println!("{body:?}");
 
             let m: MessageJson = serde_json::from_slice(&body).map_err(ParseError::JsonError)?;
             let mut m: Message = m.try_into()?;
