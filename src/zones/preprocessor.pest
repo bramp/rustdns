@@ -1,8 +1,7 @@
-/// DNS Zone file parsing (pre-processor)
-///
-/// Due to the rules around braces we preprocess the file, 
-/// and write out something easier to parse.
+//! DNS Zone file parsing (pre-processor)
 
+// Due to the rules around braces we preprocess the file, 
+// and write out something easier to parse.
 
 comment = { ";" ~ (!NEWLINE ~ ANY)* }
 open = { "(" }

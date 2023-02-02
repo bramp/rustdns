@@ -1,16 +1,16 @@
-/// DNS Zone file parsing
-///
-/// Format is defined in rfc1035 Section 5, extended rfc2308 Section 4.
-///
-/// <domain-name><rr> [<comment>]
-/// <blank><rr> [<comment>]
-/// ```
-///
-/// <rr> contents take one of the following forms:
-/// ```text
-/// [<TTL>] [<class>] <type> <RDATA>
-/// [<class>] [<TTL>] <type> <RDATA>
-/// ```
+//! DNS Zone file parsing
+
+// Format is defined in rfc1035 Section 5, extended rfc2308 Section 4.
+//
+// <domain-name><rr> [<comment>]
+// <blank><rr> [<comment>]
+// ```
+//
+// <rr> contents take one of the following forms:
+// ```text
+// [<TTL>] [<class>] <type> <RDATA>
+// [<class>] [<TTL>] <type> <RDATA>
+// ```
 
 // We use explict WHITESPACE to ensure there is whitespace between matching tokens
 // as opposed to optional WHITESPACE.
