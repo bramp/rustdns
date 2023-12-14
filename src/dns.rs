@@ -258,10 +258,15 @@ impl Message {
             req.extend_from_slice(&(question.class as u16).to_be_bytes());
         }
 
-        // TODO Implement answers, etc types.
-        assert!(self.answers.is_empty());
-        assert!(self.authoritys.is_empty());
-        assert!(self.additionals.is_empty());
+        for record in &self.answers {
+            record.write(&mut req)?
+        }
+        for record in &self.authoritys {
+            record.write(&mut req)?
+        }
+        for record in &self.additionals {
+            record.write(&mut req)?
+        }
 
         if let Some(e) = &self.extension {
             e.write(&mut req)?
@@ -279,7 +284,7 @@ impl Message {
     /// any compressed pointers) in bytes.
     ///
     // TODO Support compression.
-    fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
+    pub(crate) fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
         // Decode this label into the original unicode.
         // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
         let domain = match idna::domain_to_ascii(domain) {
