@@ -35,6 +35,43 @@ pub type PTR = String;
 pub struct TXT(pub Vec<Vec<u8>>);
 
 impl Record {
+    pub(crate) fn write(&self, bfr: &mut Vec<u8>) -> io::Result<()> {
+        Message::write_qname(bfr, &self.name)?;
+        bfr.extend_from_slice(&(self.r#type() as u16).to_be_bytes());
+        bfr.extend_from_slice(&(self.class as u16).to_be_bytes());
+        bfr.extend_from_slice(&(self.ttl.as_secs() as u32).to_be_bytes());
+
+        // At this point we don't know the total length of this record
+        // Create a temporary buffer that's going to be added to the final
+        // buffer later
+
+        let mut record: Vec<u8> = Vec::new();
+
+        match &self.resource {
+            Resource::A(ip4) => record.extend_from_slice(&ip4.octets()),
+            Resource::AAAA(ip6) => record.extend_from_slice(&ip6.octets()),
+
+            Resource::NS(str) => Message::write_qname(&mut record, &str)?,
+            Resource::SOA(soa) => soa.write(&mut record)?,
+            Resource::CNAME(str) => Message::write_qname(&mut record, &str)?,
+            Resource::PTR(str) => Message::write_qname(&mut record, &str)?,
+            Resource::MX(mx) => mx.write(&mut record)?,
+            Resource::TXT(txt) => txt.write(&mut record),
+            Resource::SPF(spf) => spf.write(&mut record),
+            Resource::SRV(srv) => srv.write(&mut record)?,
+
+            Resource::OPT | Resource::ANY => {
+                bail!(InvalidData, "invalid record type '{}'", self.r#type());
+            }
+        };
+
+        // Merge the record buffer into the final one
+        bfr.extend_from_slice(&(record.len() as u16).to_be_bytes());
+        bfr.extend(record);
+
+        Ok(())
+    }
+
     pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
         name: String,
@@ -74,8 +111,8 @@ impl Record {
             Type::CNAME => Resource::CNAME(record.read_qname()?),
             Type::PTR => Resource::PTR(record.read_qname()?),
             Type::MX => Resource::MX(MX::parse(&mut record)?),
-            Type::TXT => Resource::TXT(parse_txt(&mut record)?),
-            Type::SPF => Resource::SPF(parse_txt(&mut record)?),
+            Type::TXT => Resource::TXT(TXT::parse(&mut record)?),
+            Type::SPF => Resource::SPF(TXT::parse(&mut record)?),
             Type::SRV => Resource::SRV(SRV::parse(&mut record)?),
 
             // This should never appear in a answer record unless we have invalid data.
@@ -177,25 +214,34 @@ fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<AAAA> {
     }
 }
 
-fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
-    let mut txts = Vec::new();
-
-    loop {
-        // Keep reading until EOF is reached.
-        let len = match cur.read_u8() {
-            Ok(len) => len,
-            Err(e) => match e.kind() {
-                io::ErrorKind::UnexpectedEof => break,
-                _ => return Err(e),
-            },
-        };
-
-        let mut txt = vec![0; len.into()];
-        cur.read_exact(&mut txt)?;
-        txts.push(txt)
+impl TXT {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
+        let mut txts = Vec::new();
+    
+        loop {
+            // Keep reading until EOF is reached.
+            let len = match cur.read_u8() {
+                Ok(len) => len,
+                Err(e) => match e.kind() {
+                    io::ErrorKind::UnexpectedEof => break,
+                    _ => return Err(e),
+                },
+            };
+    
+            let mut txt = vec![0; len.into()];
+            cur.read_exact(&mut txt)?;
+            txts.push(txt)
+        }
+    
+        Ok(TXT(txts))
     }
 
-    Ok(TXT(txts))
+    pub(crate) fn write(&self, bfr: &mut Vec<u8>) {
+        for v in &self.0 {
+            bfr.extend_from_slice(&(v.len() as u8).to_be_bytes());
+            bfr.extend(v);
+        }
+    }
 }
 
 impl SOA {
@@ -219,6 +265,18 @@ impl SOA {
             expire: Duration::from_secs(expire.into()),
             minimum: Duration::from_secs(minimum.into()),
         })
+    }
+
+    pub(crate) fn write(&self, bfr: &mut Vec<u8>) -> io::Result<()> {
+        Message::write_qname(bfr, &self.mname)?;
+        Message::write_qname(bfr, &Self::email_to_rname(&self.rname).unwrap())?;
+
+        bfr.extend_from_slice(&self.serial.to_be_bytes());
+        bfr.extend_from_slice(&(self.refresh.as_secs() as u32).to_be_bytes());
+        bfr.extend_from_slice(&(self.retry.as_secs() as u32).to_be_bytes());
+        bfr.extend_from_slice(&(self.expire.as_secs() as u32).to_be_bytes());
+        bfr.extend_from_slice(&(self.minimum.as_secs() as u32).to_be_bytes());
+        Ok(())
     }
 
     /// Converts rnames to email address, for example, "admin.example.com" is
@@ -275,6 +333,11 @@ impl MX {
             exchange,
         })
     }
+
+    pub(crate) fn write(&self, bfr: &mut Vec<u8>) -> io::Result<()> {
+        bfr.extend_from_slice(&self.preference.to_be_bytes());
+        Message::write_qname(bfr, &self.exchange)
+    }
 }
 
 impl SRV {
@@ -291,6 +354,13 @@ impl SRV {
             port,
             name,
         })
+    }
+
+    pub(crate) fn write(&self, bfr: &mut Vec<u8>) -> io::Result<()> {
+        bfr.extend_from_slice(&self.priority.to_be_bytes());
+        bfr.extend_from_slice(&self.weight.to_be_bytes());
+        bfr.extend_from_slice(&self.port.to_be_bytes());
+        Message::write_qname(bfr, &self.name)
     }
 }
 
