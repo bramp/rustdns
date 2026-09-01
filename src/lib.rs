@@ -209,7 +209,7 @@ cfg_feature! {
     #![feature = "zones"]
 
     #[macro_use]
-	extern crate pest_derive;
+    extern crate pest_derive;
 
     pub mod zones;
 }
@@ -217,8 +217,7 @@ cfg_feature! {
 #[macro_use]
 extern crate num_derive;
 
-#[macro_use]
-extern crate derivative;
+extern crate educe;
 
 #[macro_use]
 extern crate lazy_static;
@@ -232,7 +231,7 @@ pub use crate::resource::*;
 
 #[doc(inline)]
 #[cfg(feature = "udp")]
- // TODO Allow this resolve to use any available client
+// TODO Allow this resolve to use any available client
 pub use crate::clients::Resolver;
 
 pub use crate::errors::Error;

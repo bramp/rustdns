@@ -258,17 +258,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
-name = "derivative"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcc3dd5e9e9c0b295d6e1e4d811fb6f157d5ffd784b8d202fc62eac8035a770b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "derive_arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,10 +303,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "educe"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e451fac8dd8dece16234604bf1efce6e90fddd8ab6ad4d66eec0eca5160959dd"
+dependencies = [
+ "enum-ordinalize",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
+
+[[package]]
 name = "encoding8"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3144e455c7aeda487c72555cac2ef84ccac173b29a57b07382ba27016e57b246"
+
+[[package]]
+name = "enum-ordinalize"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89dd01549b09589510cf0647475075d12071456586d70f5c75c98ae2a5537677"
+dependencies = [
+ "enum-ordinalize-derive",
+]
+
+[[package]]
+name = "enum-ordinalize-derive"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a65863d15a4ce2888bd2f0f543cc963d3879c3a022c8ee43f6141d479a3ac815"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
 
 [[package]]
 name = "env_filter"
@@ -1078,7 +1099,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "chrono",
- "derivative",
+ "educe",
  "env_logger",
  "hex",
  "http",
