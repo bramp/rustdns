@@ -1,15 +1,18 @@
 use crate::bail;
 use crate::clients::mime::content_type_equal;
+use crate::clients::stats::StatsBuilder;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::Message;
-use crate::clients::stats::StatsBuilder;
 use async_trait::async_trait;
 use http::header::*;
 use http::{Method, Request};
-use hyper::client::connect::HttpInfo;
-use hyper::{Body, Client as HyperClient};
-use hyper_alpn::AlpnConnector;
+use http_body_util::{BodyExt, Full};
+use hyper::body::Bytes;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::client::legacy::connect::HttpInfo;
+use hyper_util::client::legacy::Client as HyperClient;
+use hyper_util::rt::TokioExecutor;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -96,23 +99,24 @@ impl AsyncExchanger for Client {
 
         let p = query.to_vec()?;
 
-        // Create a Alpn client, so our connection will upgrade to HTTP/2.
-        // TODO Move the client into the struct/new()
-        // TODO Change the Connector Connect method to allow us to override the DNS
-        // resolution in the connector!
-        let alpn = AlpnConnector::new();
+        let https = HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .build();
 
-        let client = HyperClient::builder()
+        let client: HyperClient<_, Full<Bytes>> = HyperClient::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(30))
             .http2_only(true) // TODO POST stop working when this is false. Figure that out.
-            .build::<_, hyper::Body>(alpn);
+            .build(https);
 
         // Base request common to both GET and POST
-        let req = Request::builder()
+        let mut req = Request::builder()
             .method(&self.method)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_MESSAGE);
 
-        let req = match self.method {
+        let body = match self.method {
             Method::GET => {
                 // Encode the message as a base64 string
                 let mut buf = String::new();
@@ -124,20 +128,24 @@ impl AsyncExchanger for Client {
 
                 // We have to do this wierd as_str().parse() thing because the
                 // http::Uri doesn't provide a way to easily mutate or construct it.
-                let uri: hyper::Uri = url.as_str().parse()?;
-                req.uri(uri).body(Body::empty())
+                let uri: http::Uri = url.as_str().parse()?;
+                req = req.uri(uri);
+                Full::new(Bytes::new())
             }
             Method::POST => {
-                req.uri(self.servers[0].as_str()) // TODO Support more than one server
-                    .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
-                    .body(Body::from(p)) // content-length header will be added.
+                req = req
+                    .uri(self.servers[0].as_str()) // TODO Support more than one server
+                    .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE);
+                Full::new(Bytes::from(p)) // content-length header will be added.
             }
             _ => bail!(InvalidInput, "only GET and POST allowed"),
         };
 
+        let req = req.body(body)?;
+
         let stats = StatsBuilder::start(0);
 
-        let resp = client.request(req.unwrap()).await?;
+        let resp = client.request(req).await?;
         // TODO This media type restricts the maximum size of the DNS message to 65535 bytes
 
         if let Some(content_type) = resp.headers().get(CONTENT_TYPE) {
@@ -163,7 +171,7 @@ impl AsyncExchanger for Client {
             };
 
             // Read the full body
-            let body = hyper::body::to_bytes(resp.into_body()).await?;
+            let body = resp.into_body().collect().await?.to_bytes();
 
             let mut m = Message::from_slice(&body)?;
             m.stats = Some(stats.end(remote_addr, body.len()));

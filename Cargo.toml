@@ -41,15 +41,17 @@ udp = []
 zones = ["pest", "pest_consume", "pest_derive"]
 
 # A private feature for common http dependencies.
-http_deps = ["http", "url", "hyper", "hyper-alpn", "mime"]
+http_deps = ["http", "url", "hyper", "hyper-util", "hyper-rustls", "http-body-util", "mime"]
 
 [dependencies]
 
 # Used for the web clients
-http = { version = "0.2.5", optional = true }
-url = { version = "2.3.1", optional = true }
-hyper = { version = "0.14.16", features = ["client", "runtime", "http1", "http2"], optional = true }
-hyper-alpn = { version = "0.3.0", optional = true }
+http = { version = "1.5.0", optional = true }
+http-body-util = { version = "0.1.5", optional = true }
+url = { version = "2.5.8", optional = true }
+hyper = { version = "1.11.1", features = ["client", "http1", "http2"], optional = true }
+hyper-util = { version = "0.1.20", features = ["client-legacy", "tokio", "http1", "http2"], optional = true }
+hyper-rustls = { version = "0.27.9", default-features = false, features = ["webpki-tokio", "http1", "http2", "ring"], optional = true }
 mime = { version = "0.3.16", optional = true }
 
 # Needed for DNS over HTTP (DoH)
@@ -66,16 +68,16 @@ pest_derive = { version = "2.1.0", optional = true }
 
 # Everything else
 async-trait = "0.1.52"
-chrono = "0.4.19"
+chrono = "0.4.45"
 byteorder = "1.4.3"
-bytes = "1.1.0"
+bytes = "1.12.1"
 derivative = "2.2.0"
-idna = "0.3.0"
+idna = "1.1.0"
 lazy_static = "1.4.0"
 log = "0.4.14"
 num-derive = "0.3.3"
 num-traits = "0.2.14"
-rand = "0.8.4"
+rand = "0.9.5"
 regex = "1.5.4"
 strum = "0.23.0"
 strum_macros = "0.23.1"
@@ -87,12 +89,12 @@ thiserror = "1.0.30"
 env_logger = "0.9.0"
 hex = "0.4.3"
 pretty_assertions = "1.0.0"
-regex = "1.5.4"
+regex = "1.13.1"
 serde = { version = "1.0.132", features = ["derive"] }
 serde_yaml = "0.8.23"
 json_comments = "0.2.0"
 test-env-log = "0.2.8"
-tokio = { version = "1.15.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
 
 [package.metadata.cargo-all-features]
 skip_optional_dependencies = true
