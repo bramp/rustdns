@@ -26,7 +26,7 @@ pub(crate) struct MessageParser<'a> {
 }
 
 impl<'a> MessageParser<'a> {
-    fn new(buf: &[u8]) -> MessageParser {
+    fn new(buf: &[u8]) -> MessageParser<'_> {
         MessageParser {
             cur: Cursor::new(buf),
             m: Message::default(),

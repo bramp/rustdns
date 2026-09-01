@@ -56,13 +56,13 @@ impl ZoneParser {
         }
     }
 
-    fn string(input: Node) -> Result<&str> {
+    fn string(input: Node<'_>) -> Result<&str> {
         assert_eq!(input.as_rule(), Rule::string);
 
         Ok(input.as_str())
     }
 
-    fn domain(input: Node) -> Result<&str> {
+    fn domain(input: Node<'_>) -> Result<&str> {
         assert_eq!(input.as_rule(), Rule::domain);
 
         // TODO Should I do some validation?
