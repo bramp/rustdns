@@ -4,7 +4,7 @@ use crate::types::Record;
 use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
 use num_traits::FromPrimitive;
-use rand::Rng;
+use rand::RngExt;
 use std::io;
 use std::io::BufRead;
 use std::io::Cursor;
@@ -168,7 +168,7 @@ impl Message {
     /// This is generated with the [`rand::rngs::StdRng`] which is a suitable
     /// cryptographically secure pseudorandom number generator.
     pub fn random_id() -> u16 {
-        rand::thread_rng().gen()
+        rand::rng().random()
     }
 
     /// Decodes the supplied buffer and returns a [`Message`].

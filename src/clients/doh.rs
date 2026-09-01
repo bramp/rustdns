@@ -5,6 +5,7 @@ use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::Message;
 use async_trait::async_trait;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http::header::*;
 use http::{Method, Request};
 use http_body_util::{BodyExt, Full};
@@ -120,7 +121,7 @@ impl AsyncExchanger for Client {
             Method::GET => {
                 // Encode the message as a base64 string
                 let mut buf = String::new();
-                base64::encode_config_buf(p, base64::URL_SAFE_NO_PAD, &mut buf);
+                URL_SAFE_NO_PAD.encode_string(p, &mut buf);
 
                 // and add to the query params.
                 let mut url = self.servers[0].clone(); // TODO Support more than one server
