@@ -4,7 +4,7 @@ use crate::types::Record;
 use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
 use num_traits::FromPrimitive;
-use rand::Rng;
+use rand::RngExt;
 use std::io;
 use std::io::BufRead;
 use std::io::Cursor;
@@ -26,7 +26,7 @@ pub(crate) struct MessageParser<'a> {
 }
 
 impl<'a> MessageParser<'a> {
-    fn new(buf: &[u8]) -> MessageParser {
+    fn new(buf: &[u8]) -> MessageParser<'_> {
         MessageParser {
             cur: Cursor::new(buf),
             m: Message::default(),
@@ -168,7 +168,7 @@ impl Message {
     /// This is generated with the [`rand::rngs::StdRng`] which is a suitable
     /// cryptographically secure pseudorandom number generator.
     pub fn random_id() -> u16 {
-        rand::thread_rng().gen()
+        rand::rng().random()
     }
 
     /// Decodes the supplied buffer and returns a [`Message`].
@@ -224,7 +224,7 @@ impl Message {
     pub fn to_vec(&self) -> io::Result<Vec<u8>> {
         let mut req = Vec::<u8>::with_capacity(512);
 
-        req.extend_from_slice(&(self.id as u16).to_be_bytes());
+        req.extend_from_slice(&(self.id).to_be_bytes());
 
         let mut b = 0_u8;
         b |= if self.qr.to_bool() { 0b1000_0000 } else { 0 };
@@ -349,7 +349,7 @@ impl Extension {
     pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         buf.push(0); // A single "." domain name                          // 0-1
         buf.extend_from_slice(&(Type::OPT as u16).to_be_bytes()); // 1-3
-        buf.extend_from_slice(&(self.payload_size as u16).to_be_bytes()); // 3-5
+        buf.extend_from_slice(&(self.payload_size).to_be_bytes()); // 3-5
 
         buf.push(self.extend_rcode); // 5-6
         buf.push(self.version); // 6-7

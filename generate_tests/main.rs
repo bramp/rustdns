@@ -113,7 +113,7 @@ fn main() -> std::io::Result<()> {
 
     println!("Writing new test data to {}", TEST_DATA_FILENAME);
 
-    match serde_yaml::to_string(&output) {
+    match yaml_serde::to_string(&output) {
         Err(e) => eprintln!("Failed to serialise test results: {:?}", e),
         Ok(s) => fs::write(TEST_DATA_FILENAME, s)?,
     }

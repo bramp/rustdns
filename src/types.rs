@@ -1,4 +1,5 @@
 use crate::resource::*;
+use educe::Educe;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -43,8 +44,8 @@ use strum_macros::{Display, EnumString};
 /// // Now do something with `m`, in this case print it!
 /// println!("DNS Response:\n{}", m);
 /// ```
-#[derive(Clone, Debug, Derivative)]
-#[derivative(Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Educe)]
+#[educe(Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
     /// 16-bit identifier assigned by the program that generates any kind of
@@ -109,8 +110,8 @@ pub struct Message {
 
     /// Optional stats about this request, populated by the DNS client.
     /// TODO Maybe this field should be elsewhere, as it's metadata about a request
-    #[derivative(PartialEq = "ignore")]
-    #[derivative(Hash = "ignore")]
+    #[educe(PartialEq(ignore))]
+    #[educe(Hash(ignore))]
     pub stats: Option<Stats>,
 }
 

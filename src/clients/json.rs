@@ -1,5 +1,6 @@
 use crate::bail;
 use crate::clients::mime::content_type_equal;
+use crate::clients::stats::StatsBuilder;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::errors::ParseError;
@@ -9,15 +10,17 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
-use crate::clients::stats::StatsBuilder;
 use async_trait::async_trait;
 use core::convert::TryInto;
 use http::header::*;
 use http::Method;
 use http::Request;
-use hyper::client::connect::HttpInfo;
-use hyper::{Body, Client as HyperClient};
-use hyper_alpn::AlpnConnector;
+use http_body_util::{BodyExt, Empty};
+use hyper::body::Bytes;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::client::legacy::connect::HttpInfo;
+use hyper_util::client::legacy::Client as HyperClient;
+use hyper_util::rt::TokioExecutor;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -42,19 +45,19 @@ struct MessageJson {
     pub status: u32, // NOERROR - Standard DNS response code (32 bit integer).
 
     #[serde(rename = "TC")]
-    pub tc: bool,    // Whether the response is truncated
+    pub tc: bool, // Whether the response is truncated
 
     #[serde(rename = "RD")]
-    pub rd: bool,    // Always true for Google Public DNS
+    pub rd: bool, // Always true for Google Public DNS
 
     #[serde(rename = "RA")]
-    pub ra: bool,    // Always true for Google Public DNS
+    pub ra: bool, // Always true for Google Public DNS
 
     #[serde(rename = "AD")]
-    pub ad: bool,    // Whether all response data was validated with DNSSEC
+    pub ad: bool, // Whether all response data was validated with DNSSEC
 
     #[serde(rename = "CD")]
-    pub cd: bool,    // Whether the client asked to disable DNSSEC
+    pub cd: bool, // Whether the client asked to disable DNSSEC
 
     pub question: Vec<QuestionJson>,
 
@@ -142,8 +145,8 @@ impl TryInto<Record> for RecordJson {
         let r#type =
             FromPrimitive::from_u16(self.r#type).ok_or(ParseError::InvalidType(self.r#type))?;
 
-        let resource =
-            Resource::from_str(r#type, &self.data).map_err(|x| ParseError::InvalidResource(r#type, x))?;
+        let resource = Resource::from_str(r#type, &self.data)
+            .map_err(|x| ParseError::InvalidResource(r#type, x))?;
 
         Ok(Record {
             name: self.name, // TODO Do I need to remove the trailing dot?
@@ -181,16 +184,9 @@ impl TryInto<Record> for RecordJson {
 /// See <https://developers.google.com/speed/public-dns/docs/doh/json> and
 /// <https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json>
 // TODO Document all the options.
+#[derive(Default)]
 pub struct Client {
     servers: Vec<Url>,
-}
-
-impl Default for Client {
-    fn default() -> Self {
-        Client {
-            servers: Vec::default(),
-        }
-    }
 }
 
 impl Client {
@@ -219,16 +215,17 @@ impl AsyncExchanger for Client {
             ));
         }
 
-        // Create a Alpn client, so our connection will upgrade to HTTP/2.
-        // TODO Move the client into the struct/new()
-        // TODO Change the Connector Connect method to allow us to override the DNS
-        // resolution in the connector!
-        let alpn = AlpnConnector::new();
+        let https = HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .build();
 
-        let client = HyperClient::builder()
+        let client: HyperClient<_, Empty<Bytes>> = HyperClient::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(30))
             .http2_only(true)
-            .build::<_, hyper::Body>(alpn);
+            .build(https);
 
         let question = &query.questions[0];
 
@@ -253,13 +250,13 @@ impl AsyncExchanger for Client {
 
         // We have to do this wierd as_str().parse() thing because the
         // http::Uri doesn't provide a way to easily mutate or construct it.
-        let uri: hyper::Uri = url.as_str().parse()?;
+        let uri: http::Uri = url.as_str().parse()?;
 
         let req = Request::builder()
             .method(Method::GET)
             .uri(uri)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_JSON)
-            .body(Body::empty())?;
+            .body(Empty::new())?;
 
         let stats = StatsBuilder::start(0);
         let resp = client.request(req).await?;
@@ -288,7 +285,7 @@ impl AsyncExchanger for Client {
             };
 
             // Read the full body
-            let body = hyper::body::to_bytes(resp.into_body()).await?;
+            let body = resp.into_body().collect().await?.to_bytes();
 
             println!("{:?}", body);
 
@@ -308,19 +305,19 @@ impl AsyncExchanger for Client {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-    use std::convert::TryInto;
     use crate::clients::json::MessageJson;
-    use json_comments::StripComments;
     use crate::Message;
+    use json_comments::StripComments;
+    use std::convert::TryInto;
+    use std::io::Read;
 
     #[test]
     fn test_parse_response() {
         // From https://developers.google.com/speed/public-dns/docs/doh/json
-        let tests = [r#"{
+        let tests = [
+            r#"{
           "Status": 0,  // NOERROR - Standard DNS response code (32 bit integer).
           "TC": false,  // Whether the response is truncated
           "RD": true,   // Always true for Google Public DNS
@@ -356,9 +353,8 @@ mod tests {
             }
           ],
           "edns_client_subnet": "12.34.56.78/0"  // IP address / scope prefix-length
-        }"#
-        ,
-        r#"
+        }"#,
+            r#"
         {
           "Status": 2,  // SERVFAIL - Standard DNS response code (32 bit integer).
           "TC": false,  // Whether the response is truncated
@@ -375,9 +371,8 @@ mod tests {
           ],
           "Comment": "DNSSEC validation failure. Please check http://dnsviz.net/d/dnssec-failed.org/dnssec/."
         }
-        "#
-        ,
-        r#"
+        "#,
+            r#"
         {
           "Status": 0,  // NOERROR - Standard DNS response code (32 bit integer).
           "TC": false,  // Whether the response is truncated
@@ -401,9 +396,8 @@ mod tests {
           ],
           "Comment": "Response from 216.239.38.110"
           // Uncached responses are attributed to the authoritative name server
-        }"#
-        ,
-        r#"{
+        }"#,
+            r#"{
           "Status": 0,  // NOERROR - Standard DNS response code (32 bit integer).
           "TC": false,  // Whether the response is truncated
           "RD": true,   // Always true for Google Public DNS
@@ -426,9 +420,8 @@ mod tests {
             }
           ]
         }"#,
-
-        // From https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json
-        r#"{
+            // From https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json
+            r#"{
           "Status": 0,
           "TC": false,
           "RD": true,
@@ -449,7 +442,8 @@ mod tests {
               "data": "2606:2800:220:1:248:1893:25c8:1946"
             }
           ]
-        }"#];
+        }"#,
+        ];
 
         for test in tests {
             // Strip comments in the test, as a easy way to keep this test data annotated.
@@ -462,7 +456,9 @@ mod tests {
                 Ok(m) => m,
                 Err(err) => panic!("failed to parse JSON: {}\n{}", err, stripped),
             };
-            let _m: Message = m.try_into().expect("failed to turn MessageJson into a Message");
+            let _m: Message = m
+                .try_into()
+                .expect("failed to turn MessageJson into a Message");
             // TODO Check this is what we expect
         }
     }

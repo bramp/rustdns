@@ -9,17 +9,17 @@ edition = "2018"
 rustdns = { path = "../", default-features = false, features = ["clients"] }
 
 encoding8 = "0.3.2"    # Used for pretty-printing
-strum = "0.21"         # Simple macros for making Enum better
-strum_macros = "0.21"
-tokio = { version = "1.6.1", features = ["macros", "rt-multi-thread"] }
-clap = "3.0.0-beta.2"  # Command line parsing
-time = "0.2.26"
+strum = "0.28.0"         # Simple macros for making Enum better
+strum_macros = "0.28.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
+clap = "4.6.6"  # Command line parsing
+time = "0.3.55"
 url = "2.2.2"
-http = "0.2.4"
-thiserror = "1.0.30"
+http = "1.5.0"
+thiserror = "2.0.20"
 
 [dev-dependencies]
-pretty_assertions = "0.7.2"
+pretty_assertions = "1.4.1"
 
 [[bin]]
 name = "dig"
