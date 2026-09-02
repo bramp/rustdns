@@ -15,31 +15,63 @@ mod tests {
     struct MockClient {}
 
     impl Exchanger for MockClient {
-        /// Sends the query [`Message`] to the `server` via UDP and returns the result.
-        fn exchange(&self, _query: &Message) -> Result<Message, rustdns::Error> {
-            //let mut records = HashMap::new();
-
-            // TODO FINISH!
-            let _a = Record {
-                name: "a.bramp.net".to_string(),
-                class: Class::Internet,
-                ttl: Duration::new(10, 0),
-                resource: Resource::A("127.0.0.1".parse().unwrap()),
+        /// Returns mock DNS answers for test records.
+        fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
+            let mut resp = Message {
+                rcode: Rcode::NoError,
+                ..Default::default()
             };
 
-            /*
-                    records.insert("aaaa.bramp.net", Resource::A("127.0.0.1".parse()));
-                    records.insert("aaaaa.bramp.net", Resource::A("127.0.0.1".parse()));
-                    records.insert("aaaaa.bramp.net", Resource::AAAA("::1".parse()));
-            */
+            for question in &query.questions {
+                match (question.name.trim_end_matches('.'), question.r#type) {
+                    ("a.bramp.net", Type::A) => {
+                        resp.answers.push(Record {
+                            name: question.name.clone(),
+                            class: Class::Internet,
+                            ttl: Duration::from_secs(10),
+                            resource: Resource::A("127.0.0.1".parse().unwrap()),
+                        });
+                    }
+                    ("aaaa.bramp.net", Type::AAAA) => {
+                        resp.answers.push(Record {
+                            name: question.name.clone(),
+                            class: Class::Internet,
+                            ttl: Duration::from_secs(10),
+                            resource: Resource::AAAA("::1".parse().unwrap()),
+                        });
+                    }
+                    ("aaaaa.bramp.net", Type::A) => {
+                        resp.answers.push(Record {
+                            name: question.name.clone(),
+                            class: Class::Internet,
+                            ttl: Duration::from_secs(10),
+                            resource: Resource::A("127.0.0.1".parse().unwrap()),
+                        });
+                    }
+                    ("aaaaa.bramp.net", Type::AAAA) => {
+                        resp.answers.push(Record {
+                            name: question.name.clone(),
+                            class: Class::Internet,
+                            ttl: Duration::from_secs(10),
+                            resource: Resource::AAAA("::1".parse().unwrap()),
+                        });
+                    }
+                    ("cname.bramp.net", Type::A) => {
+                        resp.answers.push(Record {
+                            name: question.name.clone(),
+                            class: Class::Internet,
+                            ttl: Duration::from_secs(10),
+                            resource: Resource::A("127.0.0.1".parse().unwrap()),
+                        });
+                    }
+                    _ => {}
+                }
+            }
 
-            panic!()
+            Ok(resp)
         }
     }
 
-    // This test may be flakly, if it is running in an environment that doesn't
-    // have both IPv4 and IPv6, and has DNS queries that can fail.
-    // TODO Mock out the client.
     #[test]
     fn test_resolver() {
         struct TestCase<'a> {
@@ -66,7 +98,7 @@ mod tests {
             },
         ];
 
-        let resolver = Resolver::new();
+        let resolver = Resolver::new_with_client(MockClient {});
 
         for test in tests {
             let mut want: Vec<IpAddr> = test

@@ -1,4 +1,5 @@
 use crate::resource::*;
+use educe::Educe;
 use std::net::SocketAddr;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -43,8 +44,8 @@ use strum_macros::{Display, EnumString};
 /// // Now do something with `m`, in this case print it!
 /// println!("DNS Response:\n{}", m);
 /// ```
-#[derive(Clone, Debug, Derivative)]
-#[derivative(Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Educe)]
+#[educe(Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
     /// 16-bit identifier assigned by the program that generates any kind of
@@ -109,8 +110,8 @@ pub struct Message {
 
     /// Optional stats about this request, populated by the DNS client.
     /// TODO Maybe this field should be elsewhere, as it's metadata about a request
-    #[derivative(PartialEq = "ignore")]
-    #[derivative(Hash = "ignore")]
+    #[educe(PartialEq(ignore))]
+    #[educe(Hash(ignore))]
     pub stats: Option<Stats>,
 }
 
@@ -203,7 +204,6 @@ impl Default for Extension {
 /// Stats related to the specific query, optionally filed in by the client
 /// and does not change the query behaviour.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Stats {
     /// The time the query was sent to the server.
     pub start: SystemTime,
@@ -223,8 +223,26 @@ pub struct Stats {
     pub response_size: usize,
 }
 
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for Stats {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let duration = u.arbitrary()?;
+        let server = u.arbitrary()?;
+        let request_size = u.arbitrary()?;
+        let response_size = u.arbitrary()?;
+        Ok(Stats {
+            start: SystemTime::now(),
+            duration,
+            server,
+            request_size,
+            response_size,
+        })
+    }
+}
+
 /// Query or Response bit.
 #[derive(Copy, Clone, Debug, EnumString, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum QR {
     Query = 0,
     Response = 1,
@@ -260,6 +278,7 @@ impl QR {
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, Hash, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u8)] // Really only 4 bits
 pub enum Opcode {
     /// Query.
@@ -302,6 +321,7 @@ impl Default for Opcode {
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, Hash, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)] // In headers it is 4 bits, in extended OPTS it is 16.
 pub enum Rcode {
     /// No Error
@@ -390,6 +410,7 @@ pub enum ExtendedRcode {
 ///
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)]
 pub enum Type {
     Reserved = 0,
@@ -444,6 +465,7 @@ impl Default for Type {
 
 /// Resource Record Class, for example Internet.
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)]
 pub enum Class {
     /// Reserved per [RFC6895]
@@ -495,6 +517,7 @@ impl Default for Class {
 /// Recource Record Definitions.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Resource {
     A(A), // Support non-Internet classes?
     AAAA(AAAA),

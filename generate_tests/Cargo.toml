@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 serde = { version = "1.0.126", features = ["derive"] }
-serde_yaml = "0.8.17"
+yaml_serde = "0.10.7"
 hex = "0.4.3"
 rustdns = { path = "../", default-features = false, features = ["udp"] }
 

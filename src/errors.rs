@@ -37,6 +37,10 @@ pub enum Error {
     #[error(transparent)]
     HyperError(#[from] hyper::Error),
 
+    #[cfg(feature = "hyper-util")]
+    #[error(transparent)]
+    HyperLegacyError(#[from] hyper_util::client::legacy::Error),
+
     #[cfg(feature = "http")]
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),

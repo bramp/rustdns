@@ -32,6 +32,7 @@ pub type PTR = String;
 /// Text (TXT) record for arbitrary human-readable text in a DNS record.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TXT(pub Vec<Vec<u8>>);
 
 impl Record {
@@ -109,6 +110,7 @@ impl Record {
 /// Mail EXchanger (MX) record specifies the mail server responsible
 /// for accepting email messages on behalf of a domain name.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct MX {
     /// The preference given to this RR among others at the same owner.
     /// Lower values are preferred.
@@ -124,6 +126,7 @@ pub struct MX {
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SOA {
     /// The name server that was the original or primary source of data for this zone.
     pub mname: String,
@@ -132,7 +135,7 @@ pub struct SOA {
     ///
     /// This is stored as a valid email address, e.g "dns.admin@example.com", as opposed
     /// to the format it's typically stored in SOA records "dns\.admin.example.com". Use
-    /// [`rname_to_email`] and [`rname_to_email`] to convert between the formats.
+    /// [`SOA::rname_to_email`] and [`SOA::email_to_rname`] to convert between the formats.
     pub rname: String,
 
     pub serial: u32,
@@ -148,6 +151,7 @@ pub struct SOA {
 /// [rfc2782]: <https://datatracker.ietf.org/doc/html/rfc2782>
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SRV {
     pub priority: u16,
     pub weight: u16,
@@ -223,7 +227,7 @@ impl SOA {
 
     /// Converts rnames to email address, for example, "admin.example.com" is
     /// converted to "admin@example.com", per the rules in
-    /// https://datatracker.ietf.org/doc/html/rfc1035#section-8
+    /// <https://datatracker.ietf.org/doc/html/rfc1035#section-8>
     pub fn rname_to_email(domain: &str) -> Result<String, ParseError> {
         // The logic is simple.
         // Find first unescaped dot and replace with a @

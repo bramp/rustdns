@@ -27,7 +27,7 @@ struct TestCase {
 fn tests() {
     let s = fs::read(TEST_DATA_FILENAME).expect("failed read test input");
     let tests: Vec<TestCase> =
-        serde_yaml::from_slice(&s).expect("failed to deserialise test input");
+        yaml_serde::from_slice(&s).expect("failed to deserialise test input");
 
     for case in tests {
         test_from_slice(case);

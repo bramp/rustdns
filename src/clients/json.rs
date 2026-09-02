@@ -15,9 +15,12 @@ use core::convert::TryInto;
 use http::header::*;
 use http::Method;
 use http::Request;
-use hyper::client::connect::HttpInfo;
-use hyper::{Body, Client as HyperClient};
-use hyper_alpn::AlpnConnector;
+use http_body_util::{BodyExt, Empty};
+use hyper::body::Bytes;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::client::legacy::connect::HttpInfo;
+use hyper_util::client::legacy::Client as HyperClient;
+use hyper_util::rt::TokioExecutor;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -212,16 +215,17 @@ impl AsyncExchanger for Client {
             ));
         }
 
-        // Create a Alpn client, so our connection will upgrade to HTTP/2.
-        // TODO Move the client into the struct/new()
-        // TODO Change the Connector Connect method to allow us to override the DNS
-        // resolution in the connector!
-        let alpn = AlpnConnector::new();
+        let https = HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .build();
 
-        let client = HyperClient::builder()
+        let client: HyperClient<_, Empty<Bytes>> = HyperClient::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(30))
             .http2_only(true)
-            .build::<_, hyper::Body>(alpn);
+            .build(https);
 
         let question = &query.questions[0];
 
@@ -246,13 +250,13 @@ impl AsyncExchanger for Client {
 
         // We have to do this wierd as_str().parse() thing because the
         // http::Uri doesn't provide a way to easily mutate or construct it.
-        let uri: hyper::Uri = url.as_str().parse()?;
+        let uri: http::Uri = url.as_str().parse()?;
 
         let req = Request::builder()
             .method(Method::GET)
             .uri(uri)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_JSON)
-            .body(Body::empty())?;
+            .body(Empty::new())?;
 
         let stats = StatsBuilder::start(0);
         let resp = client.request(req).await?;
@@ -281,7 +285,7 @@ impl AsyncExchanger for Client {
             };
 
             // Read the full body
-            let body = hyper::body::to_bytes(resp.into_body()).await?;
+            let body = resp.into_body().collect().await?.to_bytes();
 
             println!("{:?}", body);
 
