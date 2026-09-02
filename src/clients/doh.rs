@@ -113,11 +113,11 @@ impl AsyncExchanger for Client {
             .build(https);
 
         // Base request common to both GET and POST
-        let mut req = Request::builder()
+        let req = Request::builder()
             .method(&self.method)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_MESSAGE);
 
-        let body = match self.method {
+        let req = match self.method {
             Method::GET => {
                 // Encode the message as a base64 string
                 let mut buf = String::new();
@@ -130,19 +130,15 @@ impl AsyncExchanger for Client {
                 // We have to do this wierd as_str().parse() thing because the
                 // http::Uri doesn't provide a way to easily mutate or construct it.
                 let uri: http::Uri = url.as_str().parse()?;
-                req = req.uri(uri);
-                Full::new(Bytes::new())
+                req.uri(uri).body(Full::new(Bytes::new()))?
             }
             Method::POST => {
-                req = req
-                    .uri(self.servers[0].as_str()) // TODO Support more than one server
-                    .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE);
-                Full::new(Bytes::from(p)) // content-length header will be added.
+                req.uri(self.servers[0].as_str()) // TODO Support more than one server
+                    .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
+                    .body(Full::new(Bytes::from(p)))? // content-length header will be added.
             }
             _ => bail!(InvalidInput, "only GET and POST allowed"),
         };
-
-        let req = req.body(body)?;
 
         let stats = StatsBuilder::start(0);
 
