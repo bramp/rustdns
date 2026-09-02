@@ -132,7 +132,7 @@ pub struct SOA {
     ///
     /// This is stored as a valid email address, e.g "dns.admin@example.com", as opposed
     /// to the format it's typically stored in SOA records "dns\.admin.example.com". Use
-    /// [`rname_to_email`] and [`rname_to_email`] to convert between the formats.
+    /// [`SOA::rname_to_email`] and [`SOA::email_to_rname`] to convert between the formats.
     pub rname: String,
 
     pub serial: u32,
@@ -223,7 +223,7 @@ impl SOA {
 
     /// Converts rnames to email address, for example, "admin.example.com" is
     /// converted to "admin@example.com", per the rules in
-    /// https://datatracker.ietf.org/doc/html/rfc1035#section-8
+    /// <https://datatracker.ietf.org/doc/html/rfc1035#section-8>
     pub fn rname_to_email(domain: &str) -> Result<String, ParseError> {
         // The logic is simple.
         // Find first unescaped dot and replace with a @
