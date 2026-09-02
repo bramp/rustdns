@@ -159,12 +159,16 @@ To aid in testing features, I have a set of pre-configured records setup:
 
 ## Releasing
 
+Releases are published by GitHub Actions when a `v*` tag is pushed. The
+workflow checks the tag matches `Cargo.toml`, publishes to crates.io via
+[Trusted Publishing](https://crates.io/docs/trusted-publishing) (no API
+token stored), and creates a GitHub release.
+
 ```shell
-# Bump version number
-$ cargo test-all-features
-$ cargo readme > README.md
-$ cargo publish --dry-run
-$ cargo publish
+$ cargo set-version 0.5.0   # or edit Cargo.toml by hand
+$ cargo readme -o README.md
+$ git commit -am "Release v0.5.0" && git push
+$ git tag v0.5.0 && git push origin v0.5.0
 ```
 
 ## TODO (in order of priority)
@@ -178,7 +182,7 @@ $ cargo publish
 * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
 * [ ] Implement more dig features, such as +trace
 * [ ] Maybe convert the binary parsing to Nom format.
-* [ ] Can I parse these https://www.iana.org/domains/root/files ?
+* [ ] Can I parse these <https://www.iana.org/domains/root/files> ?
 
 ### Reference
 

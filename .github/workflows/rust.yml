@@ -30,6 +30,17 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Install cargo-readme
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-readme
+
+      - name: Check README.md is up to date
+        run: |
+          cargo readme -o README.md
+          git diff --exit-code -- README.md \
+            || (echo "README.md is stale, run 'cargo readme -o README.md'" >&2; exit 1)
+
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
