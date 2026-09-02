@@ -6,10 +6,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "friday"
     cooldown:
-      # Wait a week before opening PRs for major updates, giving others time
-      # to find bugs/security issues in the new release.
-      semver-major-days: 7
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 3
 
   # The fuzz/ crate is deliberately excluded from the main workspace (see
   # fuzz/Cargo.toml), so it needs its own entry to be kept up to date.
@@ -17,15 +19,21 @@ updates:
     directory: "/fuzz"
     schedule:
       interval: "weekly"
+      day: "friday"
     cooldown:
-      semver-major-days: 7
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 3
 
   # Keep GitHub Actions up to date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "friday"
     cooldown:
-      # Wait a week before opening PRs for major updates, giving others time
-      # to find bugs/security issues in the new release.
-      semver-major-days: 7
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 3
