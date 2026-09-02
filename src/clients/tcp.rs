@@ -1,6 +1,6 @@
+use crate::clients::stats::StatsBuilder;
 use crate::clients::Exchanger;
 use crate::Message;
-use crate::clients::stats::StatsBuilder;
 use std::io::Read;
 use std::io::Write;
 use std::net::SocketAddr;
