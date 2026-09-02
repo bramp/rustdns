@@ -11,6 +11,7 @@ mod tests {
     use std::net::IpAddr;
     use std::time::Duration;
 
+    #[allow(dead_code)]
     struct MockClient {}
 
     impl Exchanger for MockClient {

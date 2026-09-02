@@ -36,7 +36,7 @@ fn tests() {
 
 fn normalise_whitespace(s: &str) -> String {
     let re = Regex::new(r"[ ]+").unwrap();
-    return re.replace_all(s, " ").to_string();
+    re.replace_all(s, " ").to_string()
 }
 
 fn test_from_slice(case: TestCase) {

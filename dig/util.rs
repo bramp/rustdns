@@ -1,6 +1,7 @@
 use encoding8::ascii;
 
 // Dumps out the slice in a pretty way
+#[allow(dead_code)]
 pub fn hexdump(slice: &[u8]) {
     const WIDTH: usize = 16;
     let mut offset = 0;

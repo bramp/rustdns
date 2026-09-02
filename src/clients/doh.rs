@@ -1,9 +1,9 @@
 use crate::bail;
 use crate::clients::mime::content_type_equal;
+use crate::clients::stats::StatsBuilder;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::Message;
-use crate::clients::stats::StatsBuilder;
 use async_trait::async_trait;
 use http::header::*;
 use http::{Method, Request};

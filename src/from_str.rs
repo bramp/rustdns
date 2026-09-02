@@ -1,12 +1,12 @@
 //! Implements the FromStr trait for the various types, to be able to parse in `dig` style.
 // Refer to https://github.com/tigeli/bind-utils/blob/master/bin/dig/dig.c for reference.
 
-use crate::TXT;
 use crate::Resource;
 use crate::Type;
 use crate::MX;
 use crate::SOA;
 use crate::SRV;
+use crate::TXT;
 use core::num::ParseIntError;
 use core::str::FromStr;
 use regex::Regex;
@@ -140,14 +140,14 @@ impl FromStr for TXT {
 
         if !s.starts_with('"') && !s.ends_with('"') {
             // Assume a single unquoted string
-            return Ok(TXT::from(s))
+            return Ok(TXT::from(s));
         }
 
         // Otherparse parse multiple "..." strings
         let mut txts = Vec::new();
         for caps in RE.captures_iter(s) {
             txts.push(caps[1].as_bytes().to_vec());
-        };
+        }
 
         if txts.is_empty() {
             return Err(FromStrError::InvalidFormat);

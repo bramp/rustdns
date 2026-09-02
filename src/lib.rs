@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs, non_local_definitions, clippy::result_unit_err, clippy::result_large_err)]
 // TODO #![deny(missing_docs)]
 // TODO #![deny(missing_debug_implementations)]
 //! # rustdns
@@ -209,7 +210,7 @@ cfg_feature! {
     #![feature = "zones"]
 
     #[macro_use]
-	extern crate pest_derive;
+    extern crate pest_derive;
 
     pub mod zones;
 }
@@ -232,7 +233,7 @@ pub use crate::resource::*;
 
 #[doc(inline)]
 #[cfg(feature = "udp")]
- // TODO Allow this resolve to use any available client
+// TODO Allow this resolve to use any available client
 pub use crate::clients::Resolver;
 
 pub use crate::errors::Error;

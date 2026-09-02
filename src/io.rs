@@ -26,7 +26,7 @@ pub trait SeekExt: io::Seek {
 impl<'a> SeekExt for Cursor<&'a [u8]> {
     fn remaining(self: &mut std::io::Cursor<&'a [u8]>) -> io::Result<u64> {
         let pos = self.position() as usize;
-        let len = self.get_ref().len() as usize;
+        let len = self.get_ref().len();
 
         Ok((len - pos).try_into().unwrap())
     }
