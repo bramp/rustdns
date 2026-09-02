@@ -1,7 +1,7 @@
-use std::time::SystemTime;
 use crate::Stats;
 use std::net::SocketAddr;
 use std::time::Instant;
+use std::time::SystemTime;
 
 /// Builder class to aid in the construction of Stats objects.
 pub(crate) struct StatsBuilder {

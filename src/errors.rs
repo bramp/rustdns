@@ -1,5 +1,5 @@
-use crate::Type;
 use crate::from_str::FromStrError;
+use crate::Type;
 use core::num::ParseIntError;
 use std::net::AddrParseError;
 use thiserror::Error;

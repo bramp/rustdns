@@ -11,13 +11,16 @@ mod tests {
     use std::net::IpAddr;
     use std::time::Duration;
 
+    #[allow(dead_code)]
     struct MockClient {}
 
     impl Exchanger for MockClient {
         /// Returns mock DNS answers for test records.
         fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
-            let mut resp = Message::default();
-            resp.rcode = Rcode::NoError;
+            let mut resp = Message {
+                rcode: Rcode::NoError,
+                ..Default::default()
+            };
 
             for question in &query.questions {
                 match (question.name.trim_end_matches('.'), question.r#type) {
