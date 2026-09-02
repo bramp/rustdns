@@ -1,4 +1,9 @@
-#![allow(unexpected_cfgs, non_local_definitions, clippy::result_unit_err, clippy::result_large_err)]
+#![allow(
+    unexpected_cfgs,
+    non_local_definitions,
+    clippy::result_unit_err,
+    clippy::result_large_err
+)]
 // TODO #![deny(missing_docs)]
 // TODO #![deny(missing_debug_implementations)]
 //! # rustdns

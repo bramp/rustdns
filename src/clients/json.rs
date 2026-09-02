@@ -186,7 +186,6 @@ pub struct Client {
     servers: Vec<Url>,
 }
 
-
 impl Client {
     /// Creates a new Client bound to the specific servers.
     ///
