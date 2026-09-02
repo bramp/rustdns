@@ -5,7 +5,7 @@ use std::vec;
 use url::Url;
 
 /// A trait for objects which can be converted or resolved to one or more
-/// [`Url`] values. Heavily inspired by [`ToSocketAddrs`].
+/// [`Url`] values. Heavily inspired by [`std::net::ToSocketAddrs`].
 pub trait ToUrls {
     type Iter: Iterator<Item = Url>;
 

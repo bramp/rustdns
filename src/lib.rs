@@ -174,7 +174,7 @@
 //! * [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
 //! * [ ] Implement more dig features, such as +trace
 //! * [ ] Maybe convert the binary parsing to Nom format.
-//! * [ ] Can I parse these https://www.iana.org/domains/root/files ?
+//! * [ ] Can I parse these <https://www.iana.org/domains/root/files> ?
 //!
 //! ## Reference
 //!

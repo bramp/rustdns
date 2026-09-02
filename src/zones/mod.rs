@@ -17,8 +17,8 @@ mod process;
 
 /// A Zone File. This is the unprocessed version of the zone file
 /// where domains such as "@" have not yet been resolved, and fields
-/// are optional. To turn this into [`Vec<rustdns::Record>`] call
-/// [`process`].
+/// are optional. To turn this into [`Vec<crate::Record>`] call
+/// [`File::into_records`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
     /// The origin as defined when creating the Zone File. This is different than
@@ -85,7 +85,7 @@ pub enum Entry {
     Record(Record),
 }
 
-/// Very similar to a [`rustdns::Record`] but allows for
+/// Very similar to a [`crate::Record`] but allows for
 /// optional values. When parsing a full zone file
 /// those options can be derived from previous entries.
 // TODO Implement a Display to turn this back into Zone format.
