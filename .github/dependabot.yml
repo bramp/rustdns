@@ -5,9 +5,17 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      # Wait a week before opening PRs for major updates, giving others time
+      # to find bugs/security issues in the new release.
+      semver-major-days: 7
 
   # Keep GitHub Actions up to date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      # Wait a week before opening PRs for major updates, giving others time
+      # to find bugs/security issues in the new release.
+      semver-major-days: 7
