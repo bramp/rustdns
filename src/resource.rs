@@ -3,6 +3,7 @@ use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::types::*;
 use crate::ParseError;
 use byteorder::{ReadBytesExt, BE};
+use std::convert::TryFrom;
 use std::io;
 use std::io::Cursor;
 use std::io::Read;
@@ -57,7 +58,11 @@ impl Record {
         // so it can jump backwards for a qname (or similar) read.
 
         let pos = cur.position();
-        let end = pos as usize + len as usize;
+        let end = pos
+            .checked_add(u64::from(len))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "record length overflow"))?;
+        let end = usize::try_from(end)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record length is invalid"))?;
         let mut record = cur.sub_cursor(0, end)?;
         record.set_position(pos);
 

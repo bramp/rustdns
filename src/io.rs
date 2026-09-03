@@ -65,8 +65,12 @@ impl<'a> CursorExt<&'a [u8]> for Cursor<&'a [u8]> {
     fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<&'a [u8]>> {
         let buf = self.get_ref();
 
-        let start = start.clamp(0, buf.len());
-        let end = end.clamp(start, buf.len());
+        if start > end || end > buf.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "requested cursor range is outside the input",
+            ));
+        }
 
         let record = Cursor::new(&buf[start..end]);
         Ok(record)

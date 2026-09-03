@@ -436,6 +436,17 @@ mod tests {
     }
 
     #[test]
+    fn truncated_record_data_returns_error() {
+        let input = [
+            0, 0, 0, 0, 0, 0, 0, 1, // header, one answer
+            0, 0, 1, 0, 0, 0, 0, 0, 0, 4, // A record declares four bytes
+            192, 0, 2, // but supplies only three
+        ];
+
+        assert!(Message::from_slice(&input).is_err());
+    }
+
+    #[test]
     fn try_add_question_rejects_invalid_domain() {
         let mut message = Message::default();
         let invalid_domain = format!("{}.example.com", "a".repeat(64));
