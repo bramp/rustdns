@@ -87,5 +87,5 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Run fuzz target
-        run: cargo fuzz run from_slice -- -runs=1000
+        run: cargo fuzz run from_slice -- -max_len=4096 -runs=1000
         working-directory: fuzz

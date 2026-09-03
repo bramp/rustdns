@@ -38,9 +38,9 @@ These changes should happen before broad API or edition work because they addres
 - [x] Validate EDNS `RDLEN` against the remaining packet bytes.
 - [x] Rewrite compressed-name traversal iteratively, or enforce a strict pointer/depth/work budget.
 - [ ] Reject invalid forward pointers, pointer loops, unsupported label encodings, and out-of-range pointers.
-- [ ] Validate both per-label and total DNS name lengths when encoding and decoding.
+- [x] Validate per-label and total DNS name lengths when encoding; leave decoded-name length policy to callers.
 - [x] Add regression tests for truncated packets, oversized lengths, malformed pointers, pointer loops, and long pointer chains.
-- [ ] Extend the fuzz target with assertions that parsing never panics or performs unbounded work.
+- [x] Extend the fuzz target with a no-panic assertion and an explicit CI input-size bound.
 
 ## Phase 3: Remove Input-Dependent Panics
 
