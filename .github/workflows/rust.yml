@@ -62,7 +62,7 @@ jobs:
       - name: Check semver compatibility (advisory)
         if: ${{ !cancelled() }}
         continue-on-error: true
-        run: cargo semver-checks check-release --baseline-version 0.6.0
+        run: cargo semver-checks check-release --baseline-version 0.6.0 --release-type minor
 
       - name: Security Audit
         if: ${{ !cancelled() }}

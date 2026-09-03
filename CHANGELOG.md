@@ -4,6 +4,8 @@ All notable changes to rustdns are documented here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-03
+
 ### Added
 
 - Added asynchronous TCP and UDP clients under the `async-tcp` and `async-udp`
@@ -96,7 +98,8 @@ All notable changes to rustdns are documented here.
   zone files, and the UDP, TCP, DoH, and JSON clients.
 - Included stored DNS response test data, integration tests, and fuzzing support.
 
-[Unreleased]: https://github.com/bramp/rustdns/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/bramp/rustdns/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/bramp/rustdns/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/bramp/rustdns/releases/tag/v0.6.0
 [0.5.1]: https://github.com/bramp/rustdns/releases/tag/v0.5.1
 [0.5.0]: https://github.com/bramp/rustdns/releases/tag/v0.5.0

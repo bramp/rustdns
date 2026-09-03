@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "rustdns"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -832,12 +832,16 @@ dependencies = [
  "pest_derive",
  "rand",
  "regex",
+ "rustls",
  "serde",
  "serde_json",
+ "socket2",
  "strum",
  "strum_macros",
  "thiserror",
+ "tokio",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]

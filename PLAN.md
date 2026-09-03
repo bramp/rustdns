@@ -74,11 +74,12 @@ struct layouts or enum exhaustiveness.
 - [x] Keep accepting vectors of servers for compatibility, while documenting that
   only the first resolved server is used.
 - [x] Add HTTP status-response tests for DoH and JSON clients.
-- [ ] Add timeout and retry configuration for HTTP clients.
+- [ ] Add timeout configuration for HTTP clients.
 - [x] Keep one reusable socket or HTTP client per low-level client instance.
 - [x] Reuse persistent TCP connections and HTTP connection pools across exchanges.
 - [ ] Add additive response and transport metadata accessors.
-- [ ] Add new client configuration builders without removing existing constructors.
+- [ ] Defer retry/failover configuration to the 1.0 resolver/orchestration client.
+- [ ] Defer new client configuration builders to 1.0.
 - [x] Add async TCP and UDP clients as `async-tcp` and `async-udp` features,
   included by `clients`, with mutable sequential exchange APIs.
 
@@ -96,19 +97,20 @@ struct layouts or enum exhaustiveness.
   described as `to_vec` for allocation and `append_to_vec` for caller-provided
   buffers.
 - [x] Add opt-in DNS-over-TLS or other new transport modules if justified.
-- [ ] Review and expose DNS name, question-count, and message-size limits through
+- [x] Review and expose DNS name, question-count, and message-size limits through
   additive validation helpers.
 - [ ] Add convenience getters and inspection methods for messages and records.
 
 ### Tests And Release
 
-- [ ] Add focused tests for every new feature and every opt-in/default behavior.
-- [ ] Complete response status, content type, body size, framing, and malformed
+- [x] Add focused tests for every new feature and every opt-in/default behavior.
+- [x] Complete response status, content type, body size, framing, and malformed
   network-response integration tests.
-- [ ] Run advisory `cargo-semver-checks` against `0.6.0` and document known
-  intentional compatibility breaks, including the added `Extension.options` field.
-- [ ] Add `0.7.0` migration notes and release notes.
-- [ ] Run the complete quality gates and `cargo publish --dry-run`.
+- [x] Run advisory `cargo-semver-checks --release-type minor` against `0.6.0`
+  and document known intentional compatibility breaks, including the added
+  `Extension.options` field.
+- [x] Add `0.7.0` migration notes and release notes.
+- [x] Run the complete quality gates and `cargo publish --dry-run`.
 - [ ] Release and tag `0.7.0`.
 
 ## Version 1.0.0: Breaking Modernization
