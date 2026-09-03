@@ -45,22 +45,22 @@ These changes should happen before broad API or edition work because they addres
 ## Phase 3: Remove Input-Dependent Panics
 
 - [ ] Replace `expect`, `unwrap`, assertions, and unchecked indexing on input-dependent paths.
-- [ ] Make invalid domains return an error from the message-building API.
+- [x] Make invalid domains return an error from the message-building API via `try_add_question`.
 - [x] Reject empty server collections in TCP, UDP, DoH, and JSON client constructors.
 - [x] Make URL parsing return its existing `io::Result` or a more specific error instead of unwrapping.
-- [ ] Handle malformed SOA RNAME values without panicking.
-- [ ] Replace serialization assertions for unsupported record sections with returned errors.
-- [x] Add tests for invalid URLs, empty client configuration, and malformed records. Add invalid-domain and unsupported-message tests with the fallible API changes.
+- [x] Handle malformed SOA RNAME values without panicking.
+- [x] Replace serialization assertions for unsupported record sections with returned errors.
+- [x] Add tests for invalid URLs, empty client configuration, malformed records, invalid domains, and unsupported messages.
 
 ## Phase 4: Network Client Security and Behavior
 
 - [x] Require `https` URLs in the DoH client and use an HTTPS-only connector.
 - [x] Add a test proving that an `http://` DoH endpoint is rejected.
-- [ ] Bound DoH and JSON response bodies before collecting them.
-- [ ] Validate response status, content type, DNS message size, framing, and question consistency.
+- [x] Bound DoH and JSON response bodies before collecting them.
+- [x] Validate response status, content type, DNS message size, and framing; leave semantic suitability to callers.
 - [ ] Decide whether clients fail over across configured servers; implement and document that behavior.
 - [ ] Document timeout, connection, retry, and server-selection semantics.
-- [ ] Add TCP framing tests, including truncated and oversized frames.
+- [x] Add TCP framing tests, including truncated and oversized frames.
 
 ## Phase 5: Error Model and API Design
 
@@ -75,7 +75,9 @@ These changes should happen before broad API or edition work because they addres
 ## Phase 6: Tests, Fuzzing, and Quality Gates
 
 - [x] Add focused unit tests for parser boundaries, compression, EDNS, and error preservation. Add name-validation tests with the fallible API changes.
-- [x] Add client tests for URL validation and empty configuration. Add response-limit, content-type, and status tests when body bounding is implemented.
+- [x] Add client tests for URL validation and empty configuration.
+- [x] Add response-limit, content-type, and framing integration tests.
+- [ ] Add HTTP status-response integration tests.
 - [x] Add a zone-processing test for malformed SOA RNAME panic prevention. Add tests for the remaining formerly panicking conditions with typed zone errors.
 - [ ] Test all workspace crates with default, no-default, and all-feature configurations.
 - [ ] Run fuzzing regularly and add scheduled CI fuzz jobs if runtime permits.
