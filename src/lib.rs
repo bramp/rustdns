@@ -93,6 +93,7 @@
 //!
 //! - `clients`: Enables the following clients:
 //!   - `doh`: DNS over HTTPS (DoH) client (rfc8484).
+//!   - `dot`: DNS over TLS (DoT) client (rfc7858).
 //!   - `json`: DNS over HTTPS JSON client
 //!   - `tcp`: Enables the DNS over TCP client
 //!   - `udp`: Enables the DNS over UDP client
@@ -127,6 +128,7 @@
 //! $ cargo run -p dig -- SOA google.com
 //! $ cargo run -p dig -- SRV _ldap._tcp.google.com
 //! $ cargo run -p dig -- TXT google.com
+//! $ cargo run -p dig -- +dot @dns.google google.com A
 //! ```
 //! # Testing
 //!

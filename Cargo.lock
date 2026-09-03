@@ -1120,6 +1120,7 @@ dependencies = [
  "pretty_assertions",
  "rand",
  "regex",
+ "rustls",
  "serde",
  "serde_json",
  "socket2",
@@ -1129,6 +1130,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+ "webpki-roots",
  "yaml_serde",
 ]
 

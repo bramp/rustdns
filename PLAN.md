@@ -95,7 +95,7 @@ struct layouts or enum exhaustiveness.
 - [x] `Message`: review public documentation and examples so wire-format encoding is
   described as `to_vec` for allocation and `append_to_vec` for caller-provided
   buffers.
-- [ ] Add opt-in DNS-over-TLS or other new transport modules if justified.
+- [x] Add opt-in DNS-over-TLS or other new transport modules if justified.
 - [ ] Review and expose DNS name, question-count, and message-size limits through
   additive validation helpers.
 - [ ] Add convenience getters and inspection methods for messages and records.

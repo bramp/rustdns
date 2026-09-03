@@ -4,6 +4,7 @@ mod util;
 
 use http::method::Method;
 use rustdns::clients::doh::Client as DohClient;
+use rustdns::clients::dot::Client as DotClient;
 use rustdns::clients::json::Client as JsonClient;
 use rustdns::clients::tcp::Client as TcpClient;
 use rustdns::clients::udp::Client as UdpClient;
@@ -32,6 +33,7 @@ extern crate pretty_assertions;
 enum Client {
     Udp,
     Tcp,
+    DoT,
     DoH,
     Json,
 }
@@ -96,6 +98,14 @@ fn to_sockaddrs(
         .into_iter()
         .flatten()
         .collect())
+}
+
+fn server_with_default_port(server: &str, default_port: u16) -> String {
+    if server.rsplit_once(':').is_some() {
+        server.to_string()
+    } else {
+        format!("{server}:{default_port}")
+    }
 }
 
 impl Args {
@@ -306,6 +316,33 @@ fn test_parse_edns_args_rejects_invalid_cookie() {
     assert!(parse_args(["+cookie=abcd"].iter().map(|arg| arg.to_string())).is_err());
 }
 
+#[test]
+fn test_parse_dot_args() {
+    let args = parse_args(
+        ["+dot", "@dns.google", "example.com"]
+            .iter()
+            .map(|arg| arg.to_string()),
+    )
+    .expect("DoT args should parse");
+
+    assert!(matches!(args.client, Client::DoT));
+    assert_eq!(args.servers, vec!["dns.google"]);
+    assert_eq!(args.domains, vec!["example.com"]);
+    assert_eq!(
+        server_with_default_port(&args.servers[0], 853),
+        "dns.google:853"
+    );
+}
+
+#[test]
+fn test_parse_dot_args_use_google_dot_by_default() {
+    let args = parse_args(["+dot", "example.com"].iter().map(|arg| arg.to_string()))
+        .expect("DoT args should parse");
+
+    assert!(matches!(args.client, Client::DoT));
+    assert_eq!(args.servers, vec![rustdns::clients::dot::GOOGLE]);
+}
+
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut result = Args::default();
     let mut type_or_domain = Vec::<String>::new();
@@ -314,6 +351,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
         match arg.as_str() {
             "+udp" => result.client = Client::Udp,
             "+tcp" => result.client = Client::Tcp,
+            "+dot" => result.client = Client::DoT,
             "+doh" => result.client = Client::DoH,
             "+json" => result.client = Client::Json,
 
@@ -372,6 +410,9 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
                 result.servers.push("2001:4860:4860::8888".to_string());
                 result.servers.push("2001:4860:4860::8844".to_string());
             }
+            Client::DoT => result
+                .servers
+                .push(rustdns::clients::dot::GOOGLE.to_string()),
             Client::DoH => result
                 .servers
                 .push(rustdns::clients::doh::GOOGLE.to_string()),
@@ -420,7 +461,7 @@ async fn main() -> Result<(), DigError> {
         Err(e) => {
             eprintln!("{}", e);
             eprintln!(
-                "Usage: dig [@server] [+udp|+tcp|+doh|+json] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
+                "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
             );
             process::exit(1);
         }
@@ -455,6 +496,15 @@ async fn main() -> Result<(), DigError> {
         Client::Tcp => TcpClient::new(to_sockaddrs(&args.servers, 53)?.as_slice())?
             .exchange(&query)
             .expect("could not exchange message"),
+
+        Client::DoT => {
+            let server = args.servers.first().ok_or_else(|| {
+                DigError::ArgParseError("at least one DoT server is required".to_string())
+            })?;
+            DotClient::new(&server_with_default_port(server, 853))?
+                .exchange(&query)
+                .expect("could not exchange message")
+        }
 
         Client::DoH => DohClient::new(args.servers_to_urls()?.as_slice(), Method::GET)?
             .exchange(&query)

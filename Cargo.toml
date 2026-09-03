@@ -23,7 +23,7 @@ members = [
 default = ["clients", "zones"]
 
 # Enable the DNS client
-clients = ["doh", "json", "tcp", "udp", "async-tcp", "async-udp"]
+clients = ["doh", "json", "tcp", "udp", "dot", "async-tcp", "async-udp"]
 
 # Enable the asynchronous low-level clients.
 async-tcp = ["tcp", "dep:tokio"]
@@ -37,6 +37,9 @@ json = ["http_deps", "serde", "serde_json"]
 
 # DNS over TCP client
 tcp = []
+
+# DNS over TLS client (DoT, rfc7858).
+dot = ["tcp", "dep:rustls", "dep:webpki-roots"]
 
 # DNS over UDP client
 udp = []
@@ -57,6 +60,10 @@ hyper = { version = "1.1", features = ["client", "http1", "http2"], optional = t
 hyper-util = { version = "0.1.12", features = ["client-legacy", "tokio", "http1", "http2"], optional = true }
 hyper-rustls = { version = "0.27.9", default-features = false, features = ["webpki-tokio", "http1", "http2", "ring"], optional = true }
 mime = { version = "0.3.16", optional = true }
+
+# Needed for DNS over TLS (DoT)
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std"], optional = true }
+webpki-roots = { version = "1.0.9", optional = true }
 
 # Needed for DNS over HTTP (DoH)
 base64 = { version = "0.23.1", optional = true }

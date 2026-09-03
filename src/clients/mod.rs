@@ -22,6 +22,9 @@ use http::StatusCode;
 #[cfg(feature = "doh")]
 pub mod doh;
 
+#[cfg(feature = "dot")]
+pub mod dot;
+
 #[cfg(feature = "json")]
 pub mod json;
 
@@ -115,6 +118,11 @@ mod tests {
 
         #[cfg(feature = "doh")]
         assert!(super::doh::Client::new(&[] as &[url::Url], http::Method::GET).is_err());
+
+        #[cfg(feature = "dot")]
+        assert!(
+            super::dot::Client::new_with_server_name("dns.google", &[] as &[SocketAddr]).is_err()
+        );
 
         #[cfg(feature = "json")]
         assert!(super::json::Client::new(&[] as &[url::Url]).is_err());
