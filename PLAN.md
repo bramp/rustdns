@@ -1,6 +1,6 @@
 # Rust Modernization Plan
 
-This plan brings rustdns up to modern Rust standards while preserving a clear compatibility path from the current `0.5.0` release.
+This plan brings rustdns up to modern Rust standards while preserving a clear compatibility path from the current `0.5.1` release.
 
 ## Goals
 
@@ -105,7 +105,7 @@ Do this after behavior and API contracts are covered by tests, as part of the `1
 - [ ] Run the complete CI matrix, fuzz regressions, and documentation tests.
 - [ ] Run `cargo semver-checks` against the previous release.
 - [ ] Review the changelog and publish release notes.
-- [ ] Release `0.5.1` with safe compatible fixes, then `0.6.0` for additive modernization.
+- [x] Release `0.5.1` with safe compatible fixes. Next, release `0.6.0` for additive modernization.
 - [ ] Release `1.0.0` with Rust 1.85.0, edition 2024, and the finalized breaking API cleanup.
 
 ## Definition of Done
