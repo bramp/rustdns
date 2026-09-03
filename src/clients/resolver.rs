@@ -1,4 +1,3 @@
-use crate::bail;
 use crate::clients::udp::Client as UdpClient;
 use crate::clients::Exchanger;
 use crate::types::*;
@@ -93,7 +92,12 @@ where
 
             match response.rcode {
                 Rcode::NoError => (), // Nothing
-                _ => bail!(InvalidInput, "query failed with rcode: {}", response.rcode),
+                _ => {
+                    return Err(crate::Error::InvalidArgument(format!(
+                        "query failed with rcode: {}",
+                        response.rcode
+                    )));
+                }
             };
 
             for answer in response.answers {

@@ -82,7 +82,11 @@ impl Client {
     pub fn new<A: ToUrls>(servers: A, method: Method) -> Result<Self, crate::Error> {
         match method {
             Method::GET | Method::POST => (), // Nothing,
-            _ => bail!(InvalidInput, "only GET and POST allowed"),
+            _ => {
+                return Err(crate::Error::InvalidArgument(
+                    "only GET and POST allowed".to_string(),
+                ));
+            }
         }
 
         let servers: Vec<_> = servers.to_urls()?.collect();
@@ -152,7 +156,11 @@ impl AsyncExchanger for Client {
                     .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
                     .body(Full::new(Bytes::from(p)))? // content-length header will be added.
             }
-            _ => bail!(InvalidInput, "only GET and POST allowed"),
+            _ => {
+                return Err(crate::Error::InvalidArgument(
+                    "only GET and POST allowed".to_string(),
+                ));
+            }
         };
 
         let stats = StatsBuilder::start(0);
