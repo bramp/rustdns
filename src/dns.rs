@@ -200,7 +200,35 @@ impl Message {
     ///
     /// [§4.1.2 of rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2.
     pub fn add_question(&mut self, domain: &str, r#type: Type, class: Class) {
-        let domain = self.normalise_domain(domain).expect("invalid domain"); // TODO fix
+        self.try_add_question(domain, r#type, class)
+            .expect("invalid domain");
+    }
+
+    /// Adds a question to the message, returning an error if the domain is invalid.
+    pub fn try_add_question(
+        &mut self,
+        domain: &str,
+        r#type: Type,
+        class: Class,
+    ) -> Result<(), crate::Error> {
+        let domain = self
+            .normalise_domain(domain)
+            .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
+        let ascii_domain = idna::domain_to_ascii(&domain)
+            .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
+
+        if ascii_domain.len() > 255 {
+            return Err(crate::Error::InvalidArgument(
+                "domain name is longer than 255 bytes".to_string(),
+            ));
+        }
+        for label in ascii_domain.split_terminator('.') {
+            if label.is_empty() || label.len() > 63 {
+                return Err(crate::Error::InvalidArgument(
+                    "domain name contains an invalid label".to_string(),
+                ));
+            }
+        }
 
         // TODO Don't allow more than 255 questions.
         let q = Question {
@@ -210,6 +238,8 @@ impl Message {
         };
 
         self.questions.push(q);
+
+        Ok(())
     }
 
     /// Adds a EDNS(0) extension record, as defined by [rfc6891](https://datatracker.ietf.org/doc/html/rfc6891).
@@ -377,6 +407,7 @@ impl Extension {
 #[cfg(test)]
 mod tests {
     use super::Message;
+    use crate::{Class, Type};
 
     #[test]
     fn truncated_dns_messages_return_errors() {
@@ -402,5 +433,16 @@ mod tests {
         ];
 
         assert!(Message::from_slice(&input).is_err());
+    }
+
+    #[test]
+    fn try_add_question_rejects_invalid_domain() {
+        let mut message = Message::default();
+        let invalid_domain = format!("{}.example.com", "a".repeat(64));
+
+        assert!(message
+            .try_add_question(&invalid_domain, Type::A, Class::Internet)
+            .is_err());
+        assert!(message.questions.is_empty());
     }
 }

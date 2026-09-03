@@ -64,10 +64,10 @@ These changes should happen before broad API or edition work because they addres
 
 ## Phase 5: Error Model and API Design
 
-- [ ] Replace `Result<Vec<Record>, ()>` in zone processing with a structured error type.
+- [x] Add `try_into_records() -> Result<Vec<Record>, ProcessError>` while retaining the compatibility wrapper.
 - [ ] Preserve zone source context, record context, and useful parse locations in errors.
-- [ ] Replace panic-based handling of missing `$ORIGIN`, TTL, class, and invalid relative names with typed errors.
-- [ ] Introduce additive fallible APIs where possible, such as a fallible question-builder method.
+- [x] Replace panic-based handling of missing `$ORIGIN`, TTL, class, and invalid relative names with typed errors.
+- [x] Introduce additive fallible APIs where possible, including `try_add_question` and `try_into_records`.
 - [ ] Deprecate incompatible infallible APIs before removing them in `1.0.0`.
 - [ ] Replace the custom `bail!` macro incrementally with typed `thiserror` variants where this improves the public contract.
 - [ ] Document error behavior for every public constructor and parser.

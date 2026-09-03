@@ -7,9 +7,35 @@ use crate::Class;
 use crate::Record;
 use crate::Resource;
 use core::time::Duration;
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ProcessError {
+    #[error("$ORIGIN must be an absolute domain")]
+    OriginNotAbsolute,
+    #[error("record is missing a name and has no previous name")]
+    MissingName,
+    #[error("record is missing a TTL and no default TTL is set")]
+    MissingTtl,
+    #[error("record is missing a class and has no previous class")]
+    MissingClass,
+    #[error("relative domain '{0}' has no origin")]
+    RelativeNameWithoutOrigin(String),
+    #[error("invalid SOA rname '{0}'")]
+    InvalidRname(String),
+}
 
 impl File {
+    /// Resolves this zone file into records, returning details for invalid state.
+    pub fn try_into_records(self) -> Result<Vec<Record>, ProcessError> {
+        self.into_records_impl()
+    }
+
     pub fn into_records(self) -> Result<Vec<Record>, ()> {
+        self.try_into_records().map_err(|_| ())
+    }
+
+    fn into_records_impl(self) -> Result<Vec<Record>, ProcessError> {
         let mut results = Vec::<Record>::new();
 
         // Useful to refer to:
@@ -34,19 +60,15 @@ impl File {
                     if let Some(new_origin) = new_origin.strip_suffix('.') {
                         origin = Some(new_origin)
                     } else {
-                        panic!("TODO Origin wasn't a absolute domain");
+                        return Err(ProcessError::OriginNotAbsolute);
                     }
                 }
                 Entry::TTL(ttl) => default_ttl = Some(ttl),
                 Entry::Record(record) => {
                     let full_name: String = match record.name.as_ref() {
-                        Some(name) => Self::resolve_name(name, origin),
+                        Some(name) => Self::resolve_name(name, origin)?,
                         None => {
-                            if last_name.is_none() {
-                                // TODO What's the behaviour if $origin is set?
-                                panic!("TODO Blank domain without a previous domain set");
-                            }
-                            last_name.unwrap().to_string()
+                            last_name.clone().ok_or(ProcessError::MissingName)?
                         }
                     };
                     last_name = Some(full_name.to_owned());
@@ -55,13 +77,13 @@ impl File {
                         .ttl
                         .as_ref()
                         .or(default_ttl)
-                        .expect("TODO Blank ttl without a default TTL set"); // TODO Turn these into errors
+                        .ok_or(ProcessError::MissingTtl)?;
 
                     let class = record
                         .class
                         .as_ref()
                         .or(last_class)
-                        .expect("TODO Blank Class without a previous Class set"); // TODO Turn these into errors
+                        .ok_or(ProcessError::MissingClass)?;
 
                     last_class = Some(class);
 
@@ -69,7 +91,7 @@ impl File {
                         name: full_name,
                         class: *class,
                         ttl: *ttl,
-                        resource: Self::resolve_resource(&record.resource, origin),
+                        resource: Self::resolve_resource(&record.resource, origin)?,
                     })
                 }
             }
@@ -78,26 +100,27 @@ impl File {
         Ok(results)
     }
 
-    fn resolve_name(name: &str, origin: Option<&str>) -> String {
+    fn resolve_name(name: &str, origin: Option<&str>) -> Result<String, ProcessError> {
         // Absolute domain name
         if let Some(name) = name.strip_suffix('.') {
-            return name.to_string();
+            return Ok(name.to_string());
         }
 
         // Everything past here requires a origin
-        if origin.is_none() {
-            panic!("TODO Relative domain without a origin set");
-        }
+        let origin = origin.ok_or_else(|| ProcessError::RelativeNameWithoutOrigin(name.to_string()))?;
 
         if name == "@" {
-            return origin.unwrap().to_string();
+            return Ok(origin.to_string());
         }
 
         // Relative domain name
-        name.to_owned() + "." + origin.unwrap()
+        Ok(name.to_owned() + "." + origin)
     }
 
-    fn resolve_resource(resource: &Resource, origin: Option<&str>) -> Resource {
+    fn resolve_resource(
+        resource: &Resource,
+        origin: Option<&str>,
+    ) -> Result<Resource, ProcessError> {
         match resource {
             // These types don't include a domain, so clone as is.
             Resource::A(_)
@@ -105,31 +128,36 @@ impl File {
             | Resource::TXT(_)
             | Resource::SPF(_)
             | Resource::OPT
-            | Resource::ANY => resource.clone(),
+            | Resource::ANY => Ok(resource.clone()),
 
             // The rest need some kind of tweaking
-            Resource::CNAME(domain) => Resource::CNAME(Self::resolve_name(domain, origin)),
-            Resource::NS(domain) => Resource::NS(Self::resolve_name(domain, origin)),
-            Resource::PTR(domain) => Resource::PTR(Self::resolve_name(domain, origin)),
-            Resource::MX(mx) => Resource::MX(MX {
+            Resource::CNAME(domain) => Ok(Resource::CNAME(Self::resolve_name(domain, origin)?)),
+            Resource::NS(domain) => Ok(Resource::NS(Self::resolve_name(domain, origin)?)),
+            Resource::PTR(domain) => Ok(Resource::PTR(Self::resolve_name(domain, origin)?)),
+            Resource::MX(mx) => Ok(Resource::MX(MX {
                 preference: mx.preference,
-                exchange: Self::resolve_name(&mx.exchange, origin),
-            }),
-            Resource::SOA(soa) => Resource::SOA(SOA {
-                mname: Self::resolve_name(&soa.mname, origin),
-                rname: SOA::rname_to_email(&Self::resolve_name(&soa.rname, origin)).unwrap(),
+                exchange: Self::resolve_name(&mx.exchange, origin)?,
+            })),
+            Resource::SOA(soa) => {
+                let rname = Self::resolve_name(&soa.rname, origin)?;
+                let rname = SOA::rname_to_email(&rname)
+                    .map_err(|_| ProcessError::InvalidRname(rname))?;
+                Ok(Resource::SOA(SOA {
+                mname: Self::resolve_name(&soa.mname, origin)?,
+                rname,
                 serial: soa.serial,
                 refresh: soa.refresh,
                 retry: soa.retry,
                 expire: soa.expire,
                 minimum: soa.minimum,
-            }),
-            Resource::SRV(srv) => Resource::SRV(SRV {
+                }))
+            }
+            Resource::SRV(srv) => Ok(Resource::SRV(SRV {
                 priority: srv.priority,
                 weight: srv.weight,
                 port: srv.port,
-                name: Self::resolve_name(&srv.name, origin),
-            }),
+                name: Self::resolve_name(&srv.name, origin)?,
+            })),
         }
     }
 }
@@ -137,7 +165,7 @@ impl File {
 #[cfg(test)]
 mod tests {
     use crate::resource::*;
-    use crate::zones::File;
+    use crate::zones::{Entry, File, ProcessError, Record as ZoneRecord};
     use crate::Class;
     use crate::Record;
     use crate::Resource;
@@ -206,5 +234,53 @@ mod tests {
                 Err(err) => panic!("{} Failed:\n{:?}", input, err), // TODO Make a error and no need to use "{:?}"
             }
         }
+    }
+
+    #[test]
+    fn try_into_records_reports_missing_ttl() {
+        let file = File {
+            origin: Some("example.com".to_string()),
+            entries: vec![Entry::Record(ZoneRecord {
+                name: Some("example.com.".to_string()),
+                ttl: None,
+                class: Some(Class::Internet),
+                resource: Resource::A("192.0.2.1".parse().unwrap()),
+            })],
+        };
+
+        assert_eq!(file.try_into_records(), Err(ProcessError::MissingTtl));
+    }
+
+    #[test]
+    fn try_into_records_reports_missing_name() {
+        let file = File {
+            origin: Some("example.com".to_string()),
+            entries: vec![Entry::Record(ZoneRecord {
+                name: None,
+                ttl: Some(Duration::from_secs(300)),
+                class: Some(Class::Internet),
+                resource: Resource::A("192.0.2.1".parse().unwrap()),
+            })],
+        };
+
+        assert_eq!(file.try_into_records(), Err(ProcessError::MissingName));
+    }
+
+    #[test]
+    fn try_into_records_reports_relative_name_without_origin() {
+        let file = File {
+            origin: None,
+            entries: vec![Entry::Record(ZoneRecord {
+                name: Some("www".to_string()),
+                ttl: Some(Duration::from_secs(300)),
+                class: Some(Class::Internet),
+                resource: Resource::A("192.0.2.1".parse().unwrap()),
+            })],
+        };
+
+        assert_eq!(
+            file.try_into_records(),
+            Err(ProcessError::RelativeNameWithoutOrigin("www".to_string()))
+        );
     }
 }

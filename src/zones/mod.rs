@@ -15,10 +15,12 @@ mod parser_tests;
 mod preprocessor;
 mod process;
 
+pub use process::ProcessError;
+
 /// A Zone File. This is the unprocessed version of the zone file
-/// where domains such as "@" have not yet been resolved, and fields
-/// are optional. To turn this into [`Vec<crate::Record>`] call
-/// [`File::into_records`].
+    /// where domains such as "@" have not yet been resolved, and fields
+    /// are optional. To turn this into [`Vec<crate::Record>`] call
+    /// [`File::into_records`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
     /// The origin as defined when creating the Zone File. This is different than
