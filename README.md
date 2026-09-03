@@ -138,9 +138,19 @@ This was generated with `cargo run -p generate_tests`.
 The library has been extensively fuzzed. Try for yourself:
 
 ```shell
-$ cargo fuzz run from_slice
+$ cargo install cargo-fuzz
+$ rustup toolchain install nightly
+$ rustup component add llvm-tools-preview --toolchain nightly
+$ cargo +nightly fuzz run from_slice
 ```
 
+If `cargo` is installed outside rustup, such as through Homebrew, use
+nightly's Cargo explicitly:
+
+```shell
+$ nightly_bin="$(dirname "$(rustup which --toolchain nightly cargo)")"
+$ PATH="$nightly_bin:$PATH" cargo fuzz run from_slice
+```
 ### Test Data
 
 To aid in testing features, I have a set of pre-configured records setup:

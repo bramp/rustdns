@@ -74,3 +74,18 @@ jobs:
         with:
           name: code-coverage
           path: lcov.info
+
+  fuzz:
+    name: Fuzz smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Run fuzz target
+        run: cargo fuzz run from_slice -- -runs=1000
+        working-directory: fuzz

@@ -6,6 +6,6 @@ extern crate rustdns;
 fuzz_target!(|data: &[u8]| {
     #[allow(unused_must_use)]
     {
-        rustdns::Packet::from_slice(data);
+        rustdns::Message::from_slice(data);
     }
 });
