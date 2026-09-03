@@ -17,42 +17,57 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-    name: Build & Test
+  lint:
+    name: Lint & Docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy, llvm-tools-preview
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
         run: cargo fmt --check
 
       - name: Install cargo-readme
+        if: ${{ !cancelled() }}
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-readme
 
       - name: Check README.md is up to date
+        if: ${{ !cancelled() }}
         run: |
           cargo readme -o README.md
           git diff --exit-code -- README.md \
             || (echo "README.md is stale, run 'cargo readme -o README.md'" >&2; exit 1)
 
       - name: Run clippy
+        if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Build documentation
+        if: ${{ !cancelled() }}
         env:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --workspace --all-features --no-deps
 
       - name: Security Audit
+        if: ${{ !cancelled() }}
         uses: rustsec/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
 
       - name: Run tests (default features)
         run: cargo test --workspace --verbose
