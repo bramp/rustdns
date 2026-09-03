@@ -4,6 +4,15 @@ All notable changes to rustdns are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added asynchronous TCP and UDP clients under the `async-tcp` and `async-udp`
+  features, included by the `clients` feature.
+- Added persistent TCP connection reuse with keepalive and idle expiry.
+- Added reusable HTTP client pools for DoH and JSON clients.
+- Added regression coverage for transport reuse and reconnect-after-failure behavior.
+- Uploaded CI code coverage to Codecov and added a coverage badge to the README.
+
 ## [0.6.0] - 2026-09-02
 
 ### Added

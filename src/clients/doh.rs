@@ -4,6 +4,7 @@ use crate::clients::stats::StatsBuilder;
 use crate::clients::validate_http_status;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
+use crate::clients::{new_http_client, BoxError, HttpClient};
 use crate::Message;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -11,15 +12,11 @@ use http::header::*;
 use http::{Method, Request};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Bytes;
-use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::connect::HttpInfo;
-use hyper_util::client::legacy::Client as HyperClient;
-use hyper_util::rt::TokioExecutor;
 use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::time::Duration;
 use url::Url;
 
 const MAX_DOH_BODY_SIZE: usize = 65535; // The maximum size of a DNS message is 65535 bytes. See https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
@@ -63,6 +60,8 @@ pub struct Client {
     servers: Vec<Url>,
     /// HTTP method used for DNS-over-HTTPS requests. Only `GET` and `POST` are accepted.
     method: Method,
+    /// Hyper client whose connection pool is reused across exchanges.
+    http_client: HttpClient,
 }
 
 impl Default for Client {
@@ -70,6 +69,7 @@ impl Default for Client {
         Client {
             servers: Vec::default(),
             method: Method::GET,
+            http_client: new_http_client(),
         }
     }
 }
@@ -107,7 +107,11 @@ impl Client {
             ));
         }
 
-        Ok(Self { servers, method })
+        Ok(Self {
+            servers,
+            method,
+            http_client: new_http_client(),
+        })
     }
 }
 
@@ -130,18 +134,7 @@ impl AsyncExchanger for Client {
 
         let p = query.to_vec()?;
 
-        let https = HttpsConnectorBuilder::new()
-            .with_webpki_roots()
-            .https_only()
-            .enable_http1()
-            .enable_http2()
-            .build();
-
-        // TODO Store and reuse the Hyper client so its connection pool stays alive across exchanges.
-        let client: HyperClient<_, Full<Bytes>> = HyperClient::builder(TokioExecutor::new())
-            .pool_idle_timeout(Duration::from_secs(30))
-            .http2_only(true) // TODO POST stop working when this is false. Figure that out.
-            .build(https);
+        let client = &self.http_client;
 
         // Base request common to both GET and POST
         let req = Request::builder()
@@ -161,12 +154,22 @@ impl AsyncExchanger for Client {
                 // We have to do this wierd as_str().parse() thing because the
                 // http::Uri doesn't provide a way to easily mutate or construct it.
                 let uri: http::Uri = url.as_str().parse()?;
-                req.uri(uri).body(Full::new(Bytes::new()))?
+                req.uri(uri).body(
+                    Full::new(Bytes::new())
+                        .map_err(|error: std::convert::Infallible| -> BoxError { match error {} })
+                        .boxed(),
+                )?
             }
             Method::POST => {
                 req.uri(server.as_str()) // TODO Support more than one server
                     .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
-                    .body(Full::new(Bytes::from(p)))? // content-length header will be added.
+                    .body(
+                        Full::new(Bytes::from(p))
+                            .map_err(|error: std::convert::Infallible| -> BoxError {
+                                match error {}
+                            })
+                            .boxed(),
+                    )? // content-length header will be added.
             }
             _ => {
                 return Err(crate::Error::InvalidArgument(

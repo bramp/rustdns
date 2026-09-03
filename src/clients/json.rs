@@ -4,6 +4,7 @@ use crate::clients::stats::StatsBuilder;
 use crate::clients::validate_http_status;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
+use crate::clients::{new_http_client, BoxError, HttpClient};
 use crate::errors::ParseError;
 use crate::Class;
 use crate::Error;
@@ -18,10 +19,7 @@ use http::Method;
 use http::Request;
 use http_body_util::{BodyExt, Empty, Limited};
 use hyper::body::Bytes;
-use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::connect::HttpInfo;
-use hyper_util::client::legacy::Client as HyperClient;
-use hyper_util::rt::TokioExecutor;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -187,10 +185,20 @@ impl TryInto<Record> for RecordJson {
 ///
 /// See <https://developers.google.com/speed/public-dns/docs/doh/json> and
 /// <https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json>
-#[derive(Default)]
 pub struct Client {
     /// HTTPS endpoints used for JSON DNS queries. The first endpoint is currently used for each exchange.
     servers: Vec<Url>,
+    /// Hyper client whose connection pool is reused across exchanges.
+    http_client: HttpClient,
+}
+
+impl Default for Client {
+    fn default() -> Self {
+        Self {
+            servers: Vec::new(),
+            http_client: new_http_client(),
+        }
+    }
 }
 
 impl Client {
@@ -217,7 +225,10 @@ impl Client {
             ));
         }
 
-        Ok(Self { servers })
+        Ok(Self {
+            servers,
+            http_client: new_http_client(),
+        })
     }
 }
 
@@ -241,18 +252,7 @@ impl AsyncExchanger for Client {
             crate::Error::InvalidArgument("at least one DoH JSON server is required".to_string())
         })?;
 
-        let https = HttpsConnectorBuilder::new()
-            .with_webpki_roots()
-            .https_only()
-            .enable_http1()
-            .enable_http2()
-            .build();
-
-        // TODO Store and reuse the Hyper client so its connection pool stays alive across exchanges.
-        let client: HyperClient<_, Empty<Bytes>> = HyperClient::builder(TokioExecutor::new())
-            .pool_idle_timeout(Duration::from_secs(30))
-            .http2_only(true)
-            .build(https);
+        let client = &self.http_client;
 
         let question = query.questions.first().ok_or_else(|| {
             crate::Error::InvalidArgument("expected one DNS question".to_string())
@@ -285,7 +285,11 @@ impl AsyncExchanger for Client {
             .method(Method::GET)
             .uri(uri)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_JSON)
-            .body(Empty::new())?;
+            .body(
+                Empty::<Bytes>::new()
+                    .map_err(|error: std::convert::Infallible| -> BoxError { match error {} })
+                    .boxed(),
+            )?;
 
         let stats = StatsBuilder::start(0);
         let resp = client.request(req).await?;

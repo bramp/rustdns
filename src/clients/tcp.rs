@@ -260,4 +260,44 @@ mod tests {
         assert!(client.exchange(&Message::default()).is_ok());
         server.join().expect("join test server");
     }
+
+    #[test]
+    fn reconnects_after_failed_exchange() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let address = listener.local_addr().expect("read test listener address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept first connection");
+            let mut request_length = [0; 2];
+            stream
+                .read_exact(&mut request_length)
+                .expect("read first request length");
+            let request_length = u16::from_be_bytes(request_length) as usize;
+            let mut request = vec![0; request_length];
+            stream.read_exact(&mut request).expect("read first request");
+            stream
+                .write_all(&11_u16.to_be_bytes())
+                .expect("write bad response");
+            drop(stream);
+
+            let (mut stream, _) = listener.accept().expect("accept replacement connection");
+            let mut request_length = [0; 2];
+            stream
+                .read_exact(&mut request_length)
+                .expect("read second request length");
+            let request_length = u16::from_be_bytes(request_length) as usize;
+            let mut request = vec![0; request_length];
+            stream
+                .read_exact(&mut request)
+                .expect("read second request");
+            stream
+                .write_all(&12_u16.to_be_bytes())
+                .expect("write response length");
+            stream.write_all(&[0; 12]).expect("write response");
+        });
+
+        let client = Client::new(address).expect("create test client");
+        assert!(client.exchange(&Message::default()).is_err());
+        assert!(client.exchange(&Message::default()).is_ok());
+        server.join().expect("join test server");
+    }
 }
