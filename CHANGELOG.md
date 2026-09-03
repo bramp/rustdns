@@ -13,6 +13,8 @@ All notable changes to rustdns are documented here.
 - Added DNS wire encoding for supported answer, authority, and additional records.
 - Added opt-in EDNS(0) option encoding for NSID, Client Subnet, COOKIE, TCP
   Keepalive, Padding, and unknown options.
+- Added `dig` flags and display output for sending and receiving EDNS(0)
+  options.
 - Added `Message::set_extension` as the preferred API for the single EDNS(0)
   extension record.
 - Added regression coverage for transport reuse and reconnect-after-failure behavior.

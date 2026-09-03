@@ -10,12 +10,15 @@ use rustdns::clients::udp::Client as UdpClient;
 use rustdns::clients::AsyncExchanger;
 use rustdns::clients::Exchanger;
 use rustdns::types::*;
+use std::convert::TryInto;
 use std::env;
 use std::io;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::process;
 use std::str::FromStr;
+use std::time::Duration;
 use std::vec;
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
@@ -53,6 +56,9 @@ struct Args {
 
     /// Across all these domains
     domains: Vec<String>,
+
+    /// EDNS(0) options to include in the query.
+    edns_options: Vec<EdnsOption>,
 }
 
 /// Parses a string into a SocketAddr allowing for the port to be missing.
@@ -116,8 +122,135 @@ impl Default for Args {
 
             r#type: Type::A,
             domains: Vec::new(),
+            edns_options: Vec::new(),
         }
     }
+}
+
+fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
+    let input = input.strip_prefix("0x").unwrap_or(input);
+    if !input.len().is_multiple_of(2) {
+        return Err("hex strings must contain an even number of digits".to_string());
+    }
+
+    let mut bytes = Vec::with_capacity(input.len() / 2);
+    let mut index = 0;
+    while index < input.len() {
+        bytes.push(
+            u8::from_str_radix(&input[index..index + 2], 16).map_err(|error| error.to_string())?,
+        );
+        index += 2;
+    }
+    Ok(bytes)
+}
+
+fn parse_cookie(input: &str) -> Result<EdnsOption, String> {
+    let (client, server) = input.split_once(':').unwrap_or((input, ""));
+    let client = parse_hex(client)?;
+    let client: [u8; 8] = client
+        .try_into()
+        .map_err(|_| "COOKIE client cookie must be exactly 8 bytes".to_string())?;
+
+    Ok(if server.is_empty() {
+        EdnsOption::cookie(client)
+    } else {
+        EdnsOption::cookie_with_server(client, parse_hex(server)?)
+    })
+}
+
+fn parse_subnet(input: &str) -> Result<EdnsOption, String> {
+    let mut parts = input.split('/');
+    let address = parts
+        .next()
+        .ok_or_else(|| "EDNS Client Subnet requires an address".to_string())?
+        .parse::<IpAddr>()
+        .map_err(|error| error.to_string())?;
+    let source_prefix_len = parts
+        .next()
+        .ok_or_else(|| "EDNS Client Subnet requires a source prefix length".to_string())?
+        .parse::<u8>()
+        .map_err(|error| error.to_string())?;
+    let scope_prefix_len = parts
+        .next()
+        .map(|scope| scope.parse::<u8>().map_err(|error| error.to_string()))
+        .transpose()?
+        .unwrap_or(0);
+    if parts.next().is_some() {
+        return Err("EDNS Client Subnet must be address/source[/scope]".to_string());
+    }
+
+    Ok(EdnsOption::client_subnet(
+        address,
+        source_prefix_len,
+        scope_prefix_len,
+    ))
+}
+
+fn parse_tcp_keepalive(input: Option<&str>) -> Result<EdnsOption, String> {
+    match input {
+        None => Ok(EdnsOption::tcp_keepalive(None)),
+        Some(seconds) => seconds
+            .parse::<u64>()
+            .map(Duration::from_secs)
+            .map(Some)
+            .map(EdnsOption::tcp_keepalive)
+            .map_err(|error| error.to_string()),
+    }
+}
+
+fn parse_unknown_edns_option(input: &str) -> Result<EdnsOption, String> {
+    let (code, data) = input
+        .split_once(':')
+        .ok_or_else(|| "unknown EDNS option must be code:hex-data".to_string())?;
+    let code = code.parse::<u16>().map_err(|error| error.to_string())?;
+    Ok(EdnsOption::unknown(code, parse_hex(data)?))
+}
+
+fn parse_edns_flag(arg: &str) -> Result<Option<EdnsOption>, String> {
+    if arg == "+nsid" {
+        return Ok(Some(EdnsOption::nsid(Vec::new())));
+    }
+
+    if let Some(value) = arg
+        .strip_prefix("+subnet=")
+        .or_else(|| arg.strip_prefix("+client-subnet="))
+        .or_else(|| arg.strip_prefix("+edns-client-subnet="))
+    {
+        return parse_subnet(value).map(Some);
+    }
+
+    if let Some(value) = arg.strip_prefix("+cookie=") {
+        return parse_cookie(value).map(Some);
+    }
+
+    if arg == "+cookie" {
+        return Err("+cookie requires an 8-byte hex client cookie".to_string());
+    }
+
+    if arg == "+tcp-keepalive" || arg == "+keepalive" {
+        return parse_tcp_keepalive(None).map(Some);
+    }
+
+    if let Some(value) = arg
+        .strip_prefix("+tcp-keepalive=")
+        .or_else(|| arg.strip_prefix("+keepalive="))
+    {
+        return parse_tcp_keepalive(Some(value)).map(Some);
+    }
+
+    if let Some(value) = arg.strip_prefix("+padding=") {
+        return value
+            .parse::<u16>()
+            .map(EdnsOption::padding)
+            .map(Some)
+            .map_err(|error| error.to_string());
+    }
+
+    if let Some(value) = arg.strip_prefix("+ednsopt=") {
+        return parse_unknown_edns_option(value).map(Some);
+    }
+
+    Ok(None)
 }
 
 // TODO Move into a integration test (due to the use of network)
@@ -147,6 +280,32 @@ fn test_to_sockaddrs() {
     assert_eq!(addrs, want);
 }
 
+#[test]
+fn test_parse_edns_args() {
+    let args = parse_args(
+        [
+            "+nsid",
+            "+subnet=192.0.2.129/24",
+            "+cookie=636c69656e743031:7365727665723031",
+            "+tcp-keepalive=30",
+            "+padding=4",
+            "+ednsopt=65001:0102",
+            "example.com",
+        ]
+        .iter()
+        .map(|arg| arg.to_string()),
+    )
+    .expect("EDNS flags should parse");
+
+    assert_eq!(args.edns_options.len(), 6);
+    assert_eq!(args.domains, vec!["example.com"]);
+}
+
+#[test]
+fn test_parse_edns_args_rejects_invalid_cookie() {
+    assert!(parse_args(["+cookie=abcd"].iter().map(|arg| arg.to_string())).is_err());
+}
+
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut result = Args::default();
     let mut type_or_domain = Vec::<String>::new();
@@ -159,6 +318,11 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "+json" => result.client = Client::Json,
 
             _ => {
+                if let Some(option) = parse_edns_flag(&arg)? {
+                    result.edns_options.push(option);
+                    continue;
+                }
+
                 if arg.starts_with('+') {
                     return Err(format!("Unknown flag: {}", arg));
                 }
@@ -255,7 +419,9 @@ async fn main() -> Result<(), DigError> {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{}", e);
-            eprintln!("Usage: dig [@server] [+udp|+tcp|+doh|+json] {{domain}} {{type}}");
+            eprintln!(
+                "Usage: dig [@server] [+udp|+tcp|+doh|+json] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
+            );
             process::exit(1);
         }
     };
@@ -264,11 +430,15 @@ async fn main() -> Result<(), DigError> {
     for domain in &args.domains {
         query.try_add_question(domain, args.r#type, Class::Internet)?;
     }
-    query.set_extension(Extension {
+    let mut extension = Extension {
         payload_size: 4096,
 
         ..Default::default()
-    });
+    };
+    for option in &args.edns_options {
+        extension.add_option(option.clone());
+    }
+    query.set_extension(extension);
 
     // TODO Add this as a extra verbose flag
     // println!("query:");

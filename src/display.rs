@@ -31,6 +31,9 @@ impl fmt::Display for Message {
                 version = e.version,
                 payload_size = e.payload_size,
             )?;
+            for option in &e.options {
+                writeln!(f, "; EDNS Option: {option}")?;
+            }
         }
 
         // Always display the question section, but optionally
@@ -259,6 +262,9 @@ impl fmt::Display for TXT {
 
 #[cfg(test)]
 mod tests {
+    use crate::EdnsOption;
+    use crate::Extension;
+    use crate::Message;
     use crate::Resource;
     use crate::MX;
     use crate::SOA;
@@ -338,6 +344,23 @@ mod tests {
         for (resource, display) in (*DISPLAY_TESTS).iter() {
             assert_eq!(format!("{}", resource), *display);
         }
+    }
+
+    #[test]
+    fn displays_edns_options() {
+        let mut message = Message::default();
+        message.set_extension(
+            Extension::default()
+                .with_option(EdnsOption::nsid(Vec::new()))
+                .with_option(EdnsOption::tcp_keepalive(Some(Duration::from_secs(30))))
+                .with_option(EdnsOption::padding(4)),
+        );
+
+        let display = format!("{}", message);
+
+        assert!(display.contains("; EDNS Option: NSID "));
+        assert!(display.contains("; EDNS Option: TCP-KEEPALIVE timeout=30s"));
+        assert!(display.contains("; EDNS Option: PADDING 4 bytes"));
     }
 
     #[test]

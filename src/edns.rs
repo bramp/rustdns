@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::fmt;
 use std::io::{self, Cursor, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
@@ -217,6 +218,45 @@ impl EdnsOption {
         buf.extend_from_slice(&data_len.to_be_bytes());
         buf.extend_from_slice(&data);
         Ok(())
+    }
+}
+
+impl fmt::Display for EdnsOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nsid(value) => write!(f, "NSID {}", hex(value)),
+            Self::ClientSubnet(subnet) => write!(
+                f,
+                "CLIENT-SUBNET {}/{}/{}",
+                subnet.address, subnet.source_prefix_len, subnet.scope_prefix_len
+            ),
+            Self::Cookie(cookie) => {
+                write!(f, "COOKIE client={}", hex(&cookie.client_cookie))?;
+                if !cookie.server_cookie.is_empty() {
+                    write!(f, " server={}", hex(&cookie.server_cookie))?;
+                }
+                Ok(())
+            }
+            Self::TcpKeepalive(None) => write!(f, "TCP-KEEPALIVE"),
+            Self::TcpKeepalive(Some(timeout)) => {
+                write!(f, "TCP-KEEPALIVE timeout={}", display_duration(*timeout))
+            }
+            Self::Padding(value) => write!(f, "PADDING {} bytes", value.len()),
+            Self::Unknown { code, data } => write!(f, "OPTION-CODE {} {}", code, hex(data)),
+        }
+    }
+}
+
+fn hex(data: &[u8]) -> String {
+    data.iter().map(|value| format!("{value:02x}")).collect()
+}
+
+fn display_duration(duration: Duration) -> String {
+    let millis = duration.as_millis();
+    if millis.is_multiple_of(1000) {
+        format!("{}s", millis / 1000)
+    } else {
+        format!("{millis}ms")
     }
 }
 
