@@ -1,5 +1,11 @@
 use crate::Message;
 
+#[cfg(any(feature = "doh", feature = "json"))]
+use std::io;
+
+#[cfg(any(feature = "doh", feature = "json"))]
+use http::StatusCode;
+
 #[cfg(feature = "doh")]
 pub mod doh;
 
@@ -29,6 +35,18 @@ cfg_feature! {
 mod mime;
 
 mod stats;
+
+#[cfg(any(feature = "doh", feature = "json"))]
+pub(crate) fn validate_http_status(status: StatusCode) -> io::Result<()> {
+    if status.is_success() {
+        return Ok(());
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("recevied unexpected HTTP status code: {status}"),
+    ))
+}
 
 /// Exchanger takes a query and returns a response.
 pub trait Exchanger {

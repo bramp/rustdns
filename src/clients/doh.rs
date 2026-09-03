@@ -1,6 +1,7 @@
 use crate::bail;
 use crate::clients::mime::content_type_equal;
 use crate::clients::stats::StatsBuilder;
+use crate::clients::validate_http_status;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::Message;
@@ -194,43 +195,38 @@ impl AsyncExchanger for Client {
             );
         }
 
-        if resp.status().is_success() {
-            // TODO check Content-Length, but don't allow us to consume a body longer than 65535 bytes!
+        validate_http_status(resp.status())?;
 
-            // Get connection information (if available)
-            let remote_addr = match resp.extensions().get::<HttpInfo>() {
-                Some(http_info) => http_info.remote_addr(),
+        // TODO check Content-Length, but don't allow us to consume a body longer than 65535 bytes!
 
-                // TODO Maybe remote_addr should be optional?
-                None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
-            };
+        // Get connection information (if available)
+        let remote_addr = match resp.extensions().get::<HttpInfo>() {
+            Some(http_info) => http_info.remote_addr(),
 
-            // Read the full body
-            let body = Limited::new(resp.into_body(), MAX_DOH_BODY_SIZE)
-                .collect()
-                .await
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
-                .to_bytes();
+            // TODO Maybe remote_addr should be optional?
+            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
+        };
 
-            let mut m = Message::from_slice(&body)?;
-            m.stats = Some(stats.end(remote_addr, body.len()));
+        // Read the full body
+        let body = Limited::new(resp.into_body(), MAX_DOH_BODY_SIZE)
+            .collect()
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+            .to_bytes();
 
-            return Ok(m);
-        }
+        let mut m = Message::from_slice(&body)?;
+        m.stats = Some(stats.end(remote_addr, body.len()));
 
-        // TODO Retry on 500s. If this is a 4xx we should not retry. Should we follow 3xx?
-        bail!(
-            InvalidInput,
-            "recevied unexpected HTTP status code: {:}",
-            resp.status()
-        );
+        return Ok(m);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Client, MAX_DOH_BODY_SIZE};
+    use crate::clients::validate_http_status;
     use http::Method;
+    use http::StatusCode;
     use http_body_util::{BodyExt, Full, Limited};
     use hyper::body::Bytes;
 
@@ -249,5 +245,12 @@ mod tests {
         .await;
 
         assert!(body.is_err());
+    }
+
+    #[test]
+    fn validates_success_client_statuses() {
+        assert!(validate_http_status(StatusCode::OK).is_ok());
+        assert!(validate_http_status(StatusCode::BAD_REQUEST).is_err());
+        assert!(validate_http_status(StatusCode::INTERNAL_SERVER_ERROR).is_err());
     }
 }

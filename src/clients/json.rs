@@ -1,6 +1,7 @@
 use crate::bail;
 use crate::clients::mime::content_type_equal;
 use crate::clients::stats::StatsBuilder;
+use crate::clients::validate_http_status;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::errors::ParseError;
@@ -307,37 +308,30 @@ impl AsyncExchanger for Client {
             );
         }
 
-        if resp.status().is_success() {
-            // Get connection information (if available)
-            let remote_addr = match resp.extensions().get::<HttpInfo>() {
-                Some(http_info) => http_info.remote_addr(),
+        validate_http_status(resp.status())?;
 
-                // TODO Maybe remote_addr should be optional?
-                None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
-            };
+        // Get connection information (if available)
+        let remote_addr = match resp.extensions().get::<HttpInfo>() {
+            Some(http_info) => http_info.remote_addr(),
 
-            // Read the full body
-            let body = Limited::new(resp.into_body(), MAX_JSON_BODY_SIZE)
-                .collect()
-                .await
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
-                .to_bytes();
+            // TODO Maybe remote_addr should be optional?
+            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
+        };
 
-            println!("{:?}", body);
+        // Read the full body
+        let body = Limited::new(resp.into_body(), MAX_JSON_BODY_SIZE)
+            .collect()
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+            .to_bytes();
 
-            let m: MessageJson = serde_json::from_slice(&body).map_err(ParseError::JsonError)?;
-            let mut m: Message = m.try_into()?;
-            m.stats = Some(stats.end(remote_addr, body.len()));
+        println!("{:?}", body);
 
-            return Ok(m);
-        }
+        let m: MessageJson = serde_json::from_slice(&body).map_err(ParseError::JsonError)?;
+        let mut m: Message = m.try_into()?;
+        m.stats = Some(stats.end(remote_addr, body.len()));
 
-        // TODO Retry on 500s. If this is a 4xx we should not retry. Should we follow 3xx?
-        bail!(
-            InvalidInput,
-            "recevied unexpected HTTP status code: {:}",
-            resp.status()
-        );
+        return Ok(m);
     }
 }
 
@@ -345,6 +339,7 @@ impl AsyncExchanger for Client {
 mod tests {
     use super::MAX_JSON_BODY_SIZE;
     use crate::clients::json::MessageJson;
+    use crate::clients::validate_http_status;
     use crate::Message;
     use http_body_util::{BodyExt, Full, Limited};
     use hyper::body::Bytes;
@@ -512,5 +507,14 @@ mod tests {
         .await;
 
         assert!(body.is_err());
+    }
+
+    #[test]
+    fn validates_success_client_statuses() {
+        use http::StatusCode;
+
+        assert!(validate_http_status(StatusCode::OK).is_ok());
+        assert!(validate_http_status(StatusCode::BAD_REQUEST).is_err());
+        assert!(validate_http_status(StatusCode::INTERNAL_SERVER_ERROR).is_err());
     }
 }

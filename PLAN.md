@@ -73,7 +73,7 @@ struct layouts or enum exhaustiveness.
 - [x] Define each low-level client as a single-server, single-protocol exchanger.
 - [x] Keep accepting vectors of servers for compatibility, while documenting that
   only the first resolved server is used.
-- [ ] Add HTTP status-response integration tests for DoH and JSON clients.
+- [x] Add HTTP status-response tests for DoH and JSON clients.
 - [ ] Add timeout and retry configuration for HTTP clients.
 - [ ] Keep one reusable socket or HTTP client per low-level client instance.
 - [ ] Reuse persistent TCP connections and HTTP connection pools across exchanges.
