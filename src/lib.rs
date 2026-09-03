@@ -4,6 +4,7 @@
     clippy::result_unit_err,
     clippy::result_large_err
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 // TODO #![deny(missing_docs)]
 // TODO #![deny(missing_debug_implementations)]
 //! # rustdns
