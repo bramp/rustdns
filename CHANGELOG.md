@@ -18,6 +18,9 @@ All notable changes to rustdns are documented here.
 - Added `dig` flags and display output for sending and receiving EDNS(0)
   options.
 - Added `dig +dot` support for DNS-over-TLS queries.
+- Added client trace logging for transport connection details, HTTP metadata,
+  selected server addresses, and request/response sizes, surfaced by
+  `dig +verbose`.
 - Added `Message::set_extension` as the preferred API for the single EDNS(0)
   extension record.
 - Added `Message::append_to_vec`, `Question::append_to_vec`,

@@ -127,10 +127,16 @@ impl Client {
     fn get_stream(&self, server: &SocketAddr) -> Result<TcpStream, crate::Error> {
         if let Some((stream, last_used)) = self.connection.take() {
             if last_used.elapsed() <= TCP_CONNECTION_IDLE_TIMEOUT {
+                log::trace!("TCP reusing connection peer={}", stream.peer_addr()?);
                 return Ok(stream);
             }
+            log::trace!(
+                "TCP discarding idle connection peer={}",
+                stream.peer_addr()?
+            );
         }
 
+        log::trace!("TCP target={server}");
         let stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
         let socket = Socket::from(stream);
         let keepalive = TcpKeepalive::new().with_time(TCP_KEEPALIVE_TIME);
@@ -140,6 +146,11 @@ impl Client {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(self.read_timeout)?;
         stream.set_write_timeout(self.write_timeout)?;
+        log::trace!(
+            "TCP connected local={} peer={}",
+            stream.local_addr()?,
+            stream.peer_addr()?
+        );
 
         Ok(stream)
     }
@@ -163,6 +174,11 @@ impl Exchanger for Client {
 
         // Two byte length prefix followed by the message.
         // TODO Move this into a single message!
+        log::trace!(
+            "TCP sending {} bytes to {}",
+            message.len() + 2,
+            stream.peer_addr()?
+        );
         stream.write_all(&(message.len() as u16).to_be_bytes())?;
         stream.write_all(&message)?;
 
@@ -170,11 +186,17 @@ impl Exchanger for Client {
         let buf = &mut [0; 2];
         stream.read_exact(buf)?;
         let len = u16::from_be_bytes(*buf);
+        log::trace!("TCP response length prefix={len}");
 
         // and finally the message
         let mut buf = vec![0; len.into()];
 
         stream.read_exact(&mut buf)?;
+        log::trace!(
+            "TCP received {} bytes from {}",
+            buf.len() + 2,
+            stream.peer_addr()?
+        );
 
         let mut resp = Message::from_slice(&buf)?;
         resp.stats = Some(stats.end(stream.peer_addr()?, (len + 2).into()));

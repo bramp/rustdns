@@ -127,6 +127,7 @@ $ cargo run -p dig -- SOA google.com
 $ cargo run -p dig -- SRV _ldap._tcp.google.com
 $ cargo run -p dig -- TXT google.com
 $ cargo run -p dig -- +dot @dns.google google.com A
+$ cargo run -p dig -- +verbose +dot @dns.google google.com A
 ```
 ## Testing
 

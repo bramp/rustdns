@@ -22,9 +22,17 @@ impl AsyncClient {
     /// Sends one DNS query and returns its response.
     pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
         if self.socket.is_none() {
+            log::trace!("async UDP target={}", self.server);
             let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
             socket.connect(self.server).await?;
+            log::trace!(
+                "async UDP connected local={} peer={}",
+                socket.local_addr()?,
+                socket.peer_addr()?
+            );
             self.socket = Some(socket);
+        } else {
+            log::trace!("async UDP reusing connected socket peer={}", self.server);
         }
 
         let result: std::io::Result<Message> = async {
@@ -32,9 +40,15 @@ impl AsyncClient {
                 std::io::Error::new(std::io::ErrorKind::NotConnected, "UDP socket unavailable")
             })?;
             let request = query.to_vec()?;
+            log::trace!(
+                "async UDP sending {} bytes to {}",
+                request.len(),
+                self.server
+            );
             socket.send(&request).await?;
             let mut response = [0; 65535];
             let length = socket.recv(&mut response).await?;
+            log::trace!("async UDP received {length} bytes from {}", self.server);
             Message::from_slice(&response[..length])
         }
         .await;
@@ -42,6 +56,7 @@ impl AsyncClient {
         match result {
             Ok(response) => Ok(response),
             Err(error) => {
+                log::trace!("async UDP discarding socket after error: {error}");
                 self.socket = None;
                 Err(error.into())
             }

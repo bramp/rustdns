@@ -133,6 +133,7 @@ impl AsyncExchanger for Client {
         query.id = 0;
 
         let p = query.to_vec()?;
+        let dns_request_len = p.len();
 
         let client = &self.http_client;
 
@@ -141,6 +142,7 @@ impl AsyncExchanger for Client {
             .method(&self.method)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_MESSAGE);
 
+        let mut request_target = server.to_string();
         let req = match self.method {
             Method::GET => {
                 // Encode the message as a base64 string
@@ -150,6 +152,7 @@ impl AsyncExchanger for Client {
                 // and add to the query params.
                 let mut url = server.clone(); // TODO Support more than one server
                 url.query_pairs_mut().append_pair(DNS_QUERY_PARAM, &buf);
+                request_target = url.to_string();
 
                 // We have to do this wierd as_str().parse() thing because the
                 // http::Uri doesn't provide a way to easily mutate or construct it.
@@ -180,8 +183,22 @@ impl AsyncExchanger for Client {
 
         let stats = StatsBuilder::start(0);
 
+        log::trace!(
+            "DoH sending {} request to {request_target} with {dns_request_len} DNS bytes",
+            self.method
+        );
         let resp = client.request(req).await?;
         // TODO This media type restricts the maximum size of the DNS message to 65535 bytes
+
+        // Get connection information (if available)
+        let remote_addr = match resp.extensions().get::<HttpInfo>() {
+            Some(http_info) => http_info.remote_addr(),
+
+            // TODO Maybe remote_addr should be optional?
+            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
+        };
+        log::trace!("DoH remote address: {remote_addr}");
+        log::trace!("DoH HTTP status: {}", resp.status());
 
         let content_type = resp.headers().get(CONTENT_TYPE).ok_or_else(|| {
             io::Error::new(
@@ -189,6 +206,7 @@ impl AsyncExchanger for Client {
                 "response is missing content-type",
             )
         })?;
+        log::trace!("DoH response content-type: {:?}", content_type);
         if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_MESSAGE) {
             bail!(
                 InvalidData,
@@ -202,20 +220,16 @@ impl AsyncExchanger for Client {
 
         // TODO check Content-Length, but don't allow us to consume a body longer than 65535 bytes!
 
-        // Get connection information (if available)
-        let remote_addr = match resp.extensions().get::<HttpInfo>() {
-            Some(http_info) => http_info.remote_addr(),
-
-            // TODO Maybe remote_addr should be optional?
-            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
-        };
-
         // Read the full body
         let body = Limited::new(resp.into_body(), MAX_DOH_BODY_SIZE)
             .collect()
             .await
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
             .to_bytes();
+        log::trace!(
+            "DoH received {} DNS body bytes from {remote_addr}",
+            body.len()
+        );
 
         let mut m = Message::from_slice(&body)?;
         m.stats = Some(stats.end(remote_addr, body.len()));

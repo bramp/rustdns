@@ -1,8 +1,9 @@
 use encoding8::ascii;
+use std::io;
+use std::io::Write;
 
-// Dumps out the slice in a pretty way
-#[allow(dead_code)]
-pub fn hexdump(slice: &[u8]) {
+// Writes the slice in a pretty hexdump format.
+pub fn hexdump_to<W: Write>(writer: &mut W, slice: &[u8]) -> io::Result<()> {
     const WIDTH: usize = 16;
     let mut offset = 0;
 
@@ -21,8 +22,16 @@ pub fn hexdump(slice: &[u8]) {
             })
             .collect();
 
-        println!("{0:>08x}: {1:<48} {2:}", offset, row_hex, row_str);
+        writeln!(writer, "{0:>08x}: {1:<48} {2:}", offset, row_hex, row_str)?;
 
         offset += WIDTH
     }
+
+    Ok(())
+}
+
+// Dumps out the slice in a pretty way
+#[allow(dead_code)]
+pub fn hexdump(slice: &[u8]) {
+    hexdump_to(&mut io::stdout(), slice).expect("write hexdump");
 }

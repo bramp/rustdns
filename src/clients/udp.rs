@@ -114,16 +114,24 @@ impl Exchanger for Client {
         let server = self.servers.first().ok_or_else(|| {
             crate::Error::InvalidArgument("at least one DNS server is required".to_string())
         })?;
+        log::trace!("UDP target={server}");
         socket.connect(server)?;
+        log::trace!(
+            "UDP connected local={} peer={}",
+            socket.local_addr()?,
+            socket.peer_addr()?
+        );
 
         let req = query.to_vec()?;
 
         let stats = StatsBuilder::start(req.len());
+        log::trace!("UDP sending {} bytes to {}", req.len(), socket.peer_addr()?);
         socket.send(&req)?;
 
         // TODO Set this to the size in req.
         let mut buf = [0; 4096];
         let len = socket.recv(&mut buf)?;
+        log::trace!("UDP received {len} bytes from {}", socket.peer_addr()?);
         let mut resp = Message::from_slice(&buf[0..len])?;
 
         resp.stats = Some(stats.end(socket.peer_addr()?, len));

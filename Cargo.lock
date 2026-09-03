@@ -280,7 +280,9 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "encoding8",
+ "env_logger",
  "http",
+ "log",
  "pretty_assertions",
  "rustdns",
  "strum",

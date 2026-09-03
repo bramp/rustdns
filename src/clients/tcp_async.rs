@@ -35,6 +35,7 @@ impl AsyncClient {
     /// the failed query is not retried.
     pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
         if self.connection.is_none() {
+            log::trace!("async TCP target={}", self.server);
             let stream = tokio::time::timeout(
                 self.connect_timeout,
                 tokio::net::TcpStream::connect(self.server),
@@ -43,7 +44,14 @@ impl AsyncClient {
             .map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::TimedOut, "TCP connect timed out")
             })??;
+            log::trace!(
+                "async TCP connected local={} peer={}",
+                stream.local_addr()?,
+                stream.peer_addr()?
+            );
             self.connection = Some(stream);
+        } else {
+            log::trace!("async TCP reusing connection peer={}", self.server);
         }
 
         let result: std::io::Result<Message> = async {
@@ -55,10 +63,17 @@ impl AsyncClient {
             })?;
             let message = query.to_vec()?;
             let frame = encode_tcp_frame(&message)?;
+            log::trace!("async TCP sending {} bytes to {}", frame.len(), self.server);
             stream.write_all(&frame).await?;
             let response_length = stream.read_u16().await?;
+            log::trace!("async TCP response length prefix={response_length}");
             let mut response = vec![0; response_length as usize];
             stream.read_exact(&mut response).await?;
+            log::trace!(
+                "async TCP received {} bytes from {}",
+                response.len() + 2,
+                self.server
+            );
             Message::from_slice(&response)
         }
         .await;
@@ -66,6 +81,7 @@ impl AsyncClient {
         match result {
             Ok(response) => Ok(response),
             Err(error) => {
+                log::trace!("async TCP discarding connection after error: {error}");
                 self.connection = None;
                 Err(error.into())
             }

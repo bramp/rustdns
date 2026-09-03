@@ -14,6 +14,7 @@ use rustdns::types::*;
 use std::convert::TryInto;
 use std::env;
 use std::io;
+use std::io::Write as _;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -31,10 +32,15 @@ extern crate pretty_assertions;
 
 #[derive(Display, EnumString, PartialEq)]
 enum Client {
+    #[strum(serialize = "UDP")]
     Udp,
+    #[strum(serialize = "TCP")]
     Tcp,
+    #[strum(serialize = "DoT")]
     DoT,
+    #[strum(serialize = "DoH")]
     DoH,
+    #[strum(serialize = "JSON")]
     Json,
 }
 
@@ -52,6 +58,7 @@ enum DigError {
 struct Args {
     client: Client,
     servers: Vec<String>,
+    verbose: bool,
 
     /// Query this types
     r#type: rustdns::Type,
@@ -108,6 +115,40 @@ fn server_with_default_port(server: &str, default_port: u16) -> String {
     }
 }
 
+fn trace_request(args: &Args, server: &str, query: &Message) -> Result<(), DigError> {
+    if !args.verbose {
+        return Ok(());
+    }
+
+    let message = query.to_vec().map_err(rustdns::Error::from)?;
+
+    eprintln!("* transport: {}", args.client);
+    eprintln!("* server: {server}");
+    eprintln!("* query id: {}", query.id);
+    if matches!(args.client, Client::Json) {
+        eprintln!("* DNS query model hexdump follows; JSON transport sends query parameters");
+    } else {
+        eprintln!("* DNS query payload hexdump follows");
+    }
+    util::hexdump_to(&mut io::stderr(), &message).map_err(rustdns::Error::from)?;
+
+    if matches!(args.client, Client::Tcp | Client::DoT) {
+        eprintln!("* TCP DNS frame uses a 2-byte length prefix");
+    }
+    if matches!(args.client, Client::DoT) {
+        eprintln!("* TLS: DNS payload is encrypted after this point");
+    }
+
+    Ok(())
+}
+
+fn init_verbose_logging() {
+    let _ = env_logger::Builder::new()
+        .filter_module("rustdns::clients", log::LevelFilter::Trace)
+        .format(|buf, record| writeln!(buf, "* {}", record.args()))
+        .try_init();
+}
+
 impl Args {
     /// Helper function to return the list of servers as a `Vec[Url]`.
     fn servers_to_urls(&self) -> std::result::Result<Vec<Url>, DigError> {
@@ -129,6 +170,7 @@ impl Default for Args {
         Args {
             client: Client::Udp,
             servers: Vec::new(),
+            verbose: false,
 
             r#type: Type::A,
             domains: Vec::new(),
@@ -295,6 +337,7 @@ fn test_parse_edns_args() {
     let args = parse_args(
         [
             "+nsid",
+            "+verbose",
             "+subnet=192.0.2.129/24",
             "+cookie=636c69656e743031:7365727665723031",
             "+tcp-keepalive=30",
@@ -308,6 +351,7 @@ fn test_parse_edns_args() {
     .expect("EDNS flags should parse");
 
     assert_eq!(args.edns_options.len(), 6);
+    assert!(args.verbose);
     assert_eq!(args.domains, vec!["example.com"]);
 }
 
@@ -354,6 +398,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "+dot" => result.client = Client::DoT,
             "+doh" => result.client = Client::DoH,
             "+json" => result.client = Client::Json,
+            "+verbose" => result.verbose = true,
 
             _ => {
                 if let Some(option) = parse_edns_flag(&arg)? {
@@ -461,11 +506,15 @@ async fn main() -> Result<(), DigError> {
         Err(e) => {
             eprintln!("{}", e);
             eprintln!(
-                "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
+                "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+verbose] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
             );
             process::exit(1);
         }
     };
+
+    if args.verbose {
+        init_verbose_logging();
+    }
 
     let mut query = Message::default();
     for domain in &args.domains {
@@ -489,32 +538,62 @@ async fn main() -> Result<(), DigError> {
 
     // TODO make all DNS client implement a Exchange trait
     let resp = match args.client {
-        Client::Udp => UdpClient::new(to_sockaddrs(&args.servers, 53)?.as_slice())?
-            .exchange(&query)
-            .expect("could not exchange message"),
+        Client::Udp => {
+            let servers = to_sockaddrs(&args.servers, 53)?;
+            let server = servers.first().ok_or_else(|| {
+                DigError::ArgParseError("at least one UDP server is required".to_string())
+            })?;
+            trace_request(&args, &server.to_string(), &query)?;
+            UdpClient::new(servers.as_slice())?
+                .exchange(&query)
+                .expect("could not exchange message")
+        }
 
-        Client::Tcp => TcpClient::new(to_sockaddrs(&args.servers, 53)?.as_slice())?
-            .exchange(&query)
-            .expect("could not exchange message"),
+        Client::Tcp => {
+            let servers = to_sockaddrs(&args.servers, 53)?;
+            let server = servers.first().ok_or_else(|| {
+                DigError::ArgParseError("at least one TCP server is required".to_string())
+            })?;
+            trace_request(&args, &server.to_string(), &query)?;
+            TcpClient::new(servers.as_slice())?
+                .exchange(&query)
+                .expect("could not exchange message")
+        }
 
         Client::DoT => {
             let server = args.servers.first().ok_or_else(|| {
                 DigError::ArgParseError("at least one DoT server is required".to_string())
             })?;
-            DotClient::new(&server_with_default_port(server, 853))?
+            let server = server_with_default_port(server, 853);
+            trace_request(&args, &server, &query)?;
+            DotClient::new(&server)?
                 .exchange(&query)
                 .expect("could not exchange message")
         }
 
-        Client::DoH => DohClient::new(args.servers_to_urls()?.as_slice(), Method::GET)?
-            .exchange(&query)
-            .await
-            .expect("could not exchange message"),
+        Client::DoH => {
+            let servers = args.servers_to_urls()?;
+            let server = servers.first().ok_or_else(|| {
+                DigError::ArgParseError("at least one DoH server is required".to_string())
+            })?;
+            trace_request(&args, server.as_str(), &query)?;
+            DohClient::new(servers.as_slice(), Method::GET)?
+                .exchange(&query)
+                .await
+                .expect("could not exchange message")
+        }
 
-        Client::Json => JsonClient::new(args.servers_to_urls()?.as_slice())?
-            .exchange(&query)
-            .await
-            .expect("could not exchange message"),
+        Client::Json => {
+            let servers = args.servers_to_urls()?;
+            let server = servers.first().ok_or_else(|| {
+                DigError::ArgParseError("at least one JSON DoH server is required".to_string())
+            })?;
+            trace_request(&args, server.as_str(), &query)?;
+            JsonClient::new(servers.as_slice())?
+                .exchange(&query)
+                .await
+                .expect("could not exchange message")
+        }
     };
 
     println!("response:");

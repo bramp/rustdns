@@ -16,6 +16,8 @@ clap = "4.6.6"  # Command line parsing
 time = "0.3.55"
 url = "2.2.2"
 http = "1.5.0"
+env_logger = "0.11.11"
+log = "0.4.14"
 thiserror = "2.0.20"
 
 [dev-dependencies]

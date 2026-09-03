@@ -148,10 +148,19 @@ impl Client {
     fn get_stream(&self, server: &SocketAddr) -> Result<TlsStream, crate::Error> {
         if let Some((stream, last_used)) = self.connection.take() {
             if last_used.elapsed() <= DOT_CONNECTION_IDLE_TIMEOUT {
+                log::trace!(
+                    "DoT reusing TLS connection peer={}",
+                    stream.sock.peer_addr()?
+                );
                 return Ok(stream);
             }
+            log::trace!(
+                "DoT discarding idle TLS connection peer={}",
+                stream.sock.peer_addr()?
+            );
         }
 
+        log::trace!("DoT target={server} sni={}", self.server_name);
         let stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
         let socket = Socket::from(stream);
         let keepalive = TcpKeepalive::new().with_time(TCP_KEEPALIVE_TIME);
@@ -161,6 +170,11 @@ impl Client {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(self.read_timeout)?;
         stream.set_write_timeout(self.write_timeout)?;
+        log::trace!(
+            "DoT TCP connected local={} peer={}",
+            stream.local_addr()?,
+            stream.peer_addr()?
+        );
 
         let server_name = ServerName::try_from(self.server_name.clone()).map_err(|error| {
             io::Error::new(
@@ -170,6 +184,7 @@ impl Client {
         })?;
         let connection = ClientConnection::new(Arc::clone(&self.tls_config), server_name)
             .map_err(io::Error::other)?;
+        log::trace!("DoT TLS connection created sni={}", self.server_name);
 
         Ok(StreamOwned::new(connection, stream))
     }
@@ -220,14 +235,25 @@ impl Exchanger for Client {
             let frame = encode_tcp_frame(&message)?;
             let stats = StatsBuilder::start(frame.len());
 
+            log::trace!(
+                "DoT sending {} bytes to {} inside TLS",
+                frame.len(),
+                stream.sock.peer_addr()?
+            );
             stream.write_all(&frame)?;
             stream.flush()?;
 
             let mut length = [0; 2];
             stream.read_exact(&mut length)?;
             let length = u16::from_be_bytes(length);
+            log::trace!("DoT response length prefix={length}");
             let mut response = vec![0; length.into()];
             stream.read_exact(&mut response)?;
+            log::trace!(
+                "DoT received {} bytes from {} inside TLS",
+                response.len() + 2,
+                stream.sock.peer_addr()?
+            );
 
             let mut response = Message::from_slice(&response)?;
             response.stats = Some(stats.end(stream.sock.peer_addr()?, usize::from(length) + 2));

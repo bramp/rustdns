@@ -279,6 +279,7 @@ impl AsyncExchanger for Client {
 
         // We have to do this wierd as_str().parse() thing because the
         // http::Uri doesn't provide a way to easily mutate or construct it.
+        let request_target = url.to_string();
         let uri: http::Uri = url.as_str().parse()?;
 
         let req = Request::builder()
@@ -292,7 +293,18 @@ impl AsyncExchanger for Client {
             )?;
 
         let stats = StatsBuilder::start(0);
+        log::trace!("DoH JSON sending GET request to {request_target}");
         let resp = client.request(req).await?;
+
+        // Get connection information (if available)
+        let remote_addr = match resp.extensions().get::<HttpInfo>() {
+            Some(http_info) => http_info.remote_addr(),
+
+            // TODO Maybe remote_addr should be optional?
+            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
+        };
+        log::trace!("DoH JSON remote address: {remote_addr}");
+        log::trace!("DoH JSON HTTP status: {}", resp.status());
 
         let content_type = resp.headers().get(CONTENT_TYPE).ok_or_else(|| {
             io::Error::new(
@@ -300,6 +312,7 @@ impl AsyncExchanger for Client {
                 "response is missing content-type",
             )
         })?;
+        log::trace!("DoH JSON response content-type: {:?}", content_type);
         if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_JSON)
             && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_JSON)
         {
@@ -314,22 +327,16 @@ impl AsyncExchanger for Client {
 
         validate_http_status(resp.status())?;
 
-        // Get connection information (if available)
-        let remote_addr = match resp.extensions().get::<HttpInfo>() {
-            Some(http_info) => http_info.remote_addr(),
-
-            // TODO Maybe remote_addr should be optional?
-            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
-        };
-
         // Read the full body
         let body = Limited::new(resp.into_body(), MAX_JSON_BODY_SIZE)
             .collect()
             .await
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
             .to_bytes();
-
-        println!("{:?}", body);
+        log::trace!(
+            "DoH JSON received {} response body bytes from {remote_addr}",
+            body.len()
+        );
 
         let m: MessageJson = serde_json::from_slice(&body).map_err(ParseError::JsonError)?;
         let mut m: Message = m.try_into()?;
