@@ -34,10 +34,10 @@ The `1.0.0` compatibility baseline is **Rust 1.85.0 with edition 2024**. These a
 These changes should happen before broad API or edition work because they address untrusted DNS input.
 
 - [x] Replace unchecked cursor arithmetic in `src/io.rs` with checked bounds handling.
-- [ ] Validate every length before advancing or consuming packet data.
+- [x] Validate every length before advancing or consuming packet data.
 - [x] Validate EDNS `RDLEN` against the remaining packet bytes.
 - [x] Rewrite compressed-name traversal iteratively, or enforce a strict pointer/depth/work budget.
-- [ ] Reject invalid forward pointers, pointer loops, unsupported label encodings, and out-of-range pointers.
+- [x] Reject invalid forward pointers, pointer loops, unsupported label encodings, and out-of-range pointers.
 - [x] Validate per-label and total DNS name lengths when encoding; leave decoded-name length policy to callers.
 - [x] Add regression tests for truncated packets, oversized lengths, malformed pointers, pointer loops, and long pointer chains.
 - [x] Extend the fuzz target with a no-panic assertion and an explicit CI input-size bound.
