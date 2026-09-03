@@ -36,11 +36,10 @@
 //! use std::net::UdpSocket;
 //! use std::time::Duration;
 //!
-//! fn udp_example() -> std::io::Result<()> {
+//! fn udp_example() -> Result<(), Box<dyn std::error::Error>> {
 //!     // A DNS Message can be easily constructed
 //!     let mut m = Message::default();
-//!     m.try_add_question("bramp.net", Type::A, Class::Internet)
-//!         .map_err(std::io::Error::other)?;
+//!     m.try_add_question("bramp.net", Type::A, Class::Internet)?;
 //!     m.set_extension(Extension {   // Optionally add a EDNS extension
 //!         payload_size: 4096,       // which supports a larger payload size.
 //!         ..Default::default()
