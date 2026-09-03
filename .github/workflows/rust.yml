@@ -78,6 +78,9 @@ jobs:
       - name: Run tests (all features)
         run: cargo test --workspace --all-features --verbose
 
+      - name: Check all targets and features
+        run: cargo check --workspace --all-targets --all-features
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
