@@ -179,10 +179,10 @@
 //! token stored), and creates a GitHub release.
 //!
 //! ```shell
-//! $ cargo set-version 0.5.1   # or edit Cargo.toml by hand
+//! $ cargo set-version 0.6.0   # or edit Cargo.toml by hand
 //! $ cargo readme -o README.md
-//! $ git commit -am "Release v0.5.1" && git push
-//! $ git tag v0.5.1 && git push origin v0.5.1
+//! $ git commit -am "Release v0.6.0" && git push
+//! $ git tag v0.6.0 && git push origin v0.6.0
 //! ```
 //!
 //! # TODO (in order of priority)

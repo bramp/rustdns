@@ -1,101 +1,115 @@
-# Rust Modernization Plan
+# Rustdns Release Plan
 
-This plan takes rustdns from the current `0.5.1` release through an additive
-`0.6.0` release and then a breaking `1.0.0` release.
+This plan separates compatibility and security fixes from new functionality.
+The current baseline is `0.5.1`.
 
 ## Release Policy
 
-- `0.5.1`: Compatible parser, client, and fuzzing safety fixes. Complete.
-- `0.6.0`: Additive APIs, stronger behavior, documentation, tests, and tooling.
-  Existing public APIs and the current edition/toolchain policy remain usable.
-- `1.0.0`: Breaking API cleanup, Rust 1.85.0, edition 2024, and Cargo resolver 3.
+- `0.5.1`: Security, parser, client, and fuzzing fixes. Complete.
+- `0.6.0`: Compatibility-preserving fixes and API documentation. Existing public
+  APIs remain available.
+- `0.7.0`: New additive features. Existing public APIs, defaults, and data-shape
+  compatibility must remain stable.
+- `1.0.0`: Deliberate breaking cleanup, Rust 1.85.0, edition 2024, and Cargo
+  resolver 3.
 
-The `1.0.0` compatibility baseline is **Rust 1.85.0 with edition 2024**. Rust
-1.85.0 is the first stable compiler supporting edition 2024. Use
-`cargo-semver-checks` before the major release.
+For `0.7.0`, do not remove public APIs, change existing method signatures,
+change default behavior, add fields that break public struct literals, or add
+enum variants that break exhaustive matches. New behavior should be opt-in or
+backward-compatible.
 
-## Completed Baseline
+## Completed Fixes
 
 - [x] Harden cursor, record-length, EDNS, compression-pointer, and fuzz parsing paths.
+- [x] Reject malformed pointers, truncated records, and oversized encoded names.
 - [x] Add parser, client, zone, and TCP framing regression tests.
 - [x] Add HTTPS-only DoH support and bounded DoH/JSON response bodies.
 - [x] Add fallible `try_add_question`, `try_new`, and `try_into_records` APIs.
-- [x] Add typed zone-processing errors and replace serialization assertions with errors.
+- [x] Add typed zone-processing errors and contextual diagnostics.
+- [x] Replace serialization assertions with returned errors.
 - [x] Add fuzz smoke testing to the normal Rust CI workflow.
+- [x] Document public constructor and parser error behavior.
+- [x] Deprecate infallible compatibility APIs while retaining them for migration.
+- [x] Add blocking TCP and UDP timeout configuration.
 - [x] Release and tag `0.5.1`.
 
-## Version 0.6.0: Additive Modernization
+## Version 0.6.0: Compatibility Fixes
 
-All work in this section should preserve existing public APIs unless an additive
-alternative is provided first.
+These items improve safety, diagnostics, documentation, and quality without
+removing or changing existing public APIs.
 
-### API And Error Handling
+### Error Handling And Documentation
 
-- [x] Deprecate infallible compatibility APIs such as `Message::add_question`,
-  `File::new`, and `File::into_records`, directing callers to fallible alternatives.
-- [x] Preserve zone entry and record context in processing errors; Pest retains exact locations for syntax errors.
-- [x] Partially replace input-dependent panics in client and zone paths with
-  fallible alternatives, including question building, zone construction and
-  processing, and empty-client handling; deprecated infallible wrappers remain.
-- [x] Partially replace `bail!` in compatibility-preserving client argument paths
-  with the existing typed `Error::InvalidArgument` variant.
-- [x] Document error behavior for every public constructor and parser.
+- [ ] Complete the remaining compatibility-safe replacement of input-dependent
+  panics in client and zone paths.
+- [ ] Continue replacing `bail!` in paths where existing typed errors can be used
+  without changing public contracts.
+- [ ] Document all timeout, retry, server-selection, blocking, and async behavior.
+- [ ] Preserve source, entry, record, and parse context in all newly exposed errors.
+- [ ] Keep deprecated wrappers documented with their panic/error behavior.
+
+### Quality And Release Gates
+
+- [x] Test all workspace crates with default, no-default, and all-feature configurations.
+- [ ] Add MSRV, stable, and beta CI jobs without changing the current MSRV yet.
+- [x] Add `cargo check --workspace --all-targets --all-features` to CI.
+- [ ] Add dependency advisory, license, and source checks with `cargo-deny` or equivalent.
+- [ ] Add a meaningful coverage threshold.
+- [ ] Run regular fuzz regressions and retain the bounded CI smoke test.
+- [x] Keep `README.md` generated and synchronized with crate documentation.
+- [ ] Add `0.6.0` migration notes and release notes.
+- [x] Run all test, lint, documentation, audit, and fuzz smoke-test gates.
+- [ ] Run `cargo publish --dry-run` for `0.6.0`.
+- [ ] Release and tag `0.6.0`.
+
+## Version 0.7.0: New Additive Features
+
+All features in this section must preserve the existing public API and defaults.
+Use new methods, types, modules, or opt-in builders rather than changing public
+struct layouts or enum exhaustiveness.
 
 ### Network Clients
 
 - [ ] Decide and document server-selection, timeout, retry, and failover semantics.
 - [ ] Add opt-in client failover without changing current default server behavior.
 - [ ] Add HTTP status-response integration tests for DoH and JSON clients.
-- [x] Add public timeout configuration methods for the blocking TCP and UDP clients.
 - [ ] Add timeout and retry configuration for HTTP clients.
-- [ ] Add useful response and transport metadata accessors without changing existing
-  struct literals or enum matching behavior.
 - [ ] Reuse persistent TCP connections and HTTP connection pools across exchanges.
+- [ ] Add additive response and transport metadata accessors.
+- [ ] Add new client configuration builders without removing existing constructors.
 
 ### DNS And Protocol Features
 
-- [ ] Add encoding support for currently unsupported answer, authority, and
-  additional records without changing existing parsing APIs.
-- [ ] Add further EDNS option support through additive methods or option types.
-- [ ] Add validation tests for response status, content type, body size, framing,
-  and malformed network responses.
-- [ ] Review DNS name, question-count, and message-size limits at API boundaries.
+- [ ] Add encoding support for answer, authority, and additional records.
+- [ ] Add further EDNS options through additive methods or option types.
+- [ ] Add opt-in DNS-over-TLS or other new transport modules if justified.
+- [ ] Review and expose DNS name, question-count, and message-size limits through
+  additive validation helpers.
+- [ ] Add convenience getters and inspection methods for messages and records.
 
-### Tests, Fuzzing, And Quality Gates
+### Tests And Release
 
-- [ ] Test all workspace crates with default, no-default, and all-feature configurations.
-- [ ] Run fuzzing regularly and retain the CI smoke test with an explicit input bound.
-- [ ] Add a meaningful coverage threshold after the important cases are covered.
-- [ ] Add dependency advisory, license, and source checks with `cargo-deny` or equivalent.
-- [ ] Add CI checks for `cargo check --workspace --all-targets --all-features`.
-- [ ] Record baseline test, documentation, Clippy, and coverage results.
-
-### Documentation And Release
-
-- [ ] Document public types, constructors, feature flags, runtime requirements,
-  security guarantees, and blocking/async behavior.
-- [ ] Update examples to demonstrate fallible APIs and proper error handling.
-- [ ] Keep `README.md` generated and synchronized with crate documentation.
-- [ ] Add `0.6.0` migration notes and release notes.
-- [ ] Run the complete test, lint, documentation, audit, and fuzz smoke-test gates.
-- [ ] Run `cargo publish --dry-run` for `0.6.0`.
-- [ ] Release and tag `0.6.0`.
+- [ ] Add focused tests for every new feature and every opt-in/default behavior.
+- [ ] Complete response status, content type, body size, framing, and malformed
+  network-response integration tests.
+- [ ] Run `cargo-semver-checks` against `0.6.0` and confirm no unintended breaks.
+- [ ] Add `0.7.0` migration notes and release notes.
+- [ ] Run the complete quality gates and `cargo publish --dry-run`.
+- [ ] Release and tag `0.7.0`.
 
 ## Version 1.0.0: Breaking Modernization
 
 ### Public API Cleanup
 
-- [ ] Remove deprecated infallible APIs after the `0.6.0` deprecation period.
+- [ ] Remove deprecated infallible APIs after the migration period.
 - [ ] Make fallible APIs the primary constructors and builders.
-- [ ] Replace `Result<T, ()>` and remaining compatibility error wrappers with
-  structured public errors.
-- [ ] Replace the remaining macro-backed parser and protocol errors with structured
+- [ ] Replace `Result<T, ()>` and remaining compatibility wrappers with structured
+  public errors.
+- [ ] Replace remaining macro-backed parser and protocol errors with structured
   `thiserror` errors, then remove or privatize the exported `bail!` macro.
-- [ ] Decide whether public enum and struct changes require a final compatibility
-  review or additional migration types.
 - [ ] Complete removal of input-dependent `expect`, `unwrap`, assertions, and
-  unchecked indexing from production input paths, including deprecated
-  infallible compatibility wrappers.
+  unchecked indexing from production input paths.
+- [ ] Perform a final public API and semver compatibility review.
 
 ### Rust Platform Migration
 
@@ -112,7 +126,7 @@ alternative is provided first.
 
 ### Final Quality And Release
 
-- [ ] Add and enforce MSRV, stable, and beta CI jobs.
+- [ ] Add and enforce the Rust 1.85 MSRV, stable, and beta CI jobs.
 - [ ] Complete the full feature matrix, fuzz regressions, coverage, and dependency checks.
 - [ ] Run `cargo-semver-checks` against the previous release.
 - [ ] Add `1.0.0` migration notes and release notes.
@@ -121,10 +135,9 @@ alternative is provided first.
 
 ## Definition Of Done
 
-- No production parser or client path panics on malformed or user-provided input.
-- DNS parsing has explicit bounds and compression-work limits.
-- DoH cannot silently use plaintext HTTP and HTTP bodies are bounded.
-- Fallible APIs and typed errors are documented and available before breaking cleanup.
-- MSRV, edition, feature support, and lint policy are documented and enforced in CI.
-- Public API changes have migration guidance and are released under the appropriate
-  semver version.
+- Compatibility fixes are clearly separated from new features.
+- `0.7.0` adds functionality without breaking existing callers or defaults.
+- Security and parser protections remain covered by deterministic tests and fuzzing.
+- Public errors, timeout behavior, and client semantics are documented.
+- Every release passes formatting, Clippy, rustdoc, tests, dependency checks, and
+  the relevant semver review.
