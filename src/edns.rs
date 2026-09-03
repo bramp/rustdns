@@ -253,7 +253,7 @@ fn hex(data: &[u8]) -> String {
 
 fn display_duration(duration: Duration) -> String {
     let millis = duration.as_millis();
-    if millis.is_multiple_of(1000) {
+    if millis % 1000 == 0 {
         format!("{}s", millis / 1000)
     } else {
         format!("{millis}ms")

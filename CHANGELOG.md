@@ -4,6 +4,19 @@ All notable changes to rustdns are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added a declared minimum supported Rust version of 1.85.
+
+### Changed
+
+- Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
+- Set the Cargo resolver to version 3 at the workspace level, so dependency
+  resolution respects the declared minimum supported Rust version.
+- Upgraded dependencies to their latest versions compatible with Rust 1.85. This
+  pins `educe` to 0.6 and `time` to 0.3.45, because later releases require newer
+  toolchains.
+
 ## [0.7.0] - 2026-09-03
 
 ### Added

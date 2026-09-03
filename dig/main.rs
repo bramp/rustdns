@@ -181,7 +181,7 @@ impl Default for Args {
 
 fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
     let input = input.strip_prefix("0x").unwrap_or(input);
-    if !input.len().is_multiple_of(2) {
+    if input.len() % 2 != 0 {
         return Err("hex strings must contain an even number of digits".to_string());
     }
 

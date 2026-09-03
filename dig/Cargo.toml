@@ -3,7 +3,8 @@
 [package]
 name = "dig"
 version = "0.1.0"
-edition = "2018"
+edition = "2024"
+rust-version = "1.85"
 
 [dependencies]
 rustdns = { path = "../", default-features = false, features = ["clients"] }
@@ -13,11 +14,11 @@ strum = "0.28.0"         # Simple macros for making Enum better
 strum_macros = "0.28.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
 clap = "4.6.6"  # Command line parsing
-time = "0.3.55"
-url = "2.2.2"
+time = "0.3.45"
+url = "2.5.8"
 http = "1.5.0"
 env_logger = "0.11.11"
-log = "0.4.14"
+log = "0.4.34"
 thiserror = "2.0.20"
 
 [dev-dependencies]
