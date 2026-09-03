@@ -70,10 +70,12 @@ struct layouts or enum exhaustiveness.
 
 ### Network Clients
 
-- [ ] Decide and document server-selection, timeout, retry, and failover semantics.
-- [ ] Add opt-in client failover without changing current default server behavior.
+- [x] Define each low-level client as a single-server, single-protocol exchanger.
+- [x] Keep accepting vectors of servers for compatibility, while documenting that
+  only the first resolved server is used.
 - [ ] Add HTTP status-response integration tests for DoH and JSON clients.
 - [ ] Add timeout and retry configuration for HTTP clients.
+- [ ] Keep one reusable socket or HTTP client per low-level client instance.
 - [ ] Reuse persistent TCP connections and HTTP connection pools across exchanges.
 - [ ] Add additive response and transport metadata accessors.
 - [ ] Add new client configuration builders without removing existing constructors.
@@ -103,6 +105,12 @@ struct layouts or enum exhaustiveness.
 
 - [ ] Remove deprecated infallible APIs after the migration period.
 - [ ] Make fallible APIs the primary constructors and builders.
+- [ ] Replace multi-server low-level clients with single-server client types or
+  constructors, with migration guidance for existing callers.
+- [ ] Add a higher-level resolver/orchestration client for server pools, retries,
+  failover, concurrent queries, and Happy Eyeballs-style address selection.
+- [ ] Keep UDP-to-TCP fallback in the higher-level DNS orchestration layer rather
+  than embedding it in the low-level UDP client.
 - [ ] Replace `Result<T, ()>` and remaining compatibility wrappers with structured
   public errors.
 - [ ] Replace remaining macro-backed parser and protocol errors with structured

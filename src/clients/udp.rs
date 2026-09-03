@@ -42,7 +42,7 @@ pub const GOOGLE: [&str; 4] = [
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1>
 pub struct Client {
-    /// Resolved DNS server addresses used when connecting the UDP socket.
+    /// Resolved DNS server addresses. The first address is used for each exchange.
     ///
     /// The input to [`Client::new`] may be a socket address, a `host:port` string,
     /// or another [`ToSocketAddrs`] implementation. Hostnames are resolved when
@@ -69,9 +69,9 @@ impl Client {
     /// implementing [`ToSocketAddrs`]. A port must be supplied because DNS uses
     /// the server's socket address directly.
     ///
-    /// Multiple resolved addresses are retained as connection candidates. The
-    /// current client does not perform application-level retries or failover
-    /// after a connection has been established.
+    /// Multiple addresses are accepted for compatibility, but this low-level
+    /// client uses only the first resolved address. It does not perform
+    /// application-level retries or failover.
     ///
     /// # Errors
     ///
@@ -111,12 +111,10 @@ impl Exchanger for Client {
 
         // Connect us to the server, meaning recv will only receive directly
         // from the server.
-        if self.servers.is_empty() {
-            return Err(crate::Error::InvalidArgument(
-                "at least one DNS server is required".to_string(),
-            ));
-        }
-        socket.connect(self.servers.as_slice())?;
+        let server = self.servers.first().ok_or_else(|| {
+            crate::Error::InvalidArgument("at least one DNS server is required".to_string())
+        })?;
+        socket.connect(server)?;
 
         let req = query.to_vec()?;
 
