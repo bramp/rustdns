@@ -5,6 +5,7 @@ use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
 use num_traits::FromPrimitive;
 use rand::RngExt;
+use std::convert::TryFrom;
 use std::io;
 use std::io::BufRead;
 use std::io::Cursor;
@@ -298,36 +299,46 @@ impl Message {
 
         for question in &self.questions {
             // TODO use Question::as_vec()
-            Message::write_qname(&mut req, &question.name)?;
+            Self::write_qname(&mut req, &question.name)?;
 
             req.extend_from_slice(&(question.r#type as u16).to_be_bytes());
             req.extend_from_slice(&(question.class as u16).to_be_bytes());
         }
 
-        // TODO Implement answers, etc types.
-        let unsupported_sections = [
-            (!self.answers.is_empty(), "answers"),
-            (!self.authoritys.is_empty(), "authorities"),
-            (!self.additionals.is_empty(), "additionals"),
-        ]
-        .iter()
-        .filter_map(|(is_present, section)| is_present.then_some(*section))
-        .collect::<Vec<_>>();
-        if !unsupported_sections.is_empty() {
-            bail!(
-                InvalidInput,
-                "encoding DNS sections is not supported: {}",
-                unsupported_sections.join(", ")
-            );
+        for record in self
+            .answers
+            .iter()
+            .chain(self.authoritys.iter())
+            .chain(self.additionals.iter())
+        {
+            Self::write_record(&mut req, record)?;
         }
 
         if let Some(e) = &self.extension {
             e.write(&mut req)?
         }
 
-        // TODO if the Vec<u8> is too long, truncate the request.
+        // TODO Replace this stateless writer with a message encoder that handles
+        // message-size limits, EDNS-aware sizing, and canonical DNSSEC-style encoding.
 
         Ok(req)
+    }
+
+    fn write_record(buf: &mut Vec<u8>, record: &Record) -> io::Result<()> {
+        let mut rdata = Vec::new();
+        record.resource.write_rdata(&mut rdata)?;
+
+        let rdata_length = u16::try_from(rdata.len())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record data is too long"))?;
+        Self::write_qname(buf, &record.name)?;
+        buf.extend_from_slice(&(record.r#type() as u16).to_be_bytes());
+        buf.extend_from_slice(&(record.class as u16).to_be_bytes());
+        let ttl = u32::try_from(record.ttl.as_secs())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record TTL is too large"))?;
+        buf.extend_from_slice(&ttl.to_be_bytes());
+        buf.extend_from_slice(&rdata_length.to_be_bytes());
+        buf.extend_from_slice(&rdata);
+        Ok(())
     }
 
     /// Writes a Unicode domain name into the supplied [`Vec<u8>`].
@@ -336,8 +347,8 @@ impl Message {
     /// returns the Unicode domain name, as well as the length of this qname (ignoring
     /// any compressed pointers) in bytes.
     ///
-    // TODO Support compression.
-    fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
+    // TODO Support DNS name compression through message-level encoder state.
+    pub(crate) fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
         // Decode this label into the original unicode.
         // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
         let domain = match idna::domain_to_ascii(domain) {
@@ -454,7 +465,7 @@ impl Extension {
 #[cfg(test)]
 mod tests {
     use super::Message;
-    use crate::{Class, Question, Record, Resource, Type};
+    use crate::{Class, Question, Record, Resource, Type, MX, SOA, SRV, TXT};
 
     #[test]
     fn truncated_dns_messages_return_errors() {
@@ -518,18 +529,72 @@ mod tests {
     }
 
     #[test]
-    fn to_vec_rejects_unsupported_records_without_panicking() {
+    fn to_vec_round_trips_records() {
         let mut message = Message::default();
         message.answers.push(Record::new(
-            "example.com",
+            "example.com.",
             Class::Internet,
             std::time::Duration::from_secs(60),
             Resource::A("192.0.2.1".parse().unwrap()),
         ));
 
-        let error = message
-            .to_vec()
-            .expect_err("unsupported records were encoded");
-        assert!(error.to_string().contains("answers"));
+        let encoded = message.to_vec().expect("records should be encoded");
+        let decoded = Message::from_slice(&encoded).expect("encoded records should parse");
+
+        assert_eq!(decoded.answers, message.answers);
+    }
+
+    #[test]
+    fn to_vec_round_trips_supported_resources() {
+        let resources = vec![
+            Resource::A("192.0.2.1".parse().unwrap()),
+            Resource::AAAA("2001:db8::1".parse().unwrap()),
+            Resource::CNAME("target.example.com.".to_string()),
+            Resource::NS("ns.example.com.".to_string()),
+            Resource::PTR("ptr.example.com.".to_string()),
+            Resource::TXT(TXT::from("text")),
+            Resource::SPF(TXT::from("v=spf1 -all")),
+            Resource::MX(MX {
+                preference: 10,
+                exchange: "mail.example.com.".to_string(),
+            }),
+            Resource::SOA(SOA {
+                mname: "ns.example.com.".to_string(),
+                rname: "admin@example.com".to_string(),
+                serial: 1,
+                refresh: std::time::Duration::from_secs(2),
+                retry: std::time::Duration::from_secs(3),
+                expire: std::time::Duration::from_secs(4),
+                minimum: std::time::Duration::from_secs(5),
+            }),
+            Resource::SRV(SRV {
+                priority: 1,
+                weight: 2,
+                port: 443,
+                name: "service.example.com.".to_string(),
+            }),
+        ];
+
+        for resource in resources {
+            let mut message = Message::default();
+            message.answers.push(Record::new(
+                "example.com.",
+                Class::Internet,
+                std::time::Duration::from_secs(60),
+                resource.clone(),
+            ));
+
+            let encoded = message.to_vec().expect("resource should be encoded");
+            let decoded = Message::from_slice(&encoded).expect("encoded resource should parse");
+
+            let decoded_resource = match &decoded.answers[0].resource {
+                Resource::SOA(soa) => Resource::SOA(SOA {
+                    rname: soa.rname.trim_end_matches('.').to_string(),
+                    ..soa.clone()
+                }),
+                resource => resource.clone(),
+            };
+            assert_eq!(decoded_resource, resource);
+        }
     }
 }

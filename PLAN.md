@@ -84,7 +84,7 @@ struct layouts or enum exhaustiveness.
 
 ### DNS And Protocol Features
 
-- [ ] Add encoding support for answer, authority, and additional records.
+- [x] Add encoding support for answer, authority, and additional records.
 - [ ] Add further EDNS options through additive methods or option types.
 - [ ] Add opt-in DNS-over-TLS or other new transport modules if justified.
 - [ ] Review and expose DNS name, question-count, and message-size limits through
@@ -113,6 +113,11 @@ struct layouts or enum exhaustiveness.
   failover, concurrent queries, and Happy Eyeballs-style address selection.
 - [ ] Keep UDP-to-TCP fallback in the higher-level DNS orchestration layer rather
   than embedding it in the low-level UDP client.
+- [ ] Replace the stateless DNS encoding helpers with a message encoder that can
+  own compression state, message-size limits, EDNS-aware sizing, and canonical
+  DNSSEC-style encoding options.
+- [ ] Add an explicit DNS encoding options API, including opt-in name
+  compression, while preserving semantic message round trips.
 - [ ] Replace `Result<T, ()>` and remaining compatibility wrappers with structured
   public errors.
 - [ ] Replace remaining macro-backed parser and protocol errors with structured

@@ -10,6 +10,7 @@ All notable changes to rustdns are documented here.
   features, included by the `clients` feature.
 - Added persistent TCP connection reuse with keepalive and idle expiry.
 - Added reusable HTTP client pools for DoH and JSON clients.
+- Added DNS wire encoding for supported answer, authority, and additional records.
 - Added regression coverage for transport reuse and reconnect-after-failure behavior.
 - Uploaded CI code coverage to Codecov and added a coverage badge to the README.
 
