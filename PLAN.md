@@ -59,8 +59,8 @@ removing or changing existing public APIs.
 - [x] Keep `README.md` generated and synchronized with crate documentation.
 - [ ] Add `0.6.0` migration notes and release notes.
 - [x] Run all test, lint, documentation, audit, and fuzz smoke-test gates.
-- [ ] Run `cargo publish --dry-run` for `0.6.0`.
-- [ ] Release and tag `0.6.0`.
+- [x] Run `cargo publish --dry-run` for `0.6.0`.
+- [x] Release and tag `0.6.0`.
 
 ## Version 0.7.0: New Additive Features
 
