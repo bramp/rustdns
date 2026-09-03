@@ -23,7 +23,11 @@ members = [
 default = ["clients", "zones"]
 
 # Enable the DNS client
-clients = ["doh", "json", "tcp", "udp"]
+clients = ["doh", "json", "tcp", "udp", "async-tcp", "async-udp"]
+
+# Enable the asynchronous low-level clients.
+async-tcp = ["tcp", "dep:tokio"]
+async-udp = ["udp", "dep:tokio"]
 
 # DNS over HTTPS (DoH) client (rfc8484).
 doh  = ["http_deps", "base64"]
@@ -82,9 +86,11 @@ num-derive = "0.5.1"
 num-traits = "0.2.19"
 rand = "0.10.2"
 regex = "1.5.4"
+socket2 = "0.6.5"
 strum = "0.28.0"
 strum_macros = "0.28.0"
 thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["net", "time"], optional = true }
 
 ###
 

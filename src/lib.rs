@@ -95,6 +95,8 @@
 //!   - `json`: DNS over HTTPS JSON client
 //!   - `tcp`: Enables the DNS over TCP client
 //!   - `udp`: Enables the DNS over UDP client
+//!   - `async-tcp`: Enables the asynchronous DNS over TCP client
+//!   - `async-udp`: Enables the asynchronous DNS over UDP client
 //! - `zones`: Enable a Zone File Parser
 //!
 //! # Usage (cli)

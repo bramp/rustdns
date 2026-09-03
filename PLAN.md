@@ -75,10 +75,12 @@ struct layouts or enum exhaustiveness.
   only the first resolved server is used.
 - [x] Add HTTP status-response tests for DoH and JSON clients.
 - [ ] Add timeout and retry configuration for HTTP clients.
-- [ ] Keep one reusable socket or HTTP client per low-level client instance.
-- [ ] Reuse persistent TCP connections and HTTP connection pools across exchanges.
+- [x] Keep one reusable socket or HTTP client per low-level client instance.
+- [x] Reuse persistent TCP connections and HTTP connection pools across exchanges.
 - [ ] Add additive response and transport metadata accessors.
 - [ ] Add new client configuration builders without removing existing constructors.
+- [x] Add async TCP and UDP clients as `async-tcp` and `async-udp` features,
+  included by `clients`, with mutable sequential exchange APIs.
 
 ### DNS And Protocol Features
 

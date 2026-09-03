@@ -131,3 +131,6 @@ impl Exchanger for Client {
         Ok(resp)
     }
 }
+
+#[cfg(feature = "async-udp")]
+pub use crate::clients::udp_async::AsyncClient;

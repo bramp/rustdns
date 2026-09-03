@@ -1,12 +1,19 @@
 use crate::clients::stats::StatsBuilder;
 use crate::clients::Exchanger;
 use crate::Message;
+use socket2::{Socket, TcpKeepalive};
+use std::cell::Cell;
+use std::convert::TryFrom;
 use std::io::Read;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 use std::time::Duration;
+use std::time::Instant;
+
+const TCP_KEEPALIVE_TIME: Duration = Duration::from_secs(30);
+const TCP_CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub const GOOGLE_IPV4_PRIMARY: &str = "8.8.8.8:53";
 pub const GOOGLE_IPV4_SECONDARY: &str = "8.8.4.4:53";
@@ -19,6 +26,16 @@ pub const GOOGLE: [&str; 4] = [
     GOOGLE_IPV6_PRIMARY,
     GOOGLE_IPV6_SECONDARY,
 ];
+
+pub(crate) fn encode_tcp_frame(message: &[u8]) -> std::io::Result<Vec<u8>> {
+    let length = u16::try_from(message.len()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "DNS message is too large")
+    })?;
+    let mut frame = Vec::with_capacity(message.len() + 2);
+    frame.extend_from_slice(&length.to_be_bytes());
+    frame.extend_from_slice(message);
+    Ok(frame)
+}
 
 /// A TCP DNS Client.
 ///
@@ -53,6 +70,9 @@ pub struct Client {
     read_timeout: Option<Duration>,
     /// Maximum time allowed for TCP writes. Defaults to five seconds; `None` disables it.
     write_timeout: Option<Duration>,
+
+    /// Lazily created TCP connection and its last successful-use time.
+    connection: Cell<Option<(TcpStream, Instant)>>,
 }
 
 impl Default for Client {
@@ -62,6 +82,7 @@ impl Default for Client {
             connect_timeout: Duration::new(5, 0),
             read_timeout: Some(Duration::new(5, 0)),
             write_timeout: Some(Duration::new(5, 0)),
+            connection: Cell::new(None),
         }
     }
 }
@@ -102,6 +123,26 @@ impl Client {
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
         self.write_timeout = timeout;
     }
+
+    fn get_stream(&self, server: &SocketAddr) -> Result<TcpStream, crate::Error> {
+        if let Some((stream, last_used)) = self.connection.take() {
+            if last_used.elapsed() <= TCP_CONNECTION_IDLE_TIMEOUT {
+                return Ok(stream);
+            }
+        }
+
+        let stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
+        let socket = Socket::from(stream);
+        let keepalive = TcpKeepalive::new().with_time(TCP_KEEPALIVE_TIME);
+        socket.set_tcp_keepalive(&keepalive)?;
+
+        let stream: TcpStream = socket.into();
+        stream.set_nodelay(true)?;
+        stream.set_read_timeout(self.read_timeout)?;
+        stream.set_write_timeout(self.write_timeout)?;
+
+        Ok(stream)
+    }
 }
 
 impl Exchanger for Client {
@@ -114,11 +155,7 @@ impl Exchanger for Client {
         let server = self.servers.first().ok_or_else(|| {
             crate::Error::InvalidArgument("at least one DNS server is required".to_string())
         })?;
-        // TODO Keep a persistent connection and reuse it for subsequent exchanges.
-        let mut stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
-        stream.set_nodelay(true)?; // We send discrete packets, so we can send as soon as possible.
-        stream.set_read_timeout(self.read_timeout)?;
-        stream.set_write_timeout(self.write_timeout)?;
+        let mut stream = self.get_stream(server)?;
 
         let message = query.to_vec()?;
 
@@ -142,9 +179,14 @@ impl Exchanger for Client {
         let mut resp = Message::from_slice(&buf)?;
         resp.stats = Some(stats.end(stream.peer_addr()?, (len + 2).into()));
 
+        self.connection.set(Some((stream, Instant::now())));
+
         Ok(resp)
     }
 }
+
+#[cfg(feature = "async-tcp")]
+pub use crate::clients::tcp_async::AsyncClient;
 
 #[cfg(test)]
 mod tests {
@@ -190,5 +232,32 @@ mod tests {
         client.set_connect_timeout(Duration::from_secs(1));
         client.set_read_timeout(None);
         client.set_write_timeout(Some(Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn reuses_connection_for_sequential_exchanges() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+        let address = listener.local_addr().expect("read test listener address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept test connection");
+            for _ in 0..2 {
+                let mut request_length = [0; 2];
+                stream
+                    .read_exact(&mut request_length)
+                    .expect("read request length");
+                let request_length = u16::from_be_bytes(request_length) as usize;
+                let mut request = vec![0; request_length];
+                stream.read_exact(&mut request).expect("read request");
+                stream
+                    .write_all(&12_u16.to_be_bytes())
+                    .expect("write response length");
+                stream.write_all(&[0; 12]).expect("write response");
+            }
+        });
+
+        let client = Client::new(address).expect("create test client");
+        assert!(client.exchange(&Message::default()).is_ok());
+        assert!(client.exchange(&Message::default()).is_ok());
+        server.join().expect("join test server");
     }
 }
