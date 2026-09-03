@@ -48,7 +48,9 @@ fn parse_tokens(pair: Pair<Rule>) -> Result<String> {
 /// replaces new lines with spaces when they are within braces.
 pub(crate) fn preprocess(input: &str) -> Result<String> {
     let mut result = String::new();
-    let file = ZonePreprocessor::parse(Rule::file, input)?.next().unwrap(); // TODO
+    let Some(file) = ZonePreprocessor::parse(Rule::file, input)?.next() else {
+        return Ok(result);
+    };
     for pair in file.into_inner() {
         match pair.as_rule() {
             Rule::tokens => result.push_str(&parse_tokens(pair)?),
