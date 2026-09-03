@@ -320,6 +320,7 @@ impl Message {
         };
 
         if !domain.is_empty() && domain != "." {
+            let mut wire_len = 1_usize;
             for label in domain.split_terminator('.') {
                 if label.is_empty() {
                     bail!(InvalidData, "empty label in domain name '{}'", domain);
@@ -327,6 +328,13 @@ impl Message {
 
                 if label.len() > 63 {
                     bail!(InvalidData, "label '{0}' longer than 63 characters", label);
+                }
+
+                wire_len = wire_len.checked_add(label.len() + 1).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "domain name length overflow")
+                })?;
+                if wire_len > 255 {
+                    bail!(InvalidData, "domain name is longer than 255 bytes");
                 }
 
                 // Write the length.
@@ -407,7 +415,7 @@ impl Extension {
 #[cfg(test)]
 mod tests {
     use super::Message;
-    use crate::{Class, Type};
+    use crate::{Class, Question, Type};
 
     #[test]
     fn truncated_dns_messages_return_errors() {
@@ -455,5 +463,18 @@ mod tests {
             .try_add_question(&invalid_domain, Type::A, Class::Internet)
             .is_err());
         assert!(message.questions.is_empty());
+    }
+
+    #[test]
+    fn to_vec_rejects_oversized_domain_name() {
+        let domain = vec!["a".repeat(63); 4].join(".");
+        let mut message = Message::default();
+        message.questions.push(Question {
+            name: domain,
+            r#type: Type::A,
+            class: Class::Internet,
+        });
+
+        assert!(message.to_vec().is_err());
     }
 }
