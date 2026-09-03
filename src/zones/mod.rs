@@ -34,16 +34,25 @@ pub struct File {
 }
 
 impl File {
-    pub fn new(mut origin: Option<String>, entries: Vec<Entry>) -> File {
+    /// Creates a zone file, returning an error when the origin is not absolute.
+    pub fn try_new(
+        mut origin: Option<String>,
+        entries: Vec<Entry>,
+    ) -> Result<File, ProcessError> {
         if let Some(domain) = origin {
             if let Some(domain) = domain.strip_suffix('.') {
                 origin = Some(domain.to_owned())
             } else {
-                panic!("TODO Origin wasn't a absolute domain");
+                return Err(ProcessError::OriginNotAbsolute);
             }
         }
 
-        File { origin, entries }
+        Ok(File { origin, entries })
+    }
+
+    pub fn new(mut origin: Option<String>, entries: Vec<Entry>) -> File {
+        Self::try_new(origin.take(), entries)
+            .unwrap_or_else(|error| panic!("failed to create zone file: {}", error))
     }
 }
 

@@ -283,4 +283,12 @@ mod tests {
             Err(ProcessError::RelativeNameWithoutOrigin("www".to_string()))
         );
     }
+
+    #[test]
+    fn try_new_reports_relative_origin() {
+        assert_eq!(
+            File::try_new(Some("example.com".to_string()), Vec::new()),
+            Err(ProcessError::OriginNotAbsolute)
+        );
+    }
 }

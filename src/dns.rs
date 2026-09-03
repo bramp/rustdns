@@ -289,9 +289,21 @@ impl Message {
         }
 
         // TODO Implement answers, etc types.
-        assert!(self.answers.is_empty());
-        assert!(self.authoritys.is_empty());
-        assert!(self.additionals.is_empty());
+        let unsupported_sections = [
+            (!self.answers.is_empty(), "answers"),
+            (!self.authoritys.is_empty(), "authorities"),
+            (!self.additionals.is_empty(), "additionals"),
+        ]
+        .iter()
+        .filter_map(|(is_present, section)| is_present.then_some(*section))
+        .collect::<Vec<_>>();
+        if !unsupported_sections.is_empty() {
+            bail!(
+                InvalidInput,
+                "encoding DNS sections is not supported: {}",
+                unsupported_sections.join(", ")
+            );
+        }
 
         if let Some(e) = &self.extension {
             e.write(&mut req)?
@@ -414,7 +426,7 @@ impl Extension {
 #[cfg(test)]
 mod tests {
     use super::Message;
-    use crate::{Class, Question, Type};
+    use crate::{Class, Question, Record, Resource, Type};
 
     #[test]
     fn truncated_dns_messages_return_errors() {
@@ -475,5 +487,21 @@ mod tests {
         });
 
         assert!(message.to_vec().is_err());
+    }
+
+    #[test]
+    fn to_vec_rejects_unsupported_records_without_panicking() {
+        let mut message = Message::default();
+        message.answers.push(Record::new(
+            "example.com",
+            Class::Internet,
+            std::time::Duration::from_secs(60),
+            Resource::A("192.0.2.1".parse().unwrap()),
+        ));
+
+        let error = message
+            .to_vec()
+            .expect_err("unsupported records were encoded");
+        assert!(error.to_string().contains("answers"));
     }
 }
