@@ -309,8 +309,18 @@ impl Message {
     /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
     pub fn to_vec(&self) -> io::Result<Vec<u8>> {
         let mut req = Vec::<u8>::with_capacity(512);
+        self.append_to_vec(&mut req)?;
+        Ok(req)
+    }
 
-        req.extend_from_slice(&self.id.to_be_bytes());
+    /// Appends this DNS [`Message`] as DNS wire-format bytes to `buf`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a domain is invalid, a name exceeds DNS wire limits,
+    /// or the message contains record sections that are not yet supported for encoding.
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        buf.extend_from_slice(&self.id.to_be_bytes());
 
         let mut b = 0_u8;
         b |= if self.qr.to_bool() { 0b1000_0000 } else { 0 };
@@ -318,7 +328,7 @@ impl Message {
         b |= if self.aa { 0b0000_0100 } else { 0 };
         b |= if self.tc { 0b0000_0010 } else { 0 };
         b |= if self.rd { 0b0000_0001 } else { 0 };
-        req.push(b);
+        buf.push(b);
 
         let mut b = 0_u8;
         b |= if self.ra { 0b1000_0000 } else { 0 };
@@ -327,21 +337,21 @@ impl Message {
         b |= if self.cd { 0b0001_0000 } else { 0 };
         b |= (self.rcode as u8) & 0b0000_1111;
 
-        req.push(b);
+        buf.push(b);
 
         let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
 
-        req.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
-        req.extend_from_slice(&(self.answers.len() as u16).to_be_bytes());
-        req.extend_from_slice(&(self.authoritys.len() as u16).to_be_bytes());
-        req.extend_from_slice(&ar_count.to_be_bytes());
+        buf.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
+        buf.extend_from_slice(&(self.answers.len() as u16).to_be_bytes());
+        buf.extend_from_slice(&(self.authoritys.len() as u16).to_be_bytes());
+        buf.extend_from_slice(&ar_count.to_be_bytes());
 
         for question in &self.questions {
             // TODO use Question::as_vec()
-            Self::write_qname(&mut req, &question.name)?;
+            Self::write_qname(buf, &question.name)?;
 
-            req.extend_from_slice(&(question.r#type as u16).to_be_bytes());
-            req.extend_from_slice(&(question.class as u16).to_be_bytes());
+            buf.extend_from_slice(&(question.r#type as u16).to_be_bytes());
+            buf.extend_from_slice(&(question.class as u16).to_be_bytes());
         }
 
         for record in self
@@ -350,17 +360,17 @@ impl Message {
             .chain(self.authoritys.iter())
             .chain(self.additionals.iter())
         {
-            Self::write_record(&mut req, record)?;
+            Self::write_record(buf, record)?;
         }
 
         if let Some(e) = &self.extension {
-            e.write(&mut req)?
+            e.write(buf)?
         }
 
         // TODO Replace this stateless writer with a message encoder that handles
         // message-size limits, EDNS-aware sizing, and canonical DNSSEC-style encoding.
 
-        Ok(req)
+        Ok(())
     }
 
     fn write_record(buf: &mut Vec<u8>, record: &Record) -> io::Result<()> {
@@ -436,7 +446,11 @@ impl Extension {
     /// Returns an error when the record is not an OPT record, does not use the
     /// root name, is truncated, declares options beyond the remaining message,
     /// or contains malformed known options.
-    pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
+    pub(crate) fn parse(
+        cur: &mut Cursor<&[u8]>,
+        domain: String,
+        r#type: Type,
+    ) -> io::Result<Extension> {
         if r#type != Type::OPT {
             bail!(InvalidInput, "expected EDNS(0) OPT record");
         }

@@ -34,8 +34,7 @@ pub const EDNS_OPTION_PADDING: u16 = 12;
 /// [`EdnsOption::client_subnet`], [`EdnsOption::cookie`],
 /// [`EdnsOption::tcp_keepalive`], and [`EdnsOption::padding`] when constructing
 /// a query. Use [`EdnsOption::unknown`] for options that do not yet have a typed
-/// variant. Use [`EdnsOption::parse`] to parse one complete option, including
-/// its option code and option length fields, from an OPT RDATA cursor.
+/// variant.
 ///
 /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[non_exhaustive]
@@ -157,7 +156,7 @@ impl EdnsOption {
     ///
     /// Returns an error when an option header or declared option data is
     /// truncated, or when a known option is malformed.
-    pub fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Self> {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Self> {
         let mut header = [0; 4];
         cur.read_exact(&mut header)
             .map_err(|error| match error.kind() {

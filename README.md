@@ -39,7 +39,7 @@ fn udp_example() -> std::io::Result<()> {
     let mut m = Message::default();
     m.try_add_question("bramp.net", Type::A, Class::Internet)
         .map_err(std::io::Error::other)?;
-    m.add_extension(Extension {   // Optionally add a EDNS extension
+    m.set_extension(Extension {   // Optionally add a EDNS extension
         payload_size: 4096,       // which supports a larger payload size.
         ..Default::default()
     });
