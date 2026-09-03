@@ -11,18 +11,26 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProcessError {
-    #[error("$ORIGIN must be an absolute domain")]
-    OriginNotAbsolute,
-    #[error("record is missing a name and has no previous name")]
-    MissingName,
-    #[error("record is missing a TTL and no default TTL is set")]
-    MissingTtl,
-    #[error("record is missing a class and has no previous class")]
-    MissingClass,
-    #[error("relative domain '{0}' has no origin")]
-    RelativeNameWithoutOrigin(String),
-    #[error("invalid SOA rname '{0}'")]
-    InvalidRname(String),
+    #[error("entry {entry_index}: $ORIGIN '{origin}' must be an absolute domain")]
+    OriginNotAbsolute { entry_index: usize, origin: String },
+    #[error("entry {entry_index}: record is missing a name and has no previous name")]
+    MissingName { entry_index: usize },
+    #[error("entry {entry_index} ({record_name}): record is missing a TTL and no default TTL is set")]
+    MissingTtl { entry_index: usize, record_name: String },
+    #[error("entry {entry_index} ({record_name}): record is missing a class and has no previous class")]
+    MissingClass { entry_index: usize, record_name: String },
+    #[error("entry {entry_index} ({record_name}): relative domain '{name}' has no origin")]
+    RelativeNameWithoutOrigin {
+        entry_index: usize,
+        record_name: String,
+        name: String,
+    },
+    #[error("entry {entry_index} ({record_name}): invalid SOA rname '{rname}'")]
+    InvalidRname {
+        entry_index: usize,
+        record_name: String,
+        rname: String,
+    },
 }
 
 impl File {
@@ -53,37 +61,47 @@ impl File {
         let mut last_name: Option<String> = None;
         let mut last_class: Option<&Class> = None;
 
-        for entry in self.entries.iter() {
+        for (entry_index, entry) in self.entries.iter().enumerate() {
             match entry {
                 Entry::Origin(new_origin) => {
                     // Always trim the dot from the end.
                     if let Some(new_origin) = new_origin.strip_suffix('.') {
                         origin = Some(new_origin)
                     } else {
-                        return Err(ProcessError::OriginNotAbsolute);
+                        return Err(ProcessError::OriginNotAbsolute {
+                            entry_index,
+                            origin: new_origin.to_string(),
+                        });
                     }
                 }
                 Entry::TTL(ttl) => default_ttl = Some(ttl),
                 Entry::Record(record) => {
                     let full_name: String = match record.name.as_ref() {
-                        Some(name) => Self::resolve_name(name, origin)?,
+                        Some(name) => Self::resolve_name(name, origin, entry_index, name)?,
                         None => {
-                            last_name.clone().ok_or(ProcessError::MissingName)?
+                            last_name.clone().ok_or(ProcessError::MissingName { entry_index })?
                         }
                     };
+                    let record_name = full_name.clone();
                     last_name = Some(full_name.to_owned());
 
                     let ttl = record
                         .ttl
                         .as_ref()
                         .or(default_ttl)
-                        .ok_or(ProcessError::MissingTtl)?;
+                        .ok_or_else(|| ProcessError::MissingTtl {
+                            entry_index,
+                            record_name: record_name.clone(),
+                        })?;
 
                     let class = record
                         .class
                         .as_ref()
                         .or(last_class)
-                        .ok_or(ProcessError::MissingClass)?;
+                        .ok_or_else(|| ProcessError::MissingClass {
+                            entry_index,
+                            record_name: record_name.clone(),
+                        })?;
 
                     last_class = Some(class);
 
@@ -91,7 +109,12 @@ impl File {
                         name: full_name,
                         class: *class,
                         ttl: *ttl,
-                        resource: Self::resolve_resource(&record.resource, origin)?,
+                        resource: Self::resolve_resource(
+                            &record.resource,
+                            origin,
+                            entry_index,
+                            &record_name,
+                        )?,
                     })
                 }
             }
@@ -100,14 +123,23 @@ impl File {
         Ok(results)
     }
 
-    fn resolve_name(name: &str, origin: Option<&str>) -> Result<String, ProcessError> {
+    fn resolve_name(
+        name: &str,
+        origin: Option<&str>,
+        entry_index: usize,
+        record_name: &str,
+    ) -> Result<String, ProcessError> {
         // Absolute domain name
         if let Some(name) = name.strip_suffix('.') {
             return Ok(name.to_string());
         }
 
         // Everything past here requires a origin
-        let origin = origin.ok_or_else(|| ProcessError::RelativeNameWithoutOrigin(name.to_string()))?;
+        let origin = origin.ok_or_else(|| ProcessError::RelativeNameWithoutOrigin {
+            entry_index,
+            record_name: record_name.to_string(),
+            name: name.to_string(),
+        })?;
 
         if name == "@" {
             return Ok(origin.to_string());
@@ -120,6 +152,8 @@ impl File {
     fn resolve_resource(
         resource: &Resource,
         origin: Option<&str>,
+        entry_index: usize,
+        record_name: &str,
     ) -> Result<Resource, ProcessError> {
         match resource {
             // These types don't include a domain, so clone as is.
@@ -131,19 +165,34 @@ impl File {
             | Resource::ANY => Ok(resource.clone()),
 
             // The rest need some kind of tweaking
-            Resource::CNAME(domain) => Ok(Resource::CNAME(Self::resolve_name(domain, origin)?)),
-            Resource::NS(domain) => Ok(Resource::NS(Self::resolve_name(domain, origin)?)),
-            Resource::PTR(domain) => Ok(Resource::PTR(Self::resolve_name(domain, origin)?)),
+            Resource::CNAME(domain) => Ok(Resource::CNAME(Self::resolve_name(
+                domain, origin, entry_index, record_name,
+            )?)),
+            Resource::NS(domain) => Ok(Resource::NS(Self::resolve_name(
+                domain, origin, entry_index, record_name,
+            )?)),
+            Resource::PTR(domain) => Ok(Resource::PTR(Self::resolve_name(
+                domain, origin, entry_index, record_name,
+            )?)),
             Resource::MX(mx) => Ok(Resource::MX(MX {
                 preference: mx.preference,
-                exchange: Self::resolve_name(&mx.exchange, origin)?,
+                exchange: Self::resolve_name(
+                    &mx.exchange,
+                    origin,
+                    entry_index,
+                    record_name,
+                )?,
             })),
             Resource::SOA(soa) => {
-                let rname = Self::resolve_name(&soa.rname, origin)?;
+                let rname = Self::resolve_name(&soa.rname, origin, entry_index, record_name)?;
                 let rname = SOA::rname_to_email(&rname)
-                    .map_err(|_| ProcessError::InvalidRname(rname))?;
+                    .map_err(|_| ProcessError::InvalidRname {
+                        entry_index,
+                        record_name: record_name.to_string(),
+                        rname,
+                    })?;
                 Ok(Resource::SOA(SOA {
-                mname: Self::resolve_name(&soa.mname, origin)?,
+                mname: Self::resolve_name(&soa.mname, origin, entry_index, record_name)?,
                 rname,
                 serial: soa.serial,
                 refresh: soa.refresh,
@@ -156,7 +205,7 @@ impl File {
                 priority: srv.priority,
                 weight: srv.weight,
                 port: srv.port,
-                name: Self::resolve_name(&srv.name, origin)?,
+                name: Self::resolve_name(&srv.name, origin, entry_index, record_name)?,
             })),
         }
     }
@@ -248,7 +297,13 @@ mod tests {
             })],
         };
 
-        assert_eq!(file.try_into_records(), Err(ProcessError::MissingTtl));
+        assert_eq!(
+            file.try_into_records(),
+            Err(ProcessError::MissingTtl {
+                entry_index: 0,
+                record_name: "example.com".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -263,7 +318,10 @@ mod tests {
             })],
         };
 
-        assert_eq!(file.try_into_records(), Err(ProcessError::MissingName));
+        assert_eq!(
+            file.try_into_records(),
+            Err(ProcessError::MissingName { entry_index: 0 })
+        );
     }
 
     #[test]
@@ -280,15 +338,41 @@ mod tests {
 
         assert_eq!(
             file.try_into_records(),
-            Err(ProcessError::RelativeNameWithoutOrigin("www".to_string()))
+            Err(ProcessError::RelativeNameWithoutOrigin {
+                entry_index: 0,
+                record_name: "www".to_string(),
+                name: "www".to_string(),
+            })
         );
+    }
+
+    #[test]
+    fn process_errors_include_entry_and_record_context() {
+        let file = File {
+            origin: Some("example.com".to_string()),
+            entries: vec![
+                Entry::TTL(Duration::from_secs(300)),
+                Entry::Record(ZoneRecord {
+                    name: Some("www".to_string()),
+                    ttl: None,
+                    class: None,
+                    resource: Resource::A("192.0.2.1".parse().unwrap()),
+                }),
+            ],
+        };
+
+        let error = file.try_into_records().expect_err("missing class accepted");
+        assert_eq!(error.to_string(), "entry 1 (www.example.com): record is missing a class and has no previous class");
     }
 
     #[test]
     fn try_new_reports_relative_origin() {
         assert_eq!(
             File::try_new(Some("example.com".to_string()), Vec::new()),
-            Err(ProcessError::OriginNotAbsolute)
+            Err(ProcessError::OriginNotAbsolute {
+                entry_index: 0,
+                origin: "example.com".to_string(),
+            })
         );
     }
 }

@@ -43,7 +43,10 @@ impl File {
             if let Some(domain) = domain.strip_suffix('.') {
                 origin = Some(domain.to_owned())
             } else {
-                return Err(ProcessError::OriginNotAbsolute);
+                return Err(ProcessError::OriginNotAbsolute {
+                    entry_index: 0,
+                    origin: domain.to_string(),
+                });
             }
         }
 
