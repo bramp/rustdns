@@ -17,6 +17,7 @@ use strum_macros::{Display, EnumString};
 /// use std::net::UdpSocket;
 /// use std::time::Duration;
 ///
+/// fn main() -> Result<(), rustdns::Error> {
 /// // Setup some UDP socket for sending to a DNS server.
 /// let socket = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to address");
 /// socket.set_read_timeout(Some(Duration::new(5, 0))).expect("set_read_timeout call failed");
@@ -24,7 +25,7 @@ use strum_macros::{Display, EnumString};
 ///
 /// // Construct a simple query.
 /// let mut m = Message::default();
-/// m.add_question("bramp.net", Type::A, Class::Internet);
+/// m.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
 /// // Encode the query as a Vec<u8>.
 /// let req = m.to_vec().expect("failed to encode DNS request");
@@ -43,6 +44,8 @@ use strum_macros::{Display, EnumString};
 ///
 /// // Now do something with `m`, in this case print it!
 /// println!("DNS Response:\n{}", m);
+/// Ok(())
+/// }
 /// ```
 #[derive(Clone, Debug, Educe)]
 #[educe(Eq, Hash, PartialEq)]

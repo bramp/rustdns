@@ -50,6 +50,7 @@ impl File {
         Ok(File { origin, entries })
     }
 
+    #[deprecated(note = "use try_new to handle invalid origins")]
     pub fn new(mut origin: Option<String>, entries: Vec<Entry>) -> File {
         Self::try_new(origin.take(), entries)
             .unwrap_or_else(|error| panic!("failed to create zone file: {}", error))
@@ -66,8 +67,9 @@ impl FromStr for File {
     /// use rustdns::zones::{File, Entry, Record};
     /// use std::str::FromStr;
     ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let file = File::from_str("$ORIGIN example.com.\n www  A   192.0.2.1");
-    /// assert_eq!(file, Ok(File::new(None, vec![
+    /// assert_eq!(file, Ok(File::try_new(None, vec![
     ///   Entry::Origin("example.com.".to_string()),
     ///   Entry::Record(Record {
     ///     name: Some("www".to_string()),
@@ -75,15 +77,25 @@ impl FromStr for File {
     ///     class: None,
     ///     resource: Resource::A("192.0.2.1".parse().unwrap()),
     ///   }),
-    /// ])));
+    /// ])?));
+    /// Ok(())
+    /// }
     /// ```
     fn from_str(input_str: &str) -> Result<Self, Self::Err> {
         let input_str = preprocess(input_str).unwrap(); // TODO
 
         let inputs = ZoneParser::parse(Rule::file, &input_str)?;
         let input = inputs.single()?;
+        let position = input.as_span().start_pos();
 
-        ZoneParser::file(input).map(|x| File::new(None, x))
+        ZoneParser::file(input).and_then(|x| File::try_new(None, x).map_err(|error| {
+            pest_consume::Error::new_from_pos(
+                pest::error::ErrorVariant::CustomError {
+                    message: error.to_string(),
+                },
+                position,
+            )
+        }))
     }
 }
 

@@ -199,6 +199,7 @@ impl Message {
     /// rcode, etc. See [§4.1.2 of rfc1035] or <https://datatracker.ietf.org/doc/html/draft-bellis-dnsext-multi-qtypes-03>
     ///
     /// [§4.1.2 of rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2.
+    #[deprecated(note = "use try_add_question to handle invalid domains")]
     pub fn add_question(&mut self, domain: &str, r#type: Type, class: Class) {
         self.try_add_question(domain, r#type, class)
             .expect("invalid domain");

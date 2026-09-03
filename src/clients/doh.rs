@@ -44,7 +44,7 @@ const DNS_QUERY_PARAM: &str = "dns";
 /// #[tokio::main]
 /// async fn main() -> Result<(), rustdns::Error> {
 ///     let mut query = Message::default();
-///     query.add_question("bramp.net", Type::A, Class::Internet);
+///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
 ///     let response = Client::new("https://dns.google/dns-query", Method::GET)?
 ///        .exchange(&query)

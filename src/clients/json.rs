@@ -172,7 +172,7 @@ impl TryInto<Record> for RecordJson {
 /// #[tokio::main]
 /// async fn main() -> Result<(), rustdns::Error> {
 ///     let mut query = Message::default();
-///     query.add_question("bramp.net", Type::A, Class::Internet);
+///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
 ///     let response = json::Client::new("https://dns.google/resolve")?
 ///        .exchange(&query)

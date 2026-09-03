@@ -82,7 +82,8 @@ fn main() -> std::io::Result<()> {
             ..Default::default()
         };
 
-        req.add_question(domain, r#type, Class::Internet);
+        req.try_add_question(domain, r#type, Class::Internet)
+            .map_err(std::io::Error::other)?;
 
         let req_buf = req.to_vec().expect("failed to encode message");
 

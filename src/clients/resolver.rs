@@ -41,7 +41,7 @@ impl Resolver {
             .flatten()
             .collect::<Vec<SocketAddr>>();
 
-        let client = UdpClient::new(&servers[..]).unwrap(); // TODO Fix this
+        let client = UdpClient::new(&servers[..]).expect("default DNS servers must be valid");
         Resolver::new_with_client(client)
     }
 }
@@ -75,7 +75,7 @@ where
         // Send two queries, a A and a AAAA.
         for r#type in &[Type::A, Type::AAAA] {
             let mut query = Message::default();
-            query.add_question(name, *r#type, Class::Internet);
+            query.try_add_question(name, *r#type, Class::Internet)?;
             query.add_extension(Extension {
                 payload_size: 4096, // Allow for bigger responses.
 

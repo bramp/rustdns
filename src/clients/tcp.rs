@@ -31,7 +31,7 @@ pub const GOOGLE: [&str; 4] = [
 ///
 /// fn main() -> Result<(), rustdns::Error> {
 ///     let mut query = Message::default();
-///     query.add_question("bramp.net", Type::A, Class::Internet);
+///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
 ///     let response = Client::new("8.8.8.8:53")?
 ///        .exchange(&query)

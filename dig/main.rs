@@ -262,7 +262,7 @@ async fn main() -> Result<(), DigError> {
 
     let mut query = Message::default();
     for domain in &args.domains {
-        query.add_question(domain, args.r#type, Class::Internet);
+        query.try_add_question(domain, args.r#type, Class::Internet)?;
     }
     query.add_extension(Extension {
         payload_size: 4096,
