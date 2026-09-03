@@ -315,7 +315,9 @@ impl Message {
 
 impl Extension {
     pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
-        assert!(r#type == Type::OPT);
+        if r#type != Type::OPT {
+            bail!(InvalidInput, "expected EDNS(0) OPT record");
+        }
 
         if domain != "." {
             bail!(
@@ -336,6 +338,9 @@ impl Extension {
 
         // TODO implement this
         let rd_len = cur.read_u16::<BE>()?;
+        if cur.remaining()? < u64::from(rd_len) {
+            bail!(InvalidData, "EDNS(0) data exceeds the remaining message");
+        }
         cur.consume(rd_len.into());
 
         Ok(Extension {
@@ -366,5 +371,36 @@ impl Extension {
         buf.push(0);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Message;
+
+    #[test]
+    fn truncated_dns_messages_return_errors() {
+        let cases = [
+            vec![],
+            vec![0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+            vec![0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 3, b'a'],
+        ];
+
+        for input in cases {
+            assert!(
+                Message::from_slice(&input).is_err(),
+                "accepted truncated input"
+            );
+        }
+    }
+
+    #[test]
+    fn truncated_edns_options_return_error() {
+        let input = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, // header, one additional record
+            0, 0, 41, 0x10, 0, 0, 0, 0, 0, 1, // OPT with one byte declared
+        ];
+
+        assert!(Message::from_slice(&input).is_err());
     }
 }

@@ -197,9 +197,19 @@ impl Client {
     /// work-around for this yet.
     // TODO Document how it fails.
     pub fn new<A: ToUrls>(servers: A) -> Result<Self, crate::Error> {
-        Ok(Self {
-            servers: servers.to_urls()?.collect(),
-        })
+        let servers: Vec<_> = servers.to_urls()?.collect();
+        if servers.is_empty() {
+            return Err(crate::Error::InvalidArgument(
+                "at least one DoH JSON server is required".to_string(),
+            ));
+        }
+        if servers.iter().any(|server| server.scheme() != "https") {
+            return Err(crate::Error::InvalidArgument(
+                "DoH JSON servers must use HTTPS".to_string(),
+            ));
+        }
+
+        Ok(Self { servers })
     }
 }
 
@@ -217,7 +227,7 @@ impl AsyncExchanger for Client {
 
         let https = HttpsConnectorBuilder::new()
             .with_webpki_roots()
-            .https_or_http()
+            .https_only()
             .enable_http1()
             .enable_http2()
             .build();

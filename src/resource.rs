@@ -205,7 +205,8 @@ fn parse_txt(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
 impl SOA {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<SOA> {
         let mname = cur.read_qname()?;
-        let rname = Self::rname_to_email(&cur.read_qname()?).unwrap(); // TODO error handling
+        let rname = Self::rname_to_email(&cur.read_qname()?)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
@@ -314,6 +315,7 @@ impl From<&[&str]> for TXT {
 mod tests {
     use crate::SOA;
     use pretty_assertions::assert_eq;
+    use std::io::Cursor;
 
     static RNAME_TESTS: &[(&str, &str)] = &[
         ("username.example.com", "username@example.com"),
@@ -340,5 +342,20 @@ mod tests {
                 Err(err) => panic!("'{}' Failed:\n{:?}", email, err),
             }
         }
+    }
+
+    #[test]
+    fn invalid_soa_rname_returns_error() {
+        let input = [
+            3, b'n', b's', b'\0', // mname
+            6, b'n', b'o', b't', b'a', b'n', b'\0', // invalid rname
+            0, 0, 0, 1, // serial
+            0, 0, 0, 1, // refresh
+            0, 0, 0, 1, // retry
+            0, 0, 0, 1, // expire
+            0, 0, 0, 1, // minimum
+        ];
+
+        assert!(SOA::parse(&mut Cursor::new(&input)).is_err());
     }
 }

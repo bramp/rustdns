@@ -4,10 +4,12 @@ use crate::bail;
 use crate::types::{Class, Type};
 use byteorder::{ReadBytesExt, BE};
 use num_traits::FromPrimitive;
-use std::convert::TryInto;
+use std::convert::TryFrom;
 use std::io;
 use std::io::Cursor;
 use std::io::SeekFrom;
+
+const MAX_QNAME_POINTER_DEPTH: usize = 255;
 
 pub trait SeekExt: io::Seek {
     /// Returns the number of bytes remaining to be consumed.
@@ -19,16 +21,33 @@ pub trait SeekExt: io::Seek {
         // reset position
         self.seek(SeekFrom::Start(pos))?;
 
-        Ok(len - pos)
+        len.checked_sub(pos).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cursor position is past the end of the input",
+            )
+        })
     }
 }
 
 impl<'a> SeekExt for Cursor<&'a [u8]> {
     fn remaining(self: &mut std::io::Cursor<&'a [u8]>) -> io::Result<u64> {
-        let pos = self.position() as usize;
+        let pos = usize::try_from(self.position()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cursor position does not fit in a usize",
+            )
+        })?;
         let len = self.get_ref().len();
 
-        Ok((len - pos).try_into().unwrap())
+        len.checked_sub(pos)
+            .map(|remaining| remaining as u64)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "cursor position is past the end of the input",
+                )
+            })
     }
 }
 
@@ -71,6 +90,14 @@ pub trait DNSReadExt: io::Read + io::Seek {
     /// Will return a io::Error(InvalidData) if the read domain name is invalid, or
     /// a more general io::Error on any other read failure.
     fn read_qname(&mut self) -> io::Result<String> {
+        self.read_qname_at_depth(0)
+    }
+
+    fn read_qname_at_depth(&mut self, depth: usize) -> io::Result<String> {
+        if depth > MAX_QNAME_POINTER_DEPTH {
+            bail!(InvalidData, "compressed qname pointer depth exceeded");
+        }
+
         let mut qname = String::new();
         let start = self.stream_position()?;
 
@@ -132,7 +159,7 @@ pub trait DNSReadExt: io::Read + io::Seek {
 
                     // Jump and start reading the qname again.
                     self.seek(SeekFrom::Start(ptr))?;
-                    qname.push_str(&self.read_qname()?);
+                    qname.push_str(&self.read_qname_at_depth(depth + 1)?);
 
                     // Reset ourselves.
                     self.seek(SeekFrom::Start(current))?;
@@ -172,5 +199,40 @@ pub trait DNSReadExt: io::Read + io::Seek {
         };
 
         Ok(class)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DNSReadExt, SeekExt};
+    use std::io::Cursor;
+
+    #[test]
+    fn remaining_rejects_cursor_past_input() {
+        let input = [0_u8; 2];
+        let mut cursor = Cursor::new(input.as_slice());
+        cursor.set_position(3);
+
+        let error = cursor
+            .remaining()
+            .expect_err("out-of-bounds cursor accepted");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn qname_rejects_excessive_pointer_depth() {
+        let mut input = vec![0_u8; 515];
+        for index in 1..=256 {
+            let offset = index * 2;
+            let pointer = (offset - 2) as u16;
+            input[offset] = 0xc0 | (pointer >> 8) as u8;
+            input[offset + 1] = pointer as u8;
+        }
+
+        let mut cursor = Cursor::new(input.as_slice());
+        cursor.set_position(512);
+
+        assert!(cursor.read_qname().is_err());
     }
 }

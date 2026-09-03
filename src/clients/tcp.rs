@@ -67,8 +67,12 @@ impl Client {
     /// Creates a new Client bound to the specific servers.
     // TODO Document how it fails.
     pub fn new<A: ToSocketAddrs>(servers: A) -> Result<Self, crate::Error> {
-        let servers = servers.to_socket_addrs()?.collect();
-        // TODO Check for zero servers.
+        let servers: Vec<_> = servers.to_socket_addrs()?.collect();
+        if servers.is_empty() {
+            return Err(crate::Error::InvalidArgument(
+                "at least one DNS server is required".to_string(),
+            ));
+        }
         Ok(Self {
             servers,
 

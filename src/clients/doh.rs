@@ -82,10 +82,19 @@ impl Client {
             _ => bail!(InvalidInput, "only GET and POST allowed"),
         }
 
-        Ok(Self {
-            servers: servers.to_urls()?.collect(),
-            method,
-        })
+        let servers: Vec<_> = servers.to_urls()?.collect();
+        if servers.is_empty() {
+            return Err(crate::Error::InvalidArgument(
+                "at least one DoH server is required".to_string(),
+            ));
+        }
+        if servers.iter().any(|server| server.scheme() != "https") {
+            return Err(crate::Error::InvalidArgument(
+                "DoH servers must use HTTPS".to_string(),
+            ));
+        }
+
+        Ok(Self { servers, method })
     }
 }
 
@@ -102,7 +111,7 @@ impl AsyncExchanger for Client {
 
         let https = HttpsConnectorBuilder::new()
             .with_webpki_roots()
-            .https_or_http()
+            .https_only()
             .enable_http1()
             .enable_http2()
             .build();
@@ -182,5 +191,16 @@ impl AsyncExchanger for Client {
             "recevied unexpected HTTP status code: {:}",
             resp.status()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Client;
+    use http::Method;
+
+    #[test]
+    fn rejects_plaintext_http_server() {
+        assert!(Client::new("http://dns.example/dns-query", Method::GET).is_err());
     }
 }

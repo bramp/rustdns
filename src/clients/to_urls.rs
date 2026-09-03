@@ -16,7 +16,10 @@ impl ToUrls for &str {
     type Iter = vec::IntoIter<Url>;
 
     fn to_urls(&self) -> io::Result<vec::IntoIter<Url>> {
-        Ok(vec![self.parse().unwrap()].into_iter()) // TODO FIX THE PANIC!
+        let url = self
+            .parse()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        Ok(vec![url].into_iter())
     }
 }
 
@@ -25,5 +28,15 @@ impl<'a> ToUrls for &'a [Url] {
 
     fn to_urls(&self) -> io::Result<Self::Iter> {
         Ok(self.iter().cloned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToUrls;
+
+    #[test]
+    fn invalid_url_returns_error() {
+        assert!("not a URL".to_urls().is_err());
     }
 }
