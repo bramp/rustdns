@@ -30,13 +30,13 @@ pub enum FromStrError {
 }
 
 impl Resource {
-    // Similar to the FromStr but needs the record Type since they are ambiguous.
+    /// Parses resource text using the supplied record type.
     ///
     /// # Errors
     ///
     /// Returns an error when the text is not valid for the requested record type,
     /// contains an invalid number or address, or the type has no text representation.
-    pub fn from_str(r#type: Type, s: &str) -> Result<Self, FromStrError> {
+    pub fn parse_text(r#type: Type, s: &str) -> Result<Self, FromStrError> {
         Ok(match r#type {
             // IP Addresses
             Type::A => Resource::A(s.parse()?),
@@ -57,6 +57,17 @@ impl Resource {
             // This should never appear in a answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => return Err(FromStrError::UnsupportedType),
         })
+    }
+
+    /// Parses resource text using the supplied record type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the text is not valid for the requested record type,
+    /// contains an invalid number or address, or the type has no text representation.
+    #[deprecated(note = "use parse_text")]
+    pub fn from_str(r#type: Type, s: &str) -> Result<Self, FromStrError> {
+        Self::parse_text(r#type, s)
     }
 }
 

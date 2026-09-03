@@ -37,17 +37,17 @@ pub type PTR = String;
 pub struct TXT(pub Vec<Vec<u8>>);
 
 impl Resource {
-    pub(crate) fn write_rdata(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         match self {
             Resource::A(address) => buf.extend_from_slice(&address.octets()),
             Resource::AAAA(address) => buf.extend_from_slice(&address.octets()),
             Resource::CNAME(name) | Resource::NS(name) | Resource::PTR(name) => {
-                Message::write_qname(buf, name)?;
+                Message::append_qname_to_vec(buf, name)?;
             }
-            Resource::TXT(txt) | Resource::SPF(txt) => txt.write_rdata(buf)?,
-            Resource::MX(mx) => mx.write_rdata(buf)?,
-            Resource::SOA(soa) => soa.write_rdata(buf)?,
-            Resource::SRV(srv) => srv.write_rdata(buf)?,
+            Resource::TXT(txt) | Resource::SPF(txt) => txt.append_rdata_to_vec(buf)?,
+            Resource::MX(mx) => mx.append_rdata_to_vec(buf)?,
+            Resource::SOA(soa) => soa.append_rdata_to_vec(buf)?,
+            Resource::SRV(srv) => srv.append_rdata_to_vec(buf)?,
             Resource::OPT | Resource::ANY => {
                 bail!(
                     InvalidInput,
@@ -61,6 +61,32 @@ impl Resource {
 }
 
 impl Record {
+    /// Appends this resource record as DNS wire-format bytes to `buf`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the record name, TTL, or resource data cannot be
+    /// represented in DNS wire format.
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        Message::append_qname_to_vec(buf, &self.name)?;
+        buf.extend_from_slice(&(self.r#type() as u16).to_be_bytes());
+        buf.extend_from_slice(&(self.class as u16).to_be_bytes());
+        let ttl = u32::try_from(self.ttl.as_secs())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record TTL is too large"))?;
+        buf.extend_from_slice(&ttl.to_be_bytes());
+
+        let rdata_length_pos = buf.len();
+        buf.extend_from_slice(&0_u16.to_be_bytes());
+        let rdata_start = buf.len();
+
+        self.resource.append_rdata_to_vec(buf)?;
+
+        let rdata_length = u16::try_from(buf.len() - rdata_start)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record data is too long"))?;
+        buf[rdata_length_pos..rdata_start].copy_from_slice(&rdata_length.to_be_bytes());
+        Ok(())
+    }
+
     pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
         name: String,
@@ -232,7 +258,7 @@ impl TXT {
         Ok(TXT(txts))
     }
 
-    pub(crate) fn write_rdata(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         for value in &self.0 {
             let length = u8::try_from(value.len())
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "TXT value is too long"))?;
@@ -267,11 +293,11 @@ impl SOA {
         })
     }
 
-    pub(crate) fn write_rdata(&self, buf: &mut Vec<u8>) -> io::Result<()> {
-        Message::write_qname(buf, &self.mname)?;
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        Message::append_qname_to_vec(buf, &self.mname)?;
         let rname = Self::email_to_rname(&self.rname)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        Message::write_qname(buf, &rname)?;
+        Message::append_qname_to_vec(buf, &rname)?;
 
         let duration_to_u32 = |duration: Duration| {
             u32::try_from(duration.as_secs()).map_err(|_| {
@@ -345,9 +371,9 @@ impl MX {
         })
     }
 
-    pub(crate) fn write_rdata(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         buf.extend_from_slice(&self.preference.to_be_bytes());
-        Message::write_qname(buf, &self.exchange)
+        Message::append_qname_to_vec(buf, &self.exchange)
     }
 }
 
@@ -367,11 +393,11 @@ impl SRV {
         })
     }
 
-    pub(crate) fn write_rdata(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         buf.extend_from_slice(&self.priority.to_be_bytes());
         buf.extend_from_slice(&self.weight.to_be_bytes());
         buf.extend_from_slice(&self.port.to_be_bytes());
-        Message::write_qname(buf, &self.name)
+        Message::append_qname_to_vec(buf, &self.name)
     }
 }
 

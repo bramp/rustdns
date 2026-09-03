@@ -32,6 +32,7 @@ use strum_macros::{Display, EnumString};
 /// m.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
 /// // Encode the query as a Vec<u8>.
+/// // Use append_to_vec when appending to an existing Vec<u8>.
 /// let req = m.to_vec().expect("failed to encode DNS request");
 ///
 /// // Send to the server
@@ -327,19 +328,33 @@ impl Default for QR {
     }
 }
 
-impl QR {
-    pub fn from_bool(b: bool) -> QR {
+impl From<bool> for QR {
+    fn from(b: bool) -> Self {
         match b {
             false => QR::Query,
             true => QR::Response,
         }
     }
+}
 
-    pub fn to_bool(self) -> bool {
-        match self {
+impl From<QR> for bool {
+    fn from(qr: QR) -> Self {
+        match qr {
             QR::Query => false,
             QR::Response => true,
         }
+    }
+}
+
+impl QR {
+    #[deprecated(note = "use From<bool> for QR")]
+    pub fn from_bool(b: bool) -> QR {
+        b.into()
+    }
+
+    #[deprecated(note = "use From<QR> for bool")]
+    pub fn to_bool(self) -> bool {
+        self.into()
     }
 }
 

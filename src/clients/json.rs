@@ -147,7 +147,7 @@ impl TryInto<Record> for RecordJson {
         let r#type =
             FromPrimitive::from_u16(self.r#type).ok_or(ParseError::InvalidType(self.r#type))?;
 
-        let resource = Resource::from_str(r#type, &self.data)
+        let resource = Resource::parse_text(r#type, &self.data)
             .map_err(|x| ParseError::InvalidResource(r#type, x))?;
 
         Ok(Record {

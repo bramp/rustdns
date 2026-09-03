@@ -88,7 +88,7 @@ impl Message {
 
         let mut flags = String::new();
 
-        if self.qr.to_bool() {
+        if bool::from(self.qr) {
             flags.push_str(" qr")
         }
         if self.aa {
@@ -366,10 +366,10 @@ mod tests {
     #[test]
     fn test_from_str() {
         for (resource, display) in (*DISPLAY_TESTS).iter() {
-            match Resource::from_str(resource.r#type(), display) {
+            match Resource::parse_text(resource.r#type(), display) {
                 Ok(got) => assert_eq!(&got, resource),
                 Err(err) => panic!(
-                    "from_str({}, '{}') failed: {}",
+                    "parse_text({}, '{}') failed: {}",
                     resource.r#type(),
                     display,
                     err
@@ -383,10 +383,10 @@ mod tests {
     fn test_identity() {
         for (resource, _) in (*DISPLAY_TESTS).iter() {
             let display = format!("{}", resource);
-            match Resource::from_str(resource.r#type(), &display) {
+            match Resource::parse_text(resource.r#type(), &display) {
                 Ok(got) => assert_eq!(&got, resource),
                 Err(err) => panic!(
-                    "from_str({}, '{}') failed: {}",
+                    "parse_text({}, '{}') failed: {}",
                     resource.r#type(),
                     display,
                     err

@@ -197,13 +197,13 @@ impl EdnsOption {
         }
     }
 
-    pub(crate) fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         let mut data = Vec::new();
         match self {
             Self::Nsid(value) => data.extend_from_slice(value),
-            Self::ClientSubnet(subnet) => subnet.write_data(&mut data)?,
-            Self::Cookie(cookie) => cookie.write_data(&mut data)?,
-            Self::TcpKeepalive(timeout) => write_tcp_keepalive(&mut data, *timeout)?,
+            Self::ClientSubnet(subnet) => subnet.append_data_to_vec(&mut data)?,
+            Self::Cookie(cookie) => cookie.append_data_to_vec(&mut data)?,
+            Self::TcpKeepalive(timeout) => append_tcp_keepalive_to_vec(&mut data, *timeout)?,
             Self::Padding(value) => data.extend_from_slice(value),
             Self::Unknown { data: value, .. } => data.extend_from_slice(value),
         }
@@ -304,7 +304,7 @@ impl EdnsCookie {
         })
     }
 
-    fn write_data(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn append_data_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         validate_server_cookie_len(self.server_cookie.len())?;
         buf.extend_from_slice(&self.client_cookie);
         buf.extend_from_slice(&self.server_cookie);
@@ -336,7 +336,7 @@ fn parse_tcp_keepalive(data: &[u8]) -> io::Result<Option<Duration>> {
     }
 }
 
-fn write_tcp_keepalive(buf: &mut Vec<u8>, timeout: Option<Duration>) -> io::Result<()> {
+fn append_tcp_keepalive_to_vec(buf: &mut Vec<u8>, timeout: Option<Duration>) -> io::Result<()> {
     let Some(timeout) = timeout else {
         return Ok(());
     };
@@ -446,7 +446,7 @@ impl EdnsClientSubnet {
         })
     }
 
-    fn write_data(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn append_data_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         let (family, max_prefix_len, mut address) = match self.address {
             IpAddr::V4(address) => (1_u16, 32, address.octets().to_vec()),
             IpAddr::V6(address) => (2_u16, 128, address.octets().to_vec()),
@@ -590,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn write_round_trips_cookie_tcp_keepalive_and_padding() {
+    fn append_to_vec_round_trips_cookie_tcp_keepalive_and_padding() {
         let options = vec![
             EdnsOption::cookie(*b"client01"),
             EdnsOption::cookie_with_server(*b"client02", b"server01".to_vec()),
@@ -600,7 +600,9 @@ mod tests {
         ];
         let mut buf = Vec::new();
         for option in &options {
-            option.write(&mut buf).expect("option should encode");
+            option
+                .append_to_vec(&mut buf)
+                .expect("option should encode");
         }
 
         assert_eq!(parse_options(&buf).unwrap(), options);
@@ -617,11 +619,11 @@ mod tests {
         let mut buf = Vec::new();
         assert!(
             EdnsOption::cookie_with_server(*b"client01", b"short".to_vec())
-                .write(&mut buf)
+                .append_to_vec(&mut buf)
                 .is_err()
         );
         assert!(EdnsOption::tcp_keepalive(Some(Duration::from_millis(150)))
-            .write(&mut buf)
+            .append_to_vec(&mut buf)
             .is_err());
     }
 

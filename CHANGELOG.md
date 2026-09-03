@@ -17,8 +17,20 @@ All notable changes to rustdns are documented here.
   options.
 - Added `Message::set_extension` as the preferred API for the single EDNS(0)
   extension record.
+- Added `Message::append_to_vec`, `Question::append_to_vec`,
+  `Record::append_to_vec`, and `Extension::append_to_vec` for appending DNS
+  wire-format bytes to caller-provided buffers.
+- Added `TryFrom<&[u8]> for Message` as a trait-based companion to
+  `Message::from_slice`.
+- Added `Resource::parse_text` as the preferred type-disambiguated parser for
+  resource text.
 - Added regression coverage for transport reuse and reconnect-after-failure behavior.
 - Uploaded CI code coverage to Codecov and added a coverage badge to the README.
+
+### Changed
+
+- Deprecated `Extension::write`, `Resource::from_str`, `QR::from_bool`, and
+  `QR::to_bool` in favor of naming-guide-compliant alternatives.
 
 ## [0.6.0] - 2026-09-02
 

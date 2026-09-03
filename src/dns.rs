@@ -39,7 +39,7 @@ impl<'a> MessageParser<'a> {
         self.m.id = self.cur.read_u16::<BE>()?;
 
         let b = self.cur.read_u8()?;
-        self.m.qr = QR::from_bool(0b1000_0000 & b != 0);
+        self.m.qr = QR::from(0b1000_0000 & b != 0);
         let opcode = (0b0111_1000 & b) >> 3;
         self.m.aa = (0b0000_0100 & b) != 0;
         self.m.tc = (0b0000_0010 & b) != 0;
@@ -323,7 +323,7 @@ impl Message {
         buf.extend_from_slice(&self.id.to_be_bytes());
 
         let mut b = 0_u8;
-        b |= if self.qr.to_bool() { 0b1000_0000 } else { 0 };
+        b |= if bool::from(self.qr) { 0b1000_0000 } else { 0 };
         b |= ((self.opcode as u8) << 3) & 0b0111_1000;
         b |= if self.aa { 0b0000_0100 } else { 0 };
         b |= if self.tc { 0b0000_0010 } else { 0 };
@@ -347,11 +347,7 @@ impl Message {
         buf.extend_from_slice(&ar_count.to_be_bytes());
 
         for question in &self.questions {
-            // TODO use Question::as_vec()
-            Self::write_qname(buf, &question.name)?;
-
-            buf.extend_from_slice(&(question.r#type as u16).to_be_bytes());
-            buf.extend_from_slice(&(question.class as u16).to_be_bytes());
+            question.append_to_vec(buf)?;
         }
 
         for record in self
@@ -360,11 +356,11 @@ impl Message {
             .chain(self.authoritys.iter())
             .chain(self.additionals.iter())
         {
-            Self::write_record(buf, record)?;
+            record.append_to_vec(buf)?;
         }
 
         if let Some(e) = &self.extension {
-            e.write(buf)?
+            e.append_to_vec(buf)?
         }
 
         // TODO Replace this stateless writer with a message encoder that handles
@@ -373,31 +369,14 @@ impl Message {
         Ok(())
     }
 
-    fn write_record(buf: &mut Vec<u8>, record: &Record) -> io::Result<()> {
-        let mut rdata = Vec::new();
-        record.resource.write_rdata(&mut rdata)?;
-
-        let rdata_length = u16::try_from(rdata.len())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record data is too long"))?;
-        Self::write_qname(buf, &record.name)?;
-        buf.extend_from_slice(&(record.r#type() as u16).to_be_bytes());
-        buf.extend_from_slice(&(record.class as u16).to_be_bytes());
-        let ttl = u32::try_from(record.ttl.as_secs())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record TTL is too large"))?;
-        buf.extend_from_slice(&ttl.to_be_bytes());
-        buf.extend_from_slice(&rdata_length.to_be_bytes());
-        buf.extend_from_slice(&rdata);
-        Ok(())
-    }
-
-    /// Writes a Unicode domain name into the supplied [`Vec<u8>`].
+    /// Appends a Unicode domain name as DNS wire-format bytes to `buf`.
     ///
     /// Used for writing out a encoded ASCII domain name into a DNS message. Will
     /// returns the Unicode domain name, as well as the length of this qname (ignoring
     /// any compressed pointers) in bytes.
     ///
     // TODO Support DNS name compression through message-level encoder state.
-    pub(crate) fn write_qname(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
+    pub(crate) fn append_qname_to_vec(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
         // Decode this label into the original unicode.
         // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
         let domain = match idna::domain_to_ascii(domain) {
@@ -435,6 +414,29 @@ impl Message {
         buf.push(0);
 
         Ok(())
+    }
+}
+
+impl Question {
+    /// Appends this question as DNS wire-format bytes to `buf`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the question name cannot be represented in DNS wire
+    /// format.
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        Message::append_qname_to_vec(buf, &self.name)?;
+        buf.extend_from_slice(&(self.r#type as u16).to_be_bytes());
+        buf.extend_from_slice(&(self.class as u16).to_be_bytes());
+        Ok(())
+    }
+}
+
+impl TryFrom<&[u8]> for Message {
+    type Error = io::Error;
+
+    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
+        Self::from_slice(buf)
     }
 }
 
@@ -502,13 +504,13 @@ impl Extension {
         })
     }
 
-    /// Writes this EDNS(0) extension to a DNS message.
+    /// Appends this EDNS(0) extension as DNS wire-format bytes to `buf`.
     ///
     /// # Errors
     ///
     /// Returns an error if the extension cannot be represented in the output
     /// message.
-    pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         buf.push(0); // A single "." domain name                          // 0-1
         buf.extend_from_slice(&(Type::OPT as u16).to_be_bytes()); // 1-3
         buf.extend_from_slice(&self.payload_size.to_be_bytes()); // 3-5
@@ -525,7 +527,7 @@ impl Extension {
 
         let mut option_data = Vec::new();
         for option in &self.options {
-            option.write(&mut option_data)?;
+            option.append_to_vec(&mut option_data)?;
         }
 
         let option_data_len = u16::try_from(option_data.len()).map_err(|_| {
@@ -539,6 +541,17 @@ impl Extension {
 
         Ok(())
     }
+
+    /// Writes this EDNS(0) extension to a DNS message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the extension cannot be represented in the output
+    /// message.
+    #[deprecated(note = "use append_to_vec")]
+    pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        self.append_to_vec(buf)
+    }
 }
 
 #[cfg(test)]
@@ -547,6 +560,7 @@ mod tests {
     use crate::{
         Class, EdnsOption, Extension, Question, Record, Resource, Type, MX, SOA, SRV, TXT,
     };
+    use std::convert::TryFrom;
 
     #[test]
     fn truncated_dns_messages_return_errors() {
@@ -616,6 +630,48 @@ mod tests {
         assert_eq!(
             decoded.extension.expect("extension should parse").options,
             message.extension.unwrap().options
+        );
+    }
+
+    #[test]
+    fn append_to_vec_appends_encoded_message() {
+        let mut message = Message {
+            id: 0x1234,
+            ..Default::default()
+        };
+        message
+            .try_add_question("example.com", Type::A, Class::Internet)
+            .expect("question should be valid");
+
+        let encoded = message.to_vec().expect("message should encode");
+        let mut buf = vec![0xaa, 0xbb];
+        message
+            .append_to_vec(&mut buf)
+            .expect("message should append to buffer");
+
+        assert_eq!(&buf[..2], &[0xaa, 0xbb]);
+        assert_eq!(&buf[2..], encoded);
+
+        let decoded = Message::try_from(&buf[2..]).expect("appended message should decode");
+        assert_eq!(decoded.questions, message.questions);
+    }
+
+    #[test]
+    fn question_append_to_vec_encodes_question() {
+        let question = Question {
+            name: "example.com.".to_string(),
+            r#type: Type::A,
+            class: Class::Internet,
+        };
+
+        let mut buf = Vec::new();
+        question
+            .append_to_vec(&mut buf)
+            .expect("question should encode");
+
+        assert_eq!(
+            buf,
+            vec![7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 0, 1, 0, 1,]
         );
     }
 

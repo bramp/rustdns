@@ -89,10 +89,10 @@ struct layouts or enum exhaustiveness.
 - [x] Hide low-level EDNS cursor parsers from the public API.
 - [x] Add `Message::append_to_vec` as the caller-provided-buffer companion to
   `Message::to_vec`.
-- [ ] `Message`: add `TryFrom<&[u8]>` delegating to `Message::from_slice`.
-- [ ] `Message`: add focused tests showing `Message::append_to_vec` appends to an existing
+- [x] `Message`: add `TryFrom<&[u8]>` delegating to `Message::from_slice`.
+- [x] `Message`: add focused tests showing `Message::append_to_vec` appends to an existing
   buffer and produces the same message bytes as `Message::to_vec`.
-- [ ] `Message`: review public documentation and examples so wire-format encoding is
+- [x] `Message`: review public documentation and examples so wire-format encoding is
   described as `to_vec` for allocation and `append_to_vec` for caller-provided
   buffers.
 - [ ] Add opt-in DNS-over-TLS or other new transport modules if justified.
@@ -118,41 +118,37 @@ struct layouts or enum exhaustiveness.
 - [ ] Make fallible APIs the primary constructors and builders.
 - [ ] Audit all public methods against the method naming style guide in
   `DEVELOPERS.md` before the `1.0.0` API freeze.
-- [ ] `Message`: keep `from_slice`, `to_vec`, and `append_to_vec` as the public
+- [x] `Message`: keep `from_slice`, `to_vec`, and `append_to_vec` as the public
   wire-format naming pattern unless the final API review finds a stronger name.
-- [ ] `Extension`: replace public `write(&mut Vec<u8>)` with `append_to_vec` or
-  make it crate-private if callers should only encode extensions through
-  `Message`.
-- [ ] `EdnsOption`: rename crate-private `write(&mut Vec<u8>)` to
+- [x] `Extension`: add `append_to_vec` and deprecate public `write(&mut Vec<u8>)`.
+- [x] `EdnsOption`: rename crate-private `write(&mut Vec<u8>)` to
   `append_to_vec`.
-- [ ] `Record`: keep crate-private `parse` for wire-format parsing, and review
-  whether record-level wire encoding should expose `append_to_vec`.
-- [ ] `Resource`: decide whether `Resource::from_str(Type, &str)` should remain as the
-  context-requiring exception or be replaced with a clearer text-specific name
-  such as `parse_text` or `from_str_for_type`.
-- [ ] `Resource`: rename crate-private `write_rdata(&mut Vec<u8>)` to
+- [x] `Record`: keep crate-private `parse` for wire-format parsing, and expose
+  record-level wire encoding as `append_to_vec`.
+- [x] `Resource`: add `parse_text(Type, &str)` and deprecate
+  `Resource::from_str(Type, &str)` as the old context-requiring spelling.
+- [x] `Resource`: rename crate-private `write_rdata(&mut Vec<u8>)` to
   `append_rdata_to_vec`.
-- [ ] `TXT`: keep `FromStr` for text parsing, keep crate-private `parse` for
+- [x] `TXT`: keep `FromStr` for text parsing, keep crate-private `parse` for
   wire-format parsing, and rename `write_rdata` to `append_rdata_to_vec`.
-- [ ] `SOA`: keep `FromStr` for text parsing, keep crate-private `parse` for
+- [x] `SOA`: keep `FromStr` for text parsing, keep crate-private `parse` for
   wire-format parsing, and rename `write_rdata` to `append_rdata_to_vec`.
-- [ ] `SOA`: review `rname_to_email` and `email_to_rname` as domain-specific
+- [x] `SOA`: review `rname_to_email` and `email_to_rname` as domain-specific
   conversion helpers; keep them named helpers unless trait conversions become clearer.
-- [ ] `MX`: keep `FromStr` for text parsing, keep crate-private `parse` for
+- [x] `MX`: keep `FromStr` for text parsing, keep crate-private `parse` for
   wire-format parsing, and rename `write_rdata` to `append_rdata_to_vec`.
-- [ ] `SRV`: keep `FromStr` for text parsing, keep crate-private `parse` for
+- [x] `SRV`: keep `FromStr` for text parsing, keep crate-private `parse` for
   wire-format parsing, and rename `write_rdata` to `append_rdata_to_vec`.
-- [ ] `Question`: replace the `Question::as_vec()` TODO with a naming-guide-compliant
-  API, such as `append_to_vec`, if question-level encoding remains useful.
-- [ ] `QR`: add `From<bool> for QR` and `From<QR> for bool`, then decide whether to
-  retain or deprecate `QR::from_bool` and `QR::to_bool`.
-- [ ] `DNSReadExt`: keep `read_qname`, `read_type`, and `read_class` as the
+- [x] `Question`: replace the `Question::as_vec()` TODO with `append_to_vec`.
+- [x] `QR`: add `From<bool> for QR` and `From<QR> for bool`, then deprecate
+  `QR::from_bool` and `QR::to_bool`.
+- [x] `DNSReadExt`: keep `read_qname`, `read_type`, and `read_class` as the
   low-level cursor-reading convention.
-- [ ] `Message::write_qname`: rename crate-private qname encoding to
-  `append_qname_to_vec` or move it onto the future encoder abstraction.
-- [ ] Zone `File`: keep `try_new` for fallible construction and `FromStr` for
+- [x] `Message::write_qname`: rename crate-private qname encoding to
+  `append_qname_to_vec`.
+- [x] Zone `File`: keep `try_new` for fallible construction and `FromStr` for
   zone-file text parsing; do not add inherent `parse` aliases.
-- [ ] Zone `Record`: keep `FromStr` for zone-file text parsing; do not add
+- [x] Zone `Record`: keep `FromStr` for zone-file text parsing; do not add
   inherent `parse` aliases.
 - [ ] Replace multi-server low-level clients with single-server client types or
   constructors, with migration guidance for existing callers.

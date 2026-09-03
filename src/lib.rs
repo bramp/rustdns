@@ -52,6 +52,7 @@
 //!     socket.connect("8.8.8.8:53")?; // Google's Public DNS Servers
 //!
 //!     // Encode the DNS Message as a Vec<u8>.
+//!     // Use append_to_vec when appending to an existing Vec<u8>.
 //!     let question = m.to_vec()?;
 //!
 //!     // Send to the server.
