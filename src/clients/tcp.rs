@@ -1,7 +1,7 @@
-use crate::clients::stats::StatsBuilder;
-use crate::clients::Exchanger;
-use crate::limits;
 use crate::Message;
+use crate::clients::Exchanger;
+use crate::clients::stats::StatsBuilder;
+use crate::limits;
 use socket2::{Socket, TcpKeepalive};
 use std::convert::TryFrom;
 use std::io;
@@ -224,8 +224,8 @@ pub use crate::clients::tcp_async::AsyncClient;
 #[cfg(test)]
 mod tests {
     use super::Client;
-    use crate::clients::Exchanger;
     use crate::Message;
+    use crate::clients::Exchanger;
     use std::io::Read;
     use std::io::Write;
     use std::net::TcpListener;

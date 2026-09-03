@@ -2,12 +2,12 @@
 #[cfg(feature = "udp")]
 mod tests {
     use pretty_assertions::assert_eq;
-    use rustdns::clients::Exchanger;
-    use rustdns::clients::Resolver;
-    use rustdns::types::*;
     use rustdns::Message;
     use rustdns::Record;
     use rustdns::Resource;
+    use rustdns::clients::Exchanger;
+    use rustdns::clients::Resolver;
+    use rustdns::types::*;
     use std::net::IpAddr;
     use std::time::Duration;
 

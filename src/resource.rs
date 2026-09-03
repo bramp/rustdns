@@ -1,8 +1,8 @@
+use crate::ParseError;
 use crate::bail;
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::types::*;
-use crate::ParseError;
-use byteorder::{ReadBytesExt, BE};
+use byteorder::{BE, ReadBytesExt};
 use std::convert::TryFrom;
 use std::io;
 use std::io::Cursor;

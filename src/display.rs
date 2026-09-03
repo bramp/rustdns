@@ -2,15 +2,15 @@
 //! in `dig` style.
 // Refer to https://github.com/tigeli/bind-utils/blob/master/bin/dig/dig.c for reference.
 
-use crate::resource::MX;
-use crate::resource::SOA;
-use crate::resource::SRV;
-use crate::resource::TXT;
 use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
 use crate::Stats;
+use crate::resource::MX;
+use crate::resource::SOA;
+use crate::resource::SRV;
+use crate::resource::TXT;
 use chrono::prelude::*;
 use std::fmt;
 
@@ -112,7 +112,9 @@ impl Message {
 
         let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
 
-        writeln!(f, ";; flags:{flags}; QUERY: {qd_count}, ANSWER: {an_count}, AUTHORITY: {ns_count}, ADDITIONAL: {ar_count}", 
+        writeln!(
+            f,
+            ";; flags:{flags}; QUERY: {qd_count}, ANSWER: {an_count}, AUTHORITY: {ns_count}, ADDITIONAL: {ar_count}",
             flags = flags,
             qd_count = self.questions.len(),
             an_count = self.answers.len(),
@@ -264,9 +266,9 @@ impl fmt::Display for TXT {
 mod tests {
     use crate::EdnsOption;
     use crate::Extension;
+    use crate::MX;
     use crate::Message;
     use crate::Resource;
-    use crate::MX;
     use crate::SOA;
     use crate::SRV;
     use crate::TXT;

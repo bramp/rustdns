@@ -515,8 +515,8 @@ fn truncate_address(address: IpAddr, prefix_len: u8) -> IpAddr {
 #[cfg(test)]
 mod tests {
     use super::{
-        EdnsOption, EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID,
-        EDNS_OPTION_PADDING, EDNS_OPTION_TCP_KEEPALIVE,
+        EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID, EDNS_OPTION_PADDING,
+        EDNS_OPTION_TCP_KEEPALIVE, EdnsOption,
     };
     use std::io::{self, Cursor};
     use std::net::{IpAddr, Ipv4Addr};
@@ -610,10 +610,12 @@ mod tests {
 
     #[test]
     fn rejects_malformed_cookie_and_tcp_keepalive_options() {
-        assert!(EdnsOption::parse(&mut Cursor::new(&[
-            0, 10, 0, 5, b's', b'h', b'o', b'r', b't'
-        ]))
-        .is_err());
+        assert!(
+            EdnsOption::parse(&mut Cursor::new(&[
+                0, 10, 0, 5, b's', b'h', b'o', b'r', b't'
+            ]))
+            .is_err()
+        );
         assert!(EdnsOption::parse(&mut Cursor::new(&[0, 11, 0, 1, 0])).is_err());
 
         let mut buf = Vec::new();
@@ -622,9 +624,11 @@ mod tests {
                 .append_to_vec(&mut buf)
                 .is_err()
         );
-        assert!(EdnsOption::tcp_keepalive(Some(Duration::from_millis(150)))
-            .append_to_vec(&mut buf)
-            .is_err());
+        assert!(
+            EdnsOption::tcp_keepalive(Some(Duration::from_millis(150)))
+                .append_to_vec(&mut buf)
+                .is_err()
+        );
     }
 
     #[test]

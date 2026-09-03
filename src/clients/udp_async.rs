@@ -1,5 +1,5 @@
-use crate::limits::MAX_DNS_MESSAGE_LEN;
 use crate::Message;
+use crate::limits::MAX_DNS_MESSAGE_LEN;
 use std::net::SocketAddr;
 
 /// An asynchronous DNS-over-UDP client for one DNS server.

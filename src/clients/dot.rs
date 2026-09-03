@@ -1,7 +1,7 @@
+use crate::Message;
+use crate::clients::Exchanger;
 use crate::clients::stats::StatsBuilder;
 use crate::clients::tcp::encode_tcp_frame;
-use crate::clients::Exchanger;
-use crate::Message;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use socket2::{Socket, TcpKeepalive};
@@ -283,8 +283,8 @@ fn new_tls_config() -> Arc<ClientConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::server_name_from_addr;
     use super::Client;
+    use super::server_name_from_addr;
     use std::net::SocketAddr;
     use std::time::Duration;
 

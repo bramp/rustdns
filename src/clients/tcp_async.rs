@@ -1,5 +1,5 @@
-use crate::clients::tcp::encode_tcp_frame;
 use crate::Message;
+use crate::clients::tcp::encode_tcp_frame;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

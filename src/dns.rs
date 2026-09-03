@@ -3,7 +3,7 @@ use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::limits;
 use crate::types::Record;
 use crate::types::*;
-use byteorder::{ReadBytesExt, BE};
+use byteorder::{BE, ReadBytesExt};
 use num_traits::FromPrimitive;
 use rand::RngExt;
 use std::convert::TryFrom;
@@ -552,7 +552,7 @@ impl Extension {
 mod tests {
     use super::Message;
     use crate::{
-        Class, EdnsOption, Extension, Question, Record, Resource, Type, MX, SOA, SRV, TXT,
+        Class, EdnsOption, Extension, MX, Question, Record, Resource, SOA, SRV, TXT, Type,
     };
     use std::convert::TryFrom;
 
@@ -665,7 +665,9 @@ mod tests {
 
         assert_eq!(
             buf,
-            vec![7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 0, 1, 0, 1,]
+            vec![
+                7, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 3, b'c', b'o', b'm', 0, 0, 1, 0, 1,
+            ]
         );
     }
 
@@ -716,9 +718,11 @@ mod tests {
         let mut message = Message::default();
         let invalid_domain = format!("{}.example.com", "a".repeat(64));
 
-        assert!(message
-            .try_add_question(&invalid_domain, Type::A, Class::Internet)
-            .is_err());
+        assert!(
+            message
+                .try_add_question(&invalid_domain, Type::A, Class::Internet)
+                .is_err()
+        );
         assert!(message.questions.is_empty());
     }
 

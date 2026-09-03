@@ -1,6 +1,6 @@
 pub use crate::edns::{
-    EdnsClientSubnet, EdnsCookie, EdnsOption, EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE,
-    EDNS_OPTION_NSID, EDNS_OPTION_PADDING, EDNS_OPTION_TCP_KEEPALIVE,
+    EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID, EDNS_OPTION_PADDING,
+    EDNS_OPTION_TCP_KEEPALIVE, EdnsClientSubnet, EdnsCookie, EdnsOption,
 };
 use crate::resource::*;
 use educe::Educe;

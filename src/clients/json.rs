@@ -1,22 +1,22 @@
-use crate::bail;
-use crate::clients::mime::content_type_equal;
-use crate::clients::stats::StatsBuilder;
-use crate::clients::validate_http_status;
-use crate::clients::AsyncExchanger;
-use crate::clients::ToUrls;
-use crate::clients::{new_http_client, BoxError, HttpClient};
-use crate::errors::ParseError;
 use crate::Class;
 use crate::Error;
 use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
+use crate::bail;
+use crate::clients::AsyncExchanger;
+use crate::clients::ToUrls;
+use crate::clients::mime::content_type_equal;
+use crate::clients::stats::StatsBuilder;
+use crate::clients::validate_http_status;
+use crate::clients::{BoxError, HttpClient, new_http_client};
+use crate::errors::ParseError;
 use async_trait::async_trait;
 use core::convert::TryInto;
-use http::header::*;
 use http::Method;
 use http::Request;
+use http::header::*;
 use http_body_util::{BodyExt, Empty, Limited};
 use hyper::body::Bytes;
 use hyper_util::client::legacy::connect::HttpInfo;
@@ -352,9 +352,9 @@ impl AsyncExchanger for Client {
 #[cfg(test)]
 mod tests {
     use super::MAX_JSON_BODY_SIZE;
+    use crate::Message;
     use crate::clients::json::MessageJson;
     use crate::clients::validate_http_status;
-    use crate::Message;
     use http_body_util::{BodyExt, Full, Limited};
     use hyper::body::Bytes;
     use json_comments::StripComments;

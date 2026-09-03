@@ -8,9 +8,9 @@
 mod tests {
     #[cfg(feature = "doh")]
     use http::Method;
+    use rustdns::Message;
     #[cfg(any(feature = "tcp", feature = "udp"))]
     use rustdns::clients::Exchanger;
-    use rustdns::Message;
     #[cfg(feature = "tcp")]
     use std::io::{Read, Write};
     #[cfg(feature = "tcp")]

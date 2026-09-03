@@ -7,9 +7,9 @@ use hyper::body::Bytes;
 #[cfg(any(feature = "doh", feature = "json"))]
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 #[cfg(any(feature = "doh", feature = "json"))]
-use hyper_util::client::legacy::connect::HttpConnector;
-#[cfg(any(feature = "doh", feature = "json"))]
 use hyper_util::client::legacy::Client as HyperClient;
+#[cfg(any(feature = "doh", feature = "json"))]
+use hyper_util::client::legacy::connect::HttpConnector;
 #[cfg(any(feature = "doh", feature = "json"))]
 use hyper_util::rt::TokioExecutor;
 

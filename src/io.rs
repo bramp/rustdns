@@ -2,7 +2,7 @@
 
 use crate::bail;
 use crate::types::{Class, Type};
-use byteorder::{ReadBytesExt, BE};
+use byteorder::{BE, ReadBytesExt};
 use num_traits::FromPrimitive;
 use std::convert::TryFrom;
 use std::io;

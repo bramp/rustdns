@@ -3,13 +3,13 @@
 mod util;
 
 use http::method::Method;
+use rustdns::clients::AsyncExchanger;
+use rustdns::clients::Exchanger;
 use rustdns::clients::doh::Client as DohClient;
 use rustdns::clients::dot::Client as DotClient;
 use rustdns::clients::json::Client as JsonClient;
 use rustdns::clients::tcp::Client as TcpClient;
 use rustdns::clients::udp::Client as UdpClient;
-use rustdns::clients::AsyncExchanger;
-use rustdns::clients::Exchanger;
 use rustdns::types::*;
 use std::convert::TryInto;
 use std::env;
