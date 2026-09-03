@@ -192,6 +192,9 @@ pub struct Client {
     http_client: HttpClient,
 }
 
+impl std::panic::RefUnwindSafe for Client {}
+impl std::panic::UnwindSafe for Client {}
+
 impl Default for Client {
     fn default() -> Self {
         Self {

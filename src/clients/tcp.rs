@@ -1,14 +1,16 @@
 use crate::clients::stats::StatsBuilder;
 use crate::clients::Exchanger;
+use crate::limits;
 use crate::Message;
 use socket2::{Socket, TcpKeepalive};
-use std::cell::Cell;
 use std::convert::TryFrom;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
+use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -28,9 +30,8 @@ pub const GOOGLE: [&str; 4] = [
 ];
 
 pub(crate) fn encode_tcp_frame(message: &[u8]) -> std::io::Result<Vec<u8>> {
-    let length = u16::try_from(message.len()).map_err(|_| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "DNS message is too large")
-    })?;
+    limits::validate_message_len(message.len())?;
+    let length = u16::try_from(message.len()).expect("validated DNS message length");
     let mut frame = Vec::with_capacity(message.len() + 2);
     frame.extend_from_slice(&length.to_be_bytes());
     frame.extend_from_slice(message);
@@ -72,7 +73,7 @@ pub struct Client {
     write_timeout: Option<Duration>,
 
     /// Lazily created TCP connection and its last successful-use time.
-    connection: Cell<Option<(TcpStream, Instant)>>,
+    connection: Mutex<Option<(TcpStream, Instant)>>,
 }
 
 impl Default for Client {
@@ -82,7 +83,7 @@ impl Default for Client {
             connect_timeout: Duration::new(5, 0),
             read_timeout: Some(Duration::new(5, 0)),
             write_timeout: Some(Duration::new(5, 0)),
-            connection: Cell::new(None),
+            connection: Mutex::new(None),
         }
     }
 }
@@ -125,7 +126,13 @@ impl Client {
     }
 
     fn get_stream(&self, server: &SocketAddr) -> Result<TcpStream, crate::Error> {
-        if let Some((stream, last_used)) = self.connection.take() {
+        let cached = self
+            .connection
+            .lock()
+            .map_err(|_| io::Error::other("TCP connection lock poisoned"))?
+            .take();
+
+        if let Some((stream, last_used)) = cached {
             if last_used.elapsed() <= TCP_CONNECTION_IDLE_TIMEOUT {
                 log::trace!("TCP reusing connection peer={}", stream.peer_addr()?);
                 return Ok(stream);
@@ -201,7 +208,11 @@ impl Exchanger for Client {
         let mut resp = Message::from_slice(&buf)?;
         resp.stats = Some(stats.end(stream.peer_addr()?, (len + 2).into()));
 
-        self.connection.set(Some((stream, Instant::now())));
+        *self
+            .connection
+            .lock()
+            .map_err(|_| io::Error::other("TCP connection lock poisoned"))? =
+            Some((stream, Instant::now()));
 
         Ok(resp)
     }

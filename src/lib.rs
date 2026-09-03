@@ -229,6 +229,7 @@ mod edns;
 mod errors;
 mod from_str;
 mod io;
+pub mod limits;
 pub mod resource;
 pub mod types;
 pub mod util;

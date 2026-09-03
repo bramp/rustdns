@@ -5,6 +5,7 @@ use crate::clients::validate_http_status;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::clients::{new_http_client, BoxError, HttpClient};
+use crate::limits::MAX_DNS_MESSAGE_LEN;
 use crate::Message;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -19,7 +20,7 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use url::Url;
 
-const MAX_DOH_BODY_SIZE: usize = 65535; // The maximum size of a DNS message is 65535 bytes. See https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
+const MAX_DOH_BODY_SIZE: usize = MAX_DNS_MESSAGE_LEN;
 
 pub const GOOGLE: &str = "https://dns.google/dns-query";
 
@@ -63,6 +64,9 @@ pub struct Client {
     /// Hyper client whose connection pool is reused across exchanges.
     http_client: HttpClient,
 }
+
+impl std::panic::RefUnwindSafe for Client {}
+impl std::panic::UnwindSafe for Client {}
 
 impl Default for Client {
     fn default() -> Self {

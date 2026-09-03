@@ -1,3 +1,4 @@
+use crate::limits::MAX_DNS_MESSAGE_LEN;
 use crate::Message;
 use std::net::SocketAddr;
 
@@ -46,7 +47,7 @@ impl AsyncClient {
                 self.server
             );
             socket.send(&request).await?;
-            let mut response = [0; 65535];
+            let mut response = [0; MAX_DNS_MESSAGE_LEN];
             let length = socket.recv(&mut response).await?;
             log::trace!("async UDP received {length} bytes from {}", self.server);
             Message::from_slice(&response[..length])

@@ -1,5 +1,6 @@
 use crate::bail;
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
+use crate::limits;
 use crate::types::Record;
 use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
@@ -121,7 +122,7 @@ impl<'a> MessageParser<'a> {
                     );
                 }
 
-                let ext = Extension::parse(&mut self.cur, name, r#type)?;
+                let ext = Extension::parse_internal(&mut self.cur, name, r#type)?;
 
                 self.m.extension = Some(ext);
             } else {
@@ -229,18 +230,8 @@ impl Message {
         let ascii_domain = idna::domain_to_ascii(&domain)
             .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
 
-        if ascii_domain.len() > 255 {
-            return Err(crate::Error::InvalidArgument(
-                "domain name is longer than 255 bytes".to_string(),
-            ));
-        }
-        for label in ascii_domain.split_terminator('.') {
-            if label.is_empty() || label.len() > 63 {
-                return Err(crate::Error::InvalidArgument(
-                    "domain name contains an invalid label".to_string(),
-                ));
-            }
-        }
+        limits::validate_ascii_name(&ascii_domain)
+            .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
 
         // TODO Don't allow more than 255 questions.
         let q = Question {
@@ -339,6 +330,11 @@ impl Message {
 
         buf.push(b);
 
+        limits::validate_section_count(self.questions.len())?;
+        limits::validate_section_count(self.answers.len())?;
+        limits::validate_section_count(self.authoritys.len())?;
+        limits::validate_section_count(self.additionals.len() + self.extension.is_some() as usize)?;
+
         let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
 
         buf.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
@@ -387,22 +383,8 @@ impl Message {
         };
 
         if !domain.is_empty() && domain != "." {
-            let mut wire_len = 1_usize;
+            limits::validate_ascii_name(&domain)?;
             for label in domain.split_terminator('.') {
-                if label.is_empty() {
-                    bail!(InvalidData, "empty label in domain name '{}'", domain);
-                }
-
-                if label.len() > 63 {
-                    bail!(InvalidData, "label '{0}' longer than 63 characters", label);
-                }
-
-                let label_wire_len = label.len() + 1;
-                if wire_len > 255 - label_wire_len {
-                    bail!(InvalidData, "domain name is longer than 255 bytes");
-                }
-                wire_len += label_wire_len;
-
                 // Write the length.
                 buf.push(label.len() as u8);
 
@@ -448,7 +430,19 @@ impl Extension {
     /// Returns an error when the record is not an OPT record, does not use the
     /// root name, is truncated, declares options beyond the remaining message,
     /// or contains malformed known options.
-    pub(crate) fn parse(
+    #[deprecated(note = "this low-level cursor parser is retained for compatibility")]
+    pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
+        Self::parse_internal(cur, domain, r#type)
+    }
+
+    /// Parses an EDNS(0) OPT record from a DNS message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the record is not an OPT record, does not use the
+    /// root name, is truncated, declares options beyond the remaining message,
+    /// or contains malformed known options.
+    pub(crate) fn parse_internal(
         cur: &mut Cursor<&[u8]>,
         domain: String,
         r#type: Type,

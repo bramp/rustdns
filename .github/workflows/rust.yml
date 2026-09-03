@@ -53,6 +53,17 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --workspace --all-features --no-deps
 
+      - name: Install cargo-semver-checks
+        if: ${{ !cancelled() }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+
+      - name: Check semver compatibility (advisory)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: cargo semver-checks check-release --baseline-version 0.6.0
+
       - name: Security Audit
         if: ${{ !cancelled() }}
         uses: rustsec/audit-check@v1

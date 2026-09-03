@@ -105,7 +105,8 @@ struct layouts or enum exhaustiveness.
 - [ ] Add focused tests for every new feature and every opt-in/default behavior.
 - [ ] Complete response status, content type, body size, framing, and malformed
   network-response integration tests.
-- [ ] Run `cargo-semver-checks` against `0.6.0` and confirm no unintended breaks.
+- [ ] Run advisory `cargo-semver-checks` against `0.6.0` and document known
+  intentional compatibility breaks, including the added `Extension.options` field.
 - [ ] Add `0.7.0` migration notes and release notes.
 - [ ] Run the complete quality gates and `cargo publish --dry-run`.
 - [ ] Release and tag `0.7.0`.
