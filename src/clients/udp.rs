@@ -43,8 +43,10 @@ pub const GOOGLE: [&str; 4] = [
 /// See <https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1>
 // TODO Document all the options.
 pub struct Client {
+    /// Resolved DNS server addresses. The socket uses the configured addresses for connection.
     servers: Vec<SocketAddr>,
 
+    /// Maximum time allowed to receive a UDP response. Defaults to five seconds; `None` disables it.
     read_timeout: Option<Duration>,
 }
 
@@ -74,6 +76,11 @@ impl Client {
 
             ..Default::default()
         })
+    }
+
+    /// Sets the timeout for UDP reads. Pass `None` to disable the timeout.
+    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+        self.read_timeout = timeout;
     }
 }
 

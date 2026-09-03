@@ -43,12 +43,15 @@ pub const GOOGLE: [&str; 4] = [
 /// ```
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.2>
-// TODO Document all the options.
 pub struct Client {
+    /// Resolved DNS server addresses. The first address is used for each exchange.
     servers: Vec<SocketAddr>,
 
+    /// Maximum time allowed to establish a TCP connection. Defaults to five seconds.
     connect_timeout: Duration,
+    /// Maximum time allowed for TCP reads. Defaults to five seconds; `None` disables it.
     read_timeout: Option<Duration>,
+    /// Maximum time allowed for TCP writes. Defaults to five seconds; `None` disables it.
     write_timeout: Option<Duration>,
 }
 
@@ -78,6 +81,21 @@ impl Client {
 
             ..Default::default()
         })
+    }
+
+    /// Sets the timeout for establishing a TCP connection.
+    pub fn set_connect_timeout(&mut self, timeout: Duration) {
+        self.connect_timeout = timeout;
+    }
+
+    /// Sets the timeout for TCP reads. Pass `None` to disable the timeout.
+    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+        self.read_timeout = timeout;
+    }
+
+    /// Sets the timeout for TCP writes. Pass `None` to disable the timeout.
+    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
+        self.write_timeout = timeout;
     }
 }
 
@@ -127,6 +145,7 @@ mod tests {
     use std::io::Write;
     use std::net::TcpListener;
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn rejects_truncated_and_oversized_frames() {
@@ -152,5 +171,14 @@ mod tests {
             assert!(client.exchange(&Message::default()).is_err());
             server.join().expect("join test server");
         }
+    }
+
+    #[test]
+    fn configures_timeouts() {
+        let mut client = Client::new("127.0.0.1:53").expect("create test client");
+
+        client.set_connect_timeout(Duration::from_secs(1));
+        client.set_read_timeout(None);
+        client.set_write_timeout(Some(Duration::from_secs(2)));
     }
 }
