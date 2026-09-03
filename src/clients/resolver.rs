@@ -79,7 +79,7 @@ where
         for r#type in &[Type::A, Type::AAAA] {
             let mut query = Message::default();
             query.try_add_question(name, *r#type, Class::Internet)?;
-            query.add_extension(Extension {
+            query.set_extension(Extension {
                 payload_size: 4096, // Allow for bigger responses.
 
                 ..Default::default()

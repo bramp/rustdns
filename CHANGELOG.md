@@ -11,6 +11,10 @@ All notable changes to rustdns are documented here.
 - Added persistent TCP connection reuse with keepalive and idle expiry.
 - Added reusable HTTP client pools for DoH and JSON clients.
 - Added DNS wire encoding for supported answer, authority, and additional records.
+- Added opt-in EDNS(0) option encoding for NSID, Client Subnet, COOKIE, TCP
+  Keepalive, Padding, and unknown options.
+- Added `Message::set_extension` as the preferred API for the single EDNS(0)
+  extension record.
 - Added regression coverage for transport reuse and reconnect-after-failure behavior.
 - Uploaded CI code coverage to Codecov and added a coverage badge to the README.
 

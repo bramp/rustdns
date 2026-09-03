@@ -1,5 +1,5 @@
 use crate::bail;
-use crate::io::{DNSReadExt, SeekExt};
+use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::types::Record;
 use crate::types::*;
 use byteorder::{ReadBytesExt, BE};
@@ -254,10 +254,49 @@ impl Message {
         Ok(())
     }
 
-    /// Adds a EDNS(0) extension record, as defined by [rfc6891](https://datatracker.ietf.org/doc/html/rfc6891).
-    pub fn add_extension(&mut self, ext: Extension) {
+    /// Sets the EDNS(0) extension record, as defined by [rfc6891].
+    ///
+    /// Use this when a query should advertise EDNS support, a larger UDP payload
+    /// size, DNSSEC OK, or EDNS options. DNS messages can contain at most one
+    /// EDNS(0) OPT record, so calling this again replaces the previous extension.
+    /// The extension is encoded by [`Self::to_vec`].
+    ///
+    /// ```rust
+    /// use rustdns::{EdnsOption, Extension, Message};
+    /// use std::time::Duration;
+    ///
+    /// let mut message = Message::default();
+    /// message.set_extension(
+    ///     Extension::default()
+    ///         .with_option(EdnsOption::nsid(Vec::new()))
+    ///         .with_option(EdnsOption::client_subnet(
+    ///             "192.0.2.129".parse().unwrap(), 24, 0
+    ///         ))
+    ///         .with_option(EdnsOption::cookie(*b"client01"))
+    ///         .with_option(EdnsOption::tcp_keepalive(Some(Duration::from_secs(30))))
+    ///         .with_option(EdnsOption::padding(16))
+    ///         .with_option(EdnsOption::unknown(65001, vec![1, 2, 3])),
+    /// );
+    /// ```
+    ///
+    /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+    pub fn set_extension(&mut self, ext: Extension) {
         // Don't allow if self.additionals.len() + 1 > 255
         self.extension = Some(ext);
+    }
+
+    /// Adds an EDNS(0) extension record, as defined by [rfc6891].
+    ///
+    /// This is kept for compatibility. Prefer [`Self::set_extension`] because a
+    /// DNS message can contain at most one EDNS(0) extension record, and calling
+    /// this method replaces any previous extension.
+    ///
+    /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+    #[deprecated(
+        note = "use set_extension because a message can contain at most one EDNS(0) extension"
+    )]
+    pub fn add_extension(&mut self, ext: Extension) {
+        self.set_extension(ext);
     }
 
     /// Encodes this DNS [`Message`] as a [`Vec<u8>`] ready to be sent, as defined by [rfc1035].
@@ -395,7 +434,8 @@ impl Extension {
     /// # Errors
     ///
     /// Returns an error when the record is not an OPT record, does not use the
-    /// root name, is truncated, or declares options beyond the remaining message.
+    /// root name, is truncated, declares options beyond the remaining message,
+    /// or contains malformed known options.
     pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
         if r#type != Type::OPT {
             bail!(InvalidInput, "expected EDNS(0) OPT record");
@@ -418,18 +458,33 @@ impl Extension {
 
         let _z = cur.read_u8()?;
 
-        // TODO implement this
         let rd_len = cur.read_u16::<BE>()?;
         if cur.remaining()? < u64::from(rd_len) {
             bail!(InvalidData, "EDNS(0) data exceeds the remaining message");
         }
-        cur.consume(rd_len.into());
+        let rd_len = usize::from(rd_len);
+        let pos = usize::try_from(cur.position()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "EDNS(0) cursor position is invalid",
+            )
+        })?;
+        let end = pos
+            .checked_add(rd_len)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "EDNS(0) length overflow"))?;
+        let mut option_cur = cur.sub_cursor(pos, end)?;
+        let mut options = Vec::new();
+        while option_cur.position() < rd_len as u64 {
+            options.push(EdnsOption::parse(&mut option_cur)?);
+        }
+        cur.consume(rd_len);
 
         Ok(Extension {
             payload_size,
             extend_rcode,
             version,
             dnssec_ok,
+            options,
         })
     }
 
@@ -454,9 +509,19 @@ impl Extension {
         buf.push(b);
         buf.push(0);
 
-        // 16 bit RDLEN - TODO
-        buf.push(0);
-        buf.push(0);
+        let mut option_data = Vec::new();
+        for option in &self.options {
+            option.write(&mut option_data)?;
+        }
+
+        let option_data_len = u16::try_from(option_data.len()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "EDNS(0) option data is too long",
+            )
+        })?;
+        buf.extend_from_slice(&option_data_len.to_be_bytes());
+        buf.extend_from_slice(&option_data);
 
         Ok(())
     }
@@ -465,7 +530,9 @@ impl Extension {
 #[cfg(test)]
 mod tests {
     use super::Message;
-    use crate::{Class, Question, Record, Resource, Type, MX, SOA, SRV, TXT};
+    use crate::{
+        Class, EdnsOption, Extension, Question, Record, Resource, Type, MX, SOA, SRV, TXT,
+    };
 
     #[test]
     fn truncated_dns_messages_return_errors() {
@@ -491,6 +558,82 @@ mod tests {
         ];
 
         assert!(Message::from_slice(&input).is_err());
+    }
+
+    #[test]
+    fn to_vec_encodes_edns_options() {
+        let mut message = Message {
+            id: 0x1234,
+            ..Default::default()
+        };
+        message.set_extension(
+            Extension::default()
+                .with_option(EdnsOption::nsid(b"abc".to_vec()))
+                .with_option(EdnsOption::client_subnet(
+                    "192.0.2.129".parse().unwrap(),
+                    24,
+                    0,
+                )),
+        );
+
+        let encoded = message.to_vec().expect("EDNS options should encode");
+
+        assert_eq!(
+            encoded,
+            vec![
+                0x12, 0x34, // id
+                0x01, 0x20, // flags
+                0x00, 0x00, // questions
+                0x00, 0x00, // answers
+                0x00, 0x00, // authorities
+                0x00, 0x01, // additionals
+                0x00, // root name
+                0x00, 0x29, // OPT
+                0x10, 0x00, // payload size
+                0x00, // extended rcode
+                0x00, // version
+                0x00, 0x00, // flags
+                0x00, 0x12, // option data length
+                0x00, 0x03, 0x00, 0x03, b'a', b'b', b'c', // NSID
+                0x00, 0x08, 0x00, 0x07, 0x00, 0x01, 24, 0, 192, 0, 2, // ECS
+            ]
+        );
+        let decoded = Message::from_slice(&encoded).expect("encoded message should parse");
+        assert_eq!(
+            decoded.extension.expect("extension should parse").options,
+            message.extension.unwrap().options
+        );
+    }
+
+    #[test]
+    fn to_vec_encodes_extension_options() {
+        let mut message = Message {
+            id: 0x1234,
+            ..Default::default()
+        };
+        message.set_extension(Extension::default().with_option(EdnsOption::nsid(Vec::new())));
+
+        let encoded = message
+            .to_vec()
+            .expect("EDNS extension options should encode");
+
+        assert_eq!(&encoded[10..12], &[0x00, 0x01]);
+        assert_eq!(
+            &encoded[12..],
+            &[0, 0, 41, 0x10, 0, 0, 0, 0, 0, 0, 4, 0, 3, 0, 0]
+        );
+    }
+
+    #[test]
+    fn to_vec_rejects_malformed_edns_options() {
+        let mut message = Message::default();
+        message.set_extension(Extension::default().with_option(EdnsOption::client_subnet(
+            "192.0.2.1".parse().unwrap(),
+            33,
+            0,
+        )));
+
+        assert!(message.to_vec().is_err());
     }
 
     #[test]

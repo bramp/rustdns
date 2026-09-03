@@ -41,7 +41,7 @@
 //!     let mut m = Message::default();
 //!     m.try_add_question("bramp.net", Type::A, Class::Internet)
 //!         .map_err(std::io::Error::other)?;
-//!     m.add_extension(Extension {   // Optionally add a EDNS extension
+//!     m.set_extension(Extension {   // Optionally add a EDNS extension
 //!         payload_size: 4096,       // which supports a larger payload size.
 //!         ..Default::default()
 //!     });
@@ -222,6 +222,7 @@ pub mod clients;
 
 mod display;
 mod dns;
+mod edns;
 mod errors;
 mod from_str;
 mod io;
@@ -249,6 +250,9 @@ extern crate lazy_static;
 // Pull up the various types that should be on the front page of the docs.
 #[doc(inline)]
 pub use crate::types::*;
+
+#[doc(inline)]
+pub use crate::edns::*;
 
 #[doc(inline)]
 pub use crate::resource::*;

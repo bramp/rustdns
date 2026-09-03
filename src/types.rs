@@ -1,3 +1,7 @@
+pub use crate::edns::{
+    EdnsClientSubnet, EdnsCookie, EdnsOption, EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE,
+    EDNS_OPTION_NSID, EDNS_OPTION_PADDING, EDNS_OPTION_TCP_KEEPALIVE,
+};
 use crate::resource::*;
 use educe::Educe;
 use std::net::SocketAddr;
@@ -171,26 +175,71 @@ impl Record {
 
 /// EDNS(0) extension record as defined in [rfc2671] and [rfc6891].
 ///
+/// Use [`Message::set_extension`](crate::Message::set_extension) to attach an
+/// extension to a DNS message. Use [`Extension::add_option`] when mutating an
+/// existing extension, or [`Extension::with_option`] when building an extension
+/// inline before passing it to `set_extension`.
+///
+/// ```rust
+/// use rustdns::{EdnsOption, Extension, Message};
+///
+/// let mut message = Message::default();
+/// message.set_extension(
+///     Extension::default().with_option(EdnsOption::client_subnet(
+///         "192.0.2.129".parse().unwrap(),
+///         24,
+///         0,
+///     )),
+/// );
+/// ```
+///
 /// [rfc2671]: https://datatracker.ietf.org/doc/html/rfc2671
 /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
 //
-// TODO Support EDNS0_NSID (RFC 5001) and EDNS0_SUBNET (RFC 7871) records within the extension.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Extension {
     /// Requestor's UDP payload size.
+    ///
+    /// In queries, this advertises the largest DNS response payload the sender
+    /// can receive over UDP. Larger values allow servers to return responses
+    /// bigger than the original 512-byte DNS UDP limit, but callers should still
+    /// choose a value that fits their transport and path MTU assumptions. The
+    /// default is 4096 bytes.
     pub payload_size: u16,
 
-    /// Extended RCode.
+    /// Extended response code.
+    ///
+    /// EDNS extends the DNS header's four-bit response code with this upper
+    /// eight-bit field. Query messages normally leave this as `0`; response
+    /// messages can use it to represent extended error codes such as BADVERS.
     pub extend_rcode: u8,
 
-    /// Version of the extension.
+    /// EDNS version.
+    ///
+    /// EDNS(0) uses version `0`. Queries should leave this as `0` unless they
+    /// deliberately implement a later EDNS version. A responder can reject
+    /// unsupported versions with the appropriate extended response code.
     pub version: u8,
 
     /// DNSSEC OK bit as defined by [rfc3225].
     ///
+    /// Set this to `true` when the sender wants DNSSEC records such as RRSIG,
+    /// DNSKEY, and related authentication data to be included in responses when
+    /// available. Leave it `false` for ordinary queries that do not request
+    /// DNSSEC data.
+    ///
     /// [rfc3225]: https://datatracker.ietf.org/doc/html/rfc3225
     pub dnssec_ok: bool,
+
+    /// EDNS(0) options carried by this extension record.
+    ///
+    /// Options are encoded in order into the OPT record RDATA. Use
+    /// [`Extension::add_option`] or [`Extension::with_option`] to add typed
+    /// options such as [`EdnsOption::nsid`], [`EdnsOption::cookie`],
+    /// [`EdnsOption::tcp_keepalive`], or [`EdnsOption::padding`]. Unknown option
+    /// codes can be preserved with [`EdnsOption::unknown`].
+    pub options: Vec<EdnsOption>,
 }
 
 impl Default for Extension {
@@ -200,7 +249,27 @@ impl Default for Extension {
             extend_rcode: 0,
             version: 0,
             dnssec_ok: false,
+            options: Vec::new(),
         }
+    }
+}
+
+impl Extension {
+    /// Adds an EDNS(0) option to this extension record.
+    ///
+    /// Use this when an extension value already exists and should be mutated in
+    /// place.
+    pub fn add_option(&mut self, option: EdnsOption) {
+        self.options.push(option);
+    }
+
+    /// Returns this extension record with an EDNS(0) option added.
+    ///
+    /// Use this when constructing an extension inline, especially before passing
+    /// it to [`Message::set_extension`](crate::Message::set_extension).
+    pub fn with_option(mut self, option: EdnsOption) -> Self {
+        self.add_option(option);
+        self
     }
 }
 

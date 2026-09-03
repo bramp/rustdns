@@ -264,7 +264,7 @@ async fn main() -> Result<(), DigError> {
     for domain in &args.domains {
         query.try_add_question(domain, args.r#type, Class::Internet)?;
     }
-    query.add_extension(Extension {
+    query.set_extension(Extension {
         payload_size: 4096,
 
         ..Default::default()

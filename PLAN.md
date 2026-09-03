@@ -85,7 +85,7 @@ struct layouts or enum exhaustiveness.
 ### DNS And Protocol Features
 
 - [x] Add encoding support for answer, authority, and additional records.
-- [ ] Add further EDNS options through additive methods or option types.
+- [x] Add further EDNS options through additive methods or option types.
 - [ ] Add opt-in DNS-over-TLS or other new transport modules if justified.
 - [ ] Review and expose DNS name, question-count, and message-size limits through
   additive validation helpers.
