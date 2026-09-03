@@ -239,4 +239,27 @@ mod tests {
 
         assert!(cursor.read_qname().is_err());
     }
+
+    #[test]
+    fn qname_rejects_invalid_pointer_forms() {
+        let cases = [
+            (&[0xc0, 0x02][..], "forward pointer"),
+            (&[0xc0, 0xff][..], "out-of-range pointer"),
+            (&[0x80, 0x00][..], "unsupported compression"),
+        ];
+
+        for (input, description) in cases {
+            let mut cursor = Cursor::new(input);
+            assert!(cursor.read_qname().is_err(), "accepted {}", description);
+        }
+    }
+
+    #[test]
+    fn qname_rejects_pointer_loop() {
+        let input = [0xc0, 0x02, 0xc0, 0x00];
+        let mut cursor = Cursor::new(&input);
+        cursor.set_position(2);
+
+        assert!(cursor.read_qname().is_err());
+    }
 }
