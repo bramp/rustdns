@@ -31,6 +31,11 @@ pub enum FromStrError {
 
 impl Resource {
     // Similar to the FromStr but needs the record Type since they are ambiguous.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the text is not valid for the requested record type,
+    /// contains an invalid number or address, or the type has no text representation.
     pub fn from_str(r#type: Type, s: &str) -> Result<Self, FromStrError> {
         Ok(match r#type {
             // IP Addresses
@@ -58,6 +63,12 @@ impl Resource {
 impl FromStr for SOA {
     type Err = FromStrError;
 
+    /// Parses an SOA resource from its text representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the text does not contain the seven required SOA fields
+    /// or a numeric field is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
@@ -90,6 +101,11 @@ impl FromStr for SOA {
 impl FromStr for MX {
     type Err = FromStrError;
 
+    /// Parses an MX resource from its text representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the preference is not a valid integer or the format is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             // "10 aspmx.l.google.com."
@@ -110,6 +126,11 @@ impl FromStr for MX {
 impl FromStr for SRV {
     type Err = FromStrError;
 
+    /// Parses an SRV resource from its text representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a priority, weight, or port is not a valid integer or the format is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             // "5 0 389 ldap.google.com."
@@ -132,6 +153,11 @@ impl FromStr for SRV {
 impl FromStr for TXT {
     type Err = FromStrError;
 
+    /// Parses a TXT resource from its text representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when quoted text is malformed or no quoted segments are found.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             // TODO Handle escaped quotes

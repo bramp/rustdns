@@ -68,7 +68,12 @@ impl Default for Client {
 
 impl Client {
     /// Creates a new Client bound to the specific servers.
-    // TODO Document how it fails.
+    ///
+    /// The first resolved server is used for each exchange.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if server address resolution fails or produces no addresses.
     pub fn new<A: ToSocketAddrs>(servers: A) -> Result<Self, crate::Error> {
         let servers: Vec<_> = servers.to_socket_addrs()?.collect();
         if servers.is_empty() {
@@ -101,6 +106,10 @@ impl Client {
 
 impl Exchanger for Client {
     /// Sends the [`Message`] to the `server` via TCP and returns the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection, DNS framing, or response parsing fails.
     fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
         let server = self.servers.first().ok_or_else(|| {
             crate::Error::InvalidArgument("at least one DNS server is required".to_string())

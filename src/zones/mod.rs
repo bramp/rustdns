@@ -35,6 +35,11 @@ pub struct File {
 
 impl File {
     /// Creates a zone file, returning an error when the origin is not absolute.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProcessError::OriginNotAbsolute`] when `origin` is present but
+    /// does not end in a root label (`.`).
     pub fn try_new(
         mut origin: Option<String>,
         entries: Vec<Entry>,
@@ -54,6 +59,11 @@ impl File {
     }
 
     #[deprecated(note = "use try_new to handle invalid origins")]
+    ///
+    /// # Panics
+    ///
+    /// Panics when `origin` is present but is not an absolute domain. Prefer
+    /// [`Self::try_new`] for caller-provided input.
     pub fn new(mut origin: Option<String>, entries: Vec<Entry>) -> File {
         Self::try_new(origin.take(), entries)
             .unwrap_or_else(|error| panic!("failed to create zone file: {}", error))
@@ -64,6 +74,10 @@ impl FromStr for File {
     type Err = pest_consume::Error<Rule>;
 
     /// Parse a full zone file.
+    ///
+    /// # Errors
+    ///
+    /// Returns a Pest parsing error when the zone-file syntax is invalid.
     ///
     /// ```
     /// use rustdns::Resource;
@@ -157,6 +171,10 @@ impl FromStr for Record {
     ///
     /// This function is mostly useful for test code, or quickly parsing a
     /// single record. Please prefer to use [`File::from_str`] to parse full files.
+    ///
+    /// # Errors
+    ///
+    /// Returns a Pest parsing error when the record syntax or resource data is invalid.
     fn from_str(input_str: &str) -> Result<Self, Self::Err> {
         let inputs = ZoneParser::parse(Rule::single_record, input_str)?;
         let input = inputs.single()?;

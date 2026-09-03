@@ -35,10 +35,18 @@ pub enum ProcessError {
 
 impl File {
     /// Resolves this zone file into records, returning details for invalid state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ProcessError`] with the entry index and record context when
+    /// required inherited zone state is missing or a relative resource name is invalid.
     pub fn try_into_records(self) -> Result<Vec<Record>, ProcessError> {
         self.into_records_impl()
     }
 
+    /// Errors are discarded by this compatibility method. Prefer
+    /// [`File::try_into_records`] to retain error context.
+    #[deprecated(note = "use try_into_records to retain processing errors")]
     pub fn into_records(self) -> Result<Vec<Record>, ()> {
         self.try_into_records().map_err(|_| ())
     }
@@ -277,7 +285,7 @@ mod tests {
         for (input, want) in tests {
             match File::from_str(input)
                 .expect("failed to parse")
-                .into_records()
+                .try_into_records()
             {
                 Ok(got) => assert_eq!(got, want),
                 Err(err) => panic!("{} Failed:\n{:?}", input, err), // TODO Make a error and no need to use "{:?}"

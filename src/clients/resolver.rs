@@ -62,7 +62,11 @@ where
     ///
     /// [rfc1035#section-7]: https://datatracker.ietf.org/doc/html/rfc1035#section-7
     /// [rfc1034#section-5]: https://datatracker.ietf.org/doc/html/
-    // TODO Should this return a Iterator, or a Vector? Check other APIs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the name cannot be encoded, a DNS exchange fails, or
+    /// a response reports a failure status.
     // https://docs.rs/tokio/1.6.1/tokio/net/fn.lookup_host.html yield a iterator
     pub fn lookup(&self, name: &str) -> Result<Vec<IpAddr>, crate::Error> {
         let mut results = HashSet::new();

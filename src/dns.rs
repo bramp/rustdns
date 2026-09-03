@@ -172,6 +172,11 @@ impl Message {
     }
 
     /// Decodes the supplied buffer and returns a [`Message`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the buffer is truncated, contains invalid DNS
+    /// fields, or violates message, record, EDNS, or compression bounds.
     pub fn from_slice(buf: &[u8]) -> io::Result<Message> {
         MessageParser::new(buf).parse()
     }
@@ -200,6 +205,11 @@ impl Message {
     ///
     /// [§4.1.2 of rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2.
     #[deprecated(note = "use try_add_question to handle invalid domains")]
+    ///
+    /// # Panics
+    ///
+    /// Panics when `domain` cannot be normalized. Prefer [`Self::try_add_question`]
+    /// for caller-provided input.
     pub fn add_question(&mut self, domain: &str, r#type: Type, class: Class) {
         self.try_add_question(domain, r#type, class)
             .expect("invalid domain");
@@ -250,6 +260,11 @@ impl Message {
     }
 
     /// Encodes this DNS [`Message`] as a [`Vec<u8>`] ready to be sent, as defined by [rfc1035].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a domain is invalid, a name exceeds DNS wire limits,
+    /// or the message contains record sections that are not yet supported for encoding.
     ///
     /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
     pub fn to_vec(&self) -> io::Result<Vec<u8>> {
@@ -364,6 +379,12 @@ impl Message {
 }
 
 impl Extension {
+    /// Parses an EDNS(0) OPT record from a DNS message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the record is not an OPT record, does not use the
+    /// root name, is truncated, or declares options beyond the remaining message.
     pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
         if r#type != Type::OPT {
             bail!(InvalidInput, "expected EDNS(0) OPT record");
@@ -401,6 +422,12 @@ impl Extension {
         })
     }
 
+    /// Writes this EDNS(0) extension to a DNS message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the extension cannot be represented in the output
+    /// message.
     pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         buf.push(0); // A single "." domain name                          // 0-1
         buf.extend_from_slice(&(Type::OPT as u16).to_be_bytes()); // 1-3

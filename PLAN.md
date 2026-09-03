@@ -31,14 +31,15 @@ alternative is provided first.
 
 ### API And Error Handling
 
-- [x] Deprecate infallible compatibility APIs such as `Message::add_question` and
-  `File::new`, directing callers to their fallible alternatives.
+- [x] Deprecate infallible compatibility APIs such as `Message::add_question`,
+  `File::new`, and `File::into_records`, directing callers to fallible alternatives.
 - [x] Preserve zone entry and record context in processing errors; Pest retains exact locations for syntax errors.
-- [ ] Replace remaining input-dependent panics in client and zone paths with
-  fallible alternatives where possible.
-- [ ] Replace the custom `bail!` macro incrementally with typed `thiserror` variants
-  where this improves the public contract.
-- [ ] Document error behavior for every public constructor and parser.
+- [x] Partially replace input-dependent panics in client and zone paths with
+  fallible alternatives, including question building, zone construction and
+  processing, and empty-client handling; deprecated infallible wrappers remain.
+- [x] Partially replace `bail!` in compatibility-preserving client argument paths
+  with the existing typed `Error::InvalidArgument` variant.
+- [x] Document error behavior for every public constructor and parser.
 
 ### Network Clients
 
@@ -88,10 +89,13 @@ alternative is provided first.
 - [ ] Make fallible APIs the primary constructors and builders.
 - [ ] Replace `Result<T, ()>` and remaining compatibility error wrappers with
   structured public errors.
+- [ ] Replace the remaining macro-backed parser and protocol errors with structured
+  `thiserror` errors, then remove or privatize the exported `bail!` macro.
 - [ ] Decide whether public enum and struct changes require a final compatibility
   review or additional migration types.
 - [ ] Complete removal of input-dependent `expect`, `unwrap`, assertions, and
-  unchecked indexing from production input paths.
+  unchecked indexing from production input paths, including deprecated
+  infallible compatibility wrappers.
 
 ### Rust Platform Migration
 

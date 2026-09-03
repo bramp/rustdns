@@ -79,7 +79,11 @@ impl Client {
     /// Be aware that the servers will typically be in the form of `https://domain_name/`. That
     /// `domain_name` will be resolved by the system's standard DNS library. I don't have a good
     /// work-around for this yet.
-    // TODO Document how it fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no server is supplied, a URL cannot be parsed, a server
+    /// does not use HTTPS, or `method` is not `GET` or `POST`.
     pub fn new<A: ToUrls>(servers: A, method: Method) -> Result<Self, crate::Error> {
         match method {
             Method::GET | Method::POST => (), // Nothing,
@@ -109,6 +113,11 @@ impl Client {
 #[async_trait]
 impl AsyncExchanger for Client {
     /// Sends the [`Message`] to the `server` via HTTP and returns the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for request construction failures, unsuccessful HTTP
+    /// responses, invalid content types, oversized bodies, or invalid DNS data.
     // TODO Decide if this should be async or not.
     // Can return ::std::io::Error
     async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {

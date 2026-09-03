@@ -41,9 +41,12 @@ pub const GOOGLE: [&str; 4] = [
 /// ```
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1>
-// TODO Document all the options.
 pub struct Client {
-    /// Resolved DNS server addresses. The socket uses the configured addresses for connection.
+    /// Resolved DNS server addresses used when connecting the UDP socket.
+    ///
+    /// The input to [`Client::new`] may be a socket address, a `host:port` string,
+    /// or another [`ToSocketAddrs`] implementation. Hostnames are resolved when
+    /// the client is constructed, not for each exchange.
     servers: Vec<SocketAddr>,
 
     /// Maximum time allowed to receive a UDP response. Defaults to five seconds; `None` disables it.
@@ -61,9 +64,18 @@ impl Default for Client {
 
 impl Client {
     /// Creates a new Client bound to the specific servers.
-    // TODO Document how it fails.
-    // TODO Document how you can give it a set of addresses.
-    // TODO Document how they should be IP addresses, not hostnames.
+    ///
+    /// `servers` can be a `SocketAddr`, a `host:port` string, or any other value
+    /// implementing [`ToSocketAddrs`]. A port must be supplied because DNS uses
+    /// the server's socket address directly.
+    ///
+    /// Multiple resolved addresses are retained as connection candidates. The
+    /// current client does not perform application-level retries or failover
+    /// after a connection has been established.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if address resolution fails or produces no addresses.
     pub fn new<A: ToSocketAddrs>(servers: A) -> Result<Self, crate::Error> {
         let servers: Vec<_> = servers.to_socket_addrs()?.collect();
         if servers.is_empty() {
@@ -86,6 +98,10 @@ impl Client {
 
 impl Exchanger for Client {
     /// Sends the query [`Message`] to the `server` via UDP and returns the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the socket, network exchange, or response parsing fails.
     fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
         // TODO Implement retries, backoffs, and cycling of servers.
         // per https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
