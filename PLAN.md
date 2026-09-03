@@ -33,7 +33,7 @@ alternative is provided first.
 
 - [x] Deprecate infallible compatibility APIs such as `Message::add_question` and
   `File::new`, directing callers to their fallible alternatives.
-- [ ] Preserve zone source context, record context, and useful parse locations in errors.
+- [x] Preserve zone entry and record context in processing errors; Pest retains exact locations for syntax errors.
 - [ ] Replace remaining input-dependent panics in client and zone paths with
   fallible alternatives where possible.
 - [ ] Replace the custom `bail!` macro incrementally with typed `thiserror` variants
