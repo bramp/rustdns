@@ -16,3 +16,25 @@ pub(crate) fn content_type_equal(content_type: &HeaderValue, expected: &str) -> 
 
     content_type.essence_str() == expected
 }
+
+#[cfg(test)]
+mod tests {
+    use super::content_type_equal;
+    use http::HeaderValue;
+
+    #[test]
+    fn recognizes_content_type_essence_and_rejects_invalid_values() {
+        assert!(content_type_equal(
+            &HeaderValue::from_static("application/dns-message; charset=binary"),
+            "application/dns-message"
+        ));
+        assert!(!content_type_equal(
+            &HeaderValue::from_static("text/plain"),
+            "application/dns-message"
+        ));
+        assert!(!content_type_equal(
+            &HeaderValue::from_static("not a media type"),
+            "application/dns-message"
+        ));
+    }
+}

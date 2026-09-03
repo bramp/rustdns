@@ -15,7 +15,7 @@ use core::convert::TryInto;
 use http::header::*;
 use http::Method;
 use http::Request;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Empty, Limited};
 use hyper::body::Bytes;
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::connect::HttpInfo;
@@ -24,11 +24,14 @@ use hyper_util::rt::TokioExecutor;
 use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
+
+const MAX_JSON_BODY_SIZE: usize = 1024 * 1024;
 
 pub const GOOGLE: &str = "https://dns.google/resolve";
 pub const CLOUDFLARE: &str = "https://cloudflare-dns.com/dns-query";
@@ -224,6 +227,9 @@ impl AsyncExchanger for Client {
                 "expected exactly one question must be provided".to_string(),
             ));
         }
+        let server = self.servers.first().ok_or_else(|| {
+            crate::Error::InvalidArgument("at least one DoH JSON server is required".to_string())
+        })?;
 
         let https = HttpsConnectorBuilder::new()
             .with_webpki_roots()
@@ -237,9 +243,11 @@ impl AsyncExchanger for Client {
             .http2_only(true)
             .build(https);
 
-        let question = &query.questions[0];
+        let question = query.questions.first().ok_or_else(|| {
+            crate::Error::InvalidArgument("expected one DNS question".to_string())
+        })?;
 
-        let mut url = self.servers[0].clone(); // TODO Support more than one server
+        let mut url = server.clone(); // TODO Support more than one server
         url.query_pairs_mut().append_pair("name", &question.name);
         url.query_pairs_mut()
             .append_pair("type", &question.r#type.to_string());
@@ -271,18 +279,22 @@ impl AsyncExchanger for Client {
         let stats = StatsBuilder::start(0);
         let resp = client.request(req).await?;
 
-        if let Some(content_type) = resp.headers().get(CONTENT_TYPE) {
-            if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_JSON)
-                && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_JSON)
-            {
-                bail!(
-                    InvalidData,
-                    "recevied invalid content-type: {:?} expected {} or {}",
-                    content_type,
-                    CONTENT_TYPE_APPLICATION_DNS_JSON,
-                    CONTENT_TYPE_APPLICATION_JSON,
-                );
-            }
+        let content_type = resp.headers().get(CONTENT_TYPE).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "response is missing content-type",
+            )
+        })?;
+        if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_JSON)
+            && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_JSON)
+        {
+            bail!(
+                InvalidData,
+                "recevied invalid content-type: {:?} expected {} or {}",
+                content_type,
+                CONTENT_TYPE_APPLICATION_DNS_JSON,
+                CONTENT_TYPE_APPLICATION_JSON,
+            );
         }
 
         if resp.status().is_success() {
@@ -295,7 +307,11 @@ impl AsyncExchanger for Client {
             };
 
             // Read the full body
-            let body = resp.into_body().collect().await?.to_bytes();
+            let body = Limited::new(resp.into_body(), MAX_JSON_BODY_SIZE)
+                .collect()
+                .await
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                .to_bytes();
 
             println!("{:?}", body);
 
@@ -317,8 +333,11 @@ impl AsyncExchanger for Client {
 
 #[cfg(test)]
 mod tests {
+    use super::MAX_JSON_BODY_SIZE;
     use crate::clients::json::MessageJson;
     use crate::Message;
+    use http_body_util::{BodyExt, Full, Limited};
+    use hyper::body::Bytes;
     use json_comments::StripComments;
     use std::convert::TryInto;
     use std::io::Read;
@@ -471,5 +490,17 @@ mod tests {
                 .expect("failed to turn MessageJson into a Message");
             // TODO Check this is what we expect
         }
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_response_body() {
+        let body = Limited::new(
+            Full::new(Bytes::from(vec![0; MAX_JSON_BODY_SIZE + 1])),
+            MAX_JSON_BODY_SIZE,
+        )
+        .collect()
+        .await;
+
+        assert!(body.is_err());
     }
 }

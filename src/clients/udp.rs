@@ -88,6 +88,11 @@ impl Exchanger for Client {
 
         // Connect us to the server, meaning recv will only receive directly
         // from the server.
+        if self.servers.is_empty() {
+            return Err(crate::Error::InvalidArgument(
+                "at least one DNS server is required".to_string(),
+            ));
+        }
         socket.connect(self.servers.as_slice())?;
 
         let req = query.to_vec()?;

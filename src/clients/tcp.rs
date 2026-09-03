@@ -84,7 +84,10 @@ impl Client {
 impl Exchanger for Client {
     /// Sends the [`Message`] to the `server` via TCP and returns the result.
     fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
-        let mut stream = TcpStream::connect_timeout(&self.servers[0], self.connect_timeout)?;
+        let server = self.servers.first().ok_or_else(|| {
+            crate::Error::InvalidArgument("at least one DNS server is required".to_string())
+        })?;
+        let mut stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
         stream.set_nodelay(true)?; // We send discrete packets, so we can send as soon as possible.
         stream.set_read_timeout(self.read_timeout)?;
         stream.set_write_timeout(self.write_timeout)?;
@@ -112,5 +115,42 @@ impl Exchanger for Client {
         resp.stats = Some(stats.end(stream.peer_addr()?, (len + 2).into()));
 
         Ok(resp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Client;
+    use crate::clients::Exchanger;
+    use crate::Message;
+    use std::io::Read;
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[test]
+    fn rejects_truncated_and_oversized_frames() {
+        for declared_length in [11_u16, u16::MAX] {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+            let address = listener.local_addr().expect("read test listener address");
+            let server = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept test connection");
+                let mut request_length = [0; 2];
+                stream
+                    .read_exact(&mut request_length)
+                    .expect("read request length");
+                let request_length = u16::from_be_bytes(request_length) as usize;
+                let mut request = vec![0; request_length];
+                stream.read_exact(&mut request).expect("read request");
+                stream
+                    .write_all(&declared_length.to_be_bytes())
+                    .expect("write response length");
+                stream.flush().expect("flush response");
+            });
+
+            let client = Client::new(address).expect("create test client");
+            assert!(client.exchange(&Message::default()).is_err());
+            server.join().expect("join test server");
+        }
     }
 }

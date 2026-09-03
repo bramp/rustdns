@@ -8,17 +8,20 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http::header::*;
 use http::{Method, Request};
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Bytes;
 use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::connect::HttpInfo;
 use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::rt::TokioExecutor;
+use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
+
+const MAX_DOH_BODY_SIZE: usize = 65535; // The maximum size of a DNS message is 65535 bytes. See https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
 
 pub const GOOGLE: &str = "https://dns.google/dns-query";
 
@@ -104,6 +107,9 @@ impl AsyncExchanger for Client {
     // TODO Decide if this should be async or not.
     // Can return ::std::io::Error
     async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+        let server = self.servers.first().ok_or_else(|| {
+            crate::Error::InvalidArgument("at least one DoH server is required".to_string())
+        })?;
         let mut query = query.clone();
         query.id = 0;
 
@@ -133,7 +139,7 @@ impl AsyncExchanger for Client {
                 URL_SAFE_NO_PAD.encode_string(p, &mut buf);
 
                 // and add to the query params.
-                let mut url = self.servers[0].clone(); // TODO Support more than one server
+                let mut url = server.clone(); // TODO Support more than one server
                 url.query_pairs_mut().append_pair(DNS_QUERY_PARAM, &buf);
 
                 // We have to do this wierd as_str().parse() thing because the
@@ -142,7 +148,7 @@ impl AsyncExchanger for Client {
                 req.uri(uri).body(Full::new(Bytes::new()))?
             }
             Method::POST => {
-                req.uri(self.servers[0].as_str()) // TODO Support more than one server
+                req.uri(server.as_str()) // TODO Support more than one server
                     .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
                     .body(Full::new(Bytes::from(p)))? // content-length header will be added.
             }
@@ -154,15 +160,19 @@ impl AsyncExchanger for Client {
         let resp = client.request(req).await?;
         // TODO This media type restricts the maximum size of the DNS message to 65535 bytes
 
-        if let Some(content_type) = resp.headers().get(CONTENT_TYPE) {
-            if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_MESSAGE) {
-                bail!(
-                    InvalidData,
-                    "recevied invalid content-type: {:?} expected {}",
-                    content_type,
-                    CONTENT_TYPE_APPLICATION_DNS_MESSAGE,
-                );
-            }
+        let content_type = resp.headers().get(CONTENT_TYPE).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "response is missing content-type",
+            )
+        })?;
+        if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_MESSAGE) {
+            bail!(
+                InvalidData,
+                "recevied invalid content-type: {:?} expected {}",
+                content_type,
+                CONTENT_TYPE_APPLICATION_DNS_MESSAGE,
+            );
         }
 
         if resp.status().is_success() {
@@ -177,7 +187,11 @@ impl AsyncExchanger for Client {
             };
 
             // Read the full body
-            let body = resp.into_body().collect().await?.to_bytes();
+            let body = Limited::new(resp.into_body(), MAX_DOH_BODY_SIZE)
+                .collect()
+                .await
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                .to_bytes();
 
             let mut m = Message::from_slice(&body)?;
             m.stats = Some(stats.end(remote_addr, body.len()));
@@ -196,11 +210,25 @@ impl AsyncExchanger for Client {
 
 #[cfg(test)]
 mod tests {
-    use super::Client;
+    use super::{Client, MAX_DOH_BODY_SIZE};
     use http::Method;
+    use http_body_util::{BodyExt, Full, Limited};
+    use hyper::body::Bytes;
 
     #[test]
     fn rejects_plaintext_http_server() {
         assert!(Client::new("http://dns.example/dns-query", Method::GET).is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_response_body() {
+        let body = Limited::new(
+            Full::new(Bytes::from(vec![0; MAX_DOH_BODY_SIZE + 1])),
+            MAX_DOH_BODY_SIZE,
+        )
+        .collect()
+        .await;
+
+        assert!(body.is_err());
     }
 }
