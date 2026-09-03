@@ -57,10 +57,11 @@ const DNS_QUERY_PARAM: &str = "dns";
 /// ```
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc8484>
-// TODO Document all the options.
 pub struct Client {
+    /// HTTPS endpoints used for DNS queries. The first endpoint is currently used for each exchange.
     servers: Vec<Url>,
-    method: Method, // One of POST or GET
+    /// HTTP method used for DNS-over-HTTPS requests. Only `GET` and `POST` are accepted.
+    method: Method,
 }
 
 impl Default for Client {
@@ -126,6 +127,7 @@ impl AsyncExchanger for Client {
             .enable_http2()
             .build();
 
+        // TODO Store and reuse the Hyper client so its connection pool stays alive across exchanges.
         let client: HyperClient<_, Full<Bytes>> = HyperClient::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(30))
             .http2_only(true) // TODO POST stop working when this is false. Figure that out.

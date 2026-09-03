@@ -105,6 +105,7 @@ impl Exchanger for Client {
         let server = self.servers.first().ok_or_else(|| {
             crate::Error::InvalidArgument("at least one DNS server is required".to_string())
         })?;
+        // TODO Keep a persistent connection and reuse it for subsequent exchanges.
         let mut stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
         stream.set_nodelay(true)?; // We send discrete packets, so we can send as soon as possible.
         stream.set_read_timeout(self.read_timeout)?;

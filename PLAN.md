@@ -45,9 +45,11 @@ alternative is provided first.
 - [ ] Decide and document server-selection, timeout, retry, and failover semantics.
 - [ ] Add opt-in client failover without changing current default server behavior.
 - [ ] Add HTTP status-response integration tests for DoH and JSON clients.
-- [ ] Add public client configuration methods or builders for timeouts and retries.
+- [x] Add public timeout configuration methods for the blocking TCP and UDP clients.
+- [ ] Add timeout and retry configuration for HTTP clients.
 - [ ] Add useful response and transport metadata accessors without changing existing
   struct literals or enum matching behavior.
+- [ ] Reuse persistent TCP connections and HTTP connection pools across exchanges.
 
 ### DNS And Protocol Features
 

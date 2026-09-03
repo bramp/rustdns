@@ -186,9 +186,9 @@ impl TryInto<Record> for RecordJson {
 ///
 /// See <https://developers.google.com/speed/public-dns/docs/doh/json> and
 /// <https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json>
-// TODO Document all the options.
 #[derive(Default)]
 pub struct Client {
+    /// HTTPS endpoints used for JSON DNS queries. The first endpoint is currently used for each exchange.
     servers: Vec<Url>,
 }
 
@@ -238,6 +238,7 @@ impl AsyncExchanger for Client {
             .enable_http2()
             .build();
 
+        // TODO Store and reuse the Hyper client so its connection pool stays alive across exchanges.
         let client: HyperClient<_, Empty<Bytes>> = HyperClient::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(30))
             .http2_only(true)
