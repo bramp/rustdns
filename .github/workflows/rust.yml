@@ -71,12 +71,18 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   test:
-    name: Build & Test
+    name: Build & Test (${{ matrix.rust }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 1.85 is the MSRV declared by rust-version in Cargo.toml.
+        rust: ["1.85", "stable"]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.rust }}
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
 
@@ -93,12 +99,15 @@ jobs:
         run: cargo check --workspace --all-targets --all-features
 
       - name: Install cargo-llvm-cov
+        if: matrix.rust == 'stable'
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Code Coverage
+        if: matrix.rust == 'stable'
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
+        if: matrix.rust == 'stable'
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info
