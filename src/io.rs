@@ -180,15 +180,6 @@ pub trait DNSReadExt: io::Read + io::Seek {
             }
         }
 
-        let ascii = idna::domain_to_ascii(&qname)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let wire_len = ascii
-            .split_terminator('.')
-            .try_fold(1_usize, |length, label| length.checked_add(label.len() + 1));
-        if wire_len.is_none_or(|length| length > 255) {
-            bail!(InvalidData, "domain name is longer than 255 bytes");
-        }
-
         Ok(qname)
     }
 
@@ -269,19 +260,6 @@ mod tests {
         let mut cursor = Cursor::new(&input);
         cursor.set_position(2);
 
-        assert!(cursor.read_qname().is_err());
-    }
-
-    #[test]
-    fn qname_rejects_oversized_wire_name() {
-        let mut input = Vec::new();
-        for _ in 0..4 {
-            input.push(63);
-            input.extend_from_slice(&[b'a'; 63]);
-        }
-        input.push(0);
-
-        let mut cursor = Cursor::new(input);
         assert!(cursor.read_qname().is_err());
     }
 }

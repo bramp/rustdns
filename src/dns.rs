@@ -330,12 +330,11 @@ impl Message {
                     bail!(InvalidData, "label '{0}' longer than 63 characters", label);
                 }
 
-                wire_len = wire_len.checked_add(label.len() + 1).ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidData, "domain name length overflow")
-                })?;
-                if wire_len > 255 {
+                let label_wire_len = label.len() + 1;
+                if wire_len > 255 - label_wire_len {
                     bail!(InvalidData, "domain name is longer than 255 bytes");
                 }
+                wire_len += label_wire_len;
 
                 // Write the length.
                 buf.push(label.len() as u8);
