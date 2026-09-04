@@ -50,7 +50,7 @@ impl AsyncClient {
             let mut response = [0; MAX_DNS_MESSAGE_LEN];
             let length = socket.recv(&mut response).await?;
             log::trace!("async UDP received {length} bytes from {}", self.server);
-            Message::from_slice(&response[..length])
+            Ok(Message::from_slice(&response[..length])?)
         }
         .await;
 

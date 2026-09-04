@@ -74,7 +74,7 @@ impl AsyncClient {
                 response.len() + 2,
                 self.server
             );
-            Message::from_slice(&response)
+            Ok(Message::from_slice(&response)?)
         }
         .await;
 

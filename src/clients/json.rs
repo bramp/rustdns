@@ -4,14 +4,13 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
-use crate::bail;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::clients::mime::content_type_equal;
 use crate::clients::stats::StatsBuilder;
 use crate::clients::validate_http_status;
 use crate::clients::{BoxError, HttpClient, new_http_client};
-use crate::errors::ParseError;
+use crate::errors::JsonError;
 use async_trait::async_trait;
 use core::convert::TryInto;
 use http::Method;
@@ -73,11 +72,11 @@ struct MessageJson {
 }
 
 impl TryInto<Message> for MessageJson {
-    type Error = ParseError;
+    type Error = JsonError;
 
     fn try_into(self) -> Result<Message, Self::Error> {
         let rcode =
-            FromPrimitive::from_u32(self.status).ok_or(ParseError::InvalidStatus(self.r#status))?;
+            FromPrimitive::from_u32(self.status).ok_or(JsonError::InvalidStatus(self.r#status))?;
 
         let mut m = Message {
             rcode,
@@ -114,11 +113,11 @@ struct QuestionJson {
 }
 
 impl TryInto<Question> for QuestionJson {
-    type Error = ParseError;
+    type Error = JsonError;
 
     fn try_into(self) -> Result<Question, Self::Error> {
         let r#type =
-            FromPrimitive::from_u16(self.r#type).ok_or(ParseError::InvalidType(self.r#type))?;
+            FromPrimitive::from_u16(self.r#type).ok_or(JsonError::InvalidType(self.r#type))?;
 
         Ok(Question {
             name: self.name, // TODO Do I need to remove the trailing dot?
@@ -141,14 +140,14 @@ struct RecordJson {
 }
 
 impl TryInto<Record> for RecordJson {
-    type Error = ParseError;
+    type Error = JsonError;
 
     fn try_into(self) -> Result<Record, Self::Error> {
         let r#type =
-            FromPrimitive::from_u16(self.r#type).ok_or(ParseError::InvalidType(self.r#type))?;
+            FromPrimitive::from_u16(self.r#type).ok_or(JsonError::InvalidType(self.r#type))?;
 
         let resource = Resource::parse_text(r#type, &self.data)
-            .map_err(|x| ParseError::InvalidResource(r#type, x))?;
+            .map_err(|x| JsonError::InvalidResource(r#type, x))?;
 
         Ok(Record {
             name: self.name, // TODO Do I need to remove the trailing dot?
@@ -309,23 +308,18 @@ impl AsyncExchanger for Client {
         log::trace!("DoH JSON remote address: {remote_addr}");
         log::trace!("DoH JSON HTTP status: {}", resp.status());
 
-        let content_type = resp.headers().get(CONTENT_TYPE).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "response is missing content-type",
-            )
-        })?;
+        let content_type = resp
+            .headers()
+            .get(CONTENT_TYPE)
+            .ok_or(crate::Error::MissingContentType)?;
         log::trace!("DoH JSON response content-type: {:?}", content_type);
         if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_JSON)
             && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_JSON)
         {
-            bail!(
-                InvalidData,
-                "recevied invalid content-type: {:?} expected {} or {}",
-                content_type,
-                CONTENT_TYPE_APPLICATION_DNS_JSON,
-                CONTENT_TYPE_APPLICATION_JSON,
-            );
+            return Err(crate::Error::UnexpectedContentType {
+                actual: format!("{content_type:?}"),
+                expected: "application/dns-json or application/json",
+            });
         }
 
         validate_http_status(resp.status())?;
@@ -341,7 +335,7 @@ impl AsyncExchanger for Client {
             body.len()
         );
 
-        let m: MessageJson = serde_json::from_slice(&body).map_err(ParseError::JsonError)?;
+        let m: MessageJson = serde_json::from_slice(&body).map_err(JsonError::Serde)?;
         let mut m: Message = m.try_into()?;
         m.stats = Some(stats.end(remote_addr, body.len()));
 

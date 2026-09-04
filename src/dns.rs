@@ -1,4 +1,4 @@
-use crate::bail;
+use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::limits;
 use crate::types::Record;
@@ -7,7 +7,6 @@ use byteorder::{BE, ReadBytesExt};
 use num_traits::FromPrimitive;
 use rand::RngExt;
 use std::convert::TryFrom;
-use std::io;
 use std::io::BufRead;
 use std::io::Cursor;
 
@@ -36,7 +35,7 @@ impl<'a> MessageParser<'a> {
     }
 
     /// Consume the [`MessageParser`] and returned the resulting Message.
-    fn parse(mut self) -> io::Result<Message> {
+    fn parse(mut self) -> Result<Message, DecodeError> {
         self.m.id = self.cur.read_u16::<BE>()?;
 
         let b = self.cur.read_u8()?;
@@ -48,7 +47,7 @@ impl<'a> MessageParser<'a> {
 
         self.m.opcode = match FromPrimitive::from_u8(opcode) {
             Some(t) => t,
-            None => bail!(InvalidData, "invalid Opcode({})", opcode),
+            None => return Err(DecodeError::InvalidOpcode(opcode)),
         };
 
         let b = self.cur.read_u8()?;
@@ -60,7 +59,7 @@ impl<'a> MessageParser<'a> {
 
         self.m.rcode = match FromPrimitive::from_u8(rcode) {
             Some(t) => t,
-            None => bail!(InvalidData, "invalid RCode({})", opcode),
+            None => return Err(DecodeError::InvalidRcode(rcode)),
         };
 
         let qd_count = self.cur.read_u16::<BE>()?;
@@ -73,18 +72,15 @@ impl<'a> MessageParser<'a> {
         self.read_records(ns_count, RecordSection::Authorities)?;
         self.read_records(ar_count, RecordSection::Additionals)?;
 
-        if self.cur.remaining()? > 0 {
-            bail!(
-                Other,
-                "finished parsing with {} bytes left over",
-                self.cur.remaining()?
-            );
+        let remaining = self.cur.remaining()?;
+        if remaining > 0 {
+            return Err(DecodeError::TrailingBytes { count: remaining });
         }
 
         Ok(self.m)
     }
 
-    fn read_questions(&mut self, count: u16) -> io::Result<()> {
+    fn read_questions(&mut self, count: u16) -> Result<(), DecodeError> {
         self.m.questions.reserve_exact(count.into());
 
         for _ in 0..count {
@@ -102,7 +98,7 @@ impl<'a> MessageParser<'a> {
         Ok(())
     }
 
-    fn read_records(&mut self, count: u16, section: RecordSection) -> io::Result<()> {
+    fn read_records(&mut self, count: u16, section: RecordSection) -> Result<(), DecodeError> {
         let records = match section {
             RecordSection::Answers => &mut self.m.answers,
             RecordSection::Authorities => &mut self.m.authoritys,
@@ -116,10 +112,7 @@ impl<'a> MessageParser<'a> {
 
             if section == RecordSection::Additionals && r#type == Type::OPT {
                 if self.m.extension.is_some() {
-                    bail!(
-                        InvalidData,
-                        "multiple EDNS(0) extensions. Expected only one."
-                    );
+                    return Err(DecodeError::MultipleOptRecords);
                 }
 
                 let ext = Extension::parse_internal(&mut self.cur, name, r#type)?;
@@ -177,9 +170,13 @@ impl Message {
     ///
     /// # Errors
     ///
-    /// Returns an error when the buffer is truncated, contains invalid DNS
-    /// fields, or violates message, record, EDNS, or compression bounds.
-    pub fn from_slice(buf: &[u8]) -> io::Result<Message> {
+    /// Returns [`DecodeError::UnexpectedEof`] when the buffer ends mid-message,
+    /// which for a UDP response usually means a truncated datagram, and
+    /// [`DecodeError::TrailingBytes`] when bytes remain after a complete message.
+    /// Malformed headers, names, records, and EDNS(0) data produce the more
+    /// specific [`DecodeError`] variants; treat any other variant as a rejected
+    /// message rather than matching it exhaustively.
+    pub fn from_slice(buf: &[u8]) -> Result<Message, DecodeError> {
         MessageParser::new(buf).parse()
     }
 
@@ -200,24 +197,17 @@ impl Message {
         }
     }
 
-    /// Adds a question to the message.
+    /// Adds a question to the message, returning an error if the domain is invalid.
     ///
     /// Note: DNS servers typically do not support more than one question. There is ambiguity in how to handle
     /// rcode, etc. See [§4.1.2 of rfc1035] or <https://datatracker.ietf.org/doc/html/draft-bellis-dnsext-multi-qtypes-03>
     ///
+    /// # Errors
+    ///
+    /// Returns an error when `domain` cannot be normalized, converted to ASCII,
+    /// or exceeds DNS name limits.
+    ///
     /// [§4.1.2 of rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2.
-    #[deprecated(note = "use try_add_question to handle invalid domains")]
-    ///
-    /// # Panics
-    ///
-    /// Panics when `domain` cannot be normalized. Prefer [`Self::try_add_question`]
-    /// for caller-provided input.
-    pub fn add_question(&mut self, domain: &str, r#type: Type, class: Class) {
-        self.try_add_question(domain, r#type, class)
-            .expect("invalid domain");
-    }
-
-    /// Adds a question to the message, returning an error if the domain is invalid.
     pub fn try_add_question(
         &mut self,
         domain: &str,
@@ -276,29 +266,19 @@ impl Message {
         self.extension = Some(ext);
     }
 
-    /// Adds an EDNS(0) extension record, as defined by [rfc6891].
-    ///
-    /// This is kept for compatibility. Prefer [`Self::set_extension`] because a
-    /// DNS message can contain at most one EDNS(0) extension record, and calling
-    /// this method replaces any previous extension.
-    ///
-    /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
-    #[deprecated(
-        note = "use set_extension because a message can contain at most one EDNS(0) extension"
-    )]
-    pub fn add_extension(&mut self, ext: Extension) {
-        self.set_extension(ext);
-    }
-
     /// Encodes this DNS [`Message`] as a [`Vec<u8>`] ready to be sent, as defined by [rfc1035].
     ///
     /// # Errors
     ///
-    /// Returns an error when a domain is invalid, a name exceeds DNS wire limits,
-    /// or the message contains record sections that are not yet supported for encoding.
+    /// Returns [`EncodeError::InvalidName`], [`EncodeError::EmptyLabel`],
+    /// [`EncodeError::LabelTooLong`], or [`EncodeError::NameTooLong`] when a
+    /// domain in the message cannot be encoded, and
+    /// [`EncodeError::UnsupportedType`] for record types this crate cannot
+    /// write. Oversized records and EDNS(0) options produce the corresponding
+    /// `*TooLong` variants.
     ///
     /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
-    pub fn to_vec(&self) -> io::Result<Vec<u8>> {
+    pub fn to_vec(&self) -> Result<Vec<u8>, EncodeError> {
         let mut req = Vec::<u8>::with_capacity(512);
         self.append_to_vec(&mut req)?;
         Ok(req)
@@ -308,9 +288,8 @@ impl Message {
     ///
     /// # Errors
     ///
-    /// Returns an error when a domain is invalid, a name exceeds DNS wire limits,
-    /// or the message contains record sections that are not yet supported for encoding.
-    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    /// Returns the same [`EncodeError`] variants as [`Self::to_vec`].
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.extend_from_slice(&self.id.to_be_bytes());
 
         let mut b = 0_u8;
@@ -372,12 +351,14 @@ impl Message {
     /// any compressed pointers) in bytes.
     ///
     // TODO Support DNS name compression through message-level encoder state.
-    pub(crate) fn append_qname_to_vec(buf: &mut Vec<u8>, domain: &str) -> io::Result<()> {
+    pub(crate) fn append_qname_to_vec(buf: &mut Vec<u8>, domain: &str) -> Result<(), EncodeError> {
         // Decode this label into the original unicode.
         // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
         let domain = match idna::domain_to_ascii(domain) {
-            Err(e) => {
-                bail!(InvalidData, "invalid dns name '{0}': {1}", domain, e);
+            Err(_) => {
+                return Err(EncodeError::InvalidName {
+                    name: domain.to_string(),
+                });
             }
             Ok(domain) => domain,
         };
@@ -404,9 +385,10 @@ impl Question {
     ///
     /// # Errors
     ///
-    /// Returns an error if the question name cannot be represented in DNS wire
-    /// format.
-    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    /// Returns [`EncodeError::InvalidName`], [`EncodeError::EmptyLabel`],
+    /// [`EncodeError::LabelTooLong`], or [`EncodeError::NameTooLong`] when the
+    /// question name cannot be encoded.
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.name)?;
         buf.extend_from_slice(&(self.r#type as u16).to_be_bytes());
         buf.extend_from_slice(&(self.class as u16).to_be_bytes());
@@ -415,7 +397,7 @@ impl Question {
 }
 
 impl TryFrom<&[u8]> for Message {
-    type Error = io::Error;
+    type Error = DecodeError;
 
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         Self::from_slice(buf)
@@ -427,36 +409,20 @@ impl Extension {
     ///
     /// # Errors
     ///
-    /// Returns an error when the record is not an OPT record, does not use the
-    /// root name, is truncated, declares options beyond the remaining message,
-    /// or contains malformed known options.
-    #[deprecated(note = "this low-level cursor parser is retained for compatibility")]
-    pub fn parse(cur: &mut Cursor<&[u8]>, domain: String, r#type: Type) -> io::Result<Extension> {
-        Self::parse_internal(cur, domain, r#type)
-    }
-
-    /// Parses an EDNS(0) OPT record from a DNS message.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the record is not an OPT record, does not use the
-    /// root name, is truncated, declares options beyond the remaining message,
-    /// or contains malformed known options.
+    /// Returns a [`DecodeError`] when the record is not an OPT record, does not
+    /// use the root name, is truncated, declares options beyond the remaining
+    /// message, or contains malformed known options.
     pub(crate) fn parse_internal(
         cur: &mut Cursor<&[u8]>,
         domain: String,
         r#type: Type,
-    ) -> io::Result<Extension> {
+    ) -> Result<Extension, DecodeError> {
         if r#type != Type::OPT {
-            bail!(InvalidInput, "expected EDNS(0) OPT record");
+            return Err(DecodeError::ExpectedOptRecord);
         }
 
         if domain != "." {
-            bail!(
-                InvalidData,
-                "expected root domain for EDNS(0) extension, got '{}'",
-                domain
-            );
+            return Err(DecodeError::OptRecordNotRoot { name: domain });
         }
 
         let payload_size = cur.read_u16::<BE>()?;
@@ -470,18 +436,11 @@ impl Extension {
 
         let rd_len = cur.read_u16::<BE>()?;
         if cur.remaining()? < u64::from(rd_len) {
-            bail!(InvalidData, "EDNS(0) data exceeds the remaining message");
+            return Err(DecodeError::OptDataTooLong);
         }
         let rd_len = usize::from(rd_len);
-        let pos = usize::try_from(cur.position()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "EDNS(0) cursor position is invalid",
-            )
-        })?;
-        let end = pos
-            .checked_add(rd_len)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "EDNS(0) length overflow"))?;
+        let pos = usize::try_from(cur.position()).map_err(|_| DecodeError::OffsetOverflow)?;
+        let end = pos.checked_add(rd_len).ok_or(DecodeError::OffsetOverflow)?;
         let mut option_cur = cur.sub_cursor(pos, end)?;
         let mut options = Vec::new();
         while option_cur.position() < rd_len as u64 {
@@ -502,9 +461,10 @@ impl Extension {
     ///
     /// # Errors
     ///
-    /// Returns an error if the extension cannot be represented in the output
-    /// message.
-    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    /// Returns [`EncodeError::OptionDataTooLong`] when the encoded options
+    /// exceed the OPT record's length field, or [`EncodeError::InvalidOption`]
+    /// when an individual option value cannot be represented.
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.push(0); // A single "." domain name                          // 0-1
         buf.extend_from_slice(&(Type::OPT as u16).to_be_bytes()); // 1-3
         buf.extend_from_slice(&self.payload_size.to_be_bytes()); // 3-5
@@ -524,27 +484,14 @@ impl Extension {
             option.append_to_vec(&mut option_data)?;
         }
 
-        let option_data_len = u16::try_from(option_data.len()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "EDNS(0) option data is too long",
-            )
-        })?;
+        let option_data_len =
+            u16::try_from(option_data.len()).map_err(|_| EncodeError::OptionDataTooLong {
+                max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
+            })?;
         buf.extend_from_slice(&option_data_len.to_be_bytes());
         buf.extend_from_slice(&option_data);
 
         Ok(())
-    }
-
-    /// Writes this EDNS(0) extension to a DNS message.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the extension cannot be represented in the output
-    /// message.
-    #[deprecated(note = "use append_to_vec")]
-    pub fn write(&self, buf: &mut Vec<u8>) -> io::Result<()> {
-        self.append_to_vec(buf)
     }
 }
 

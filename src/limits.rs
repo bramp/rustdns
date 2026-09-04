@@ -1,4 +1,4 @@
-use std::io;
+use crate::errors::EncodeError;
 
 /// Length in bytes of a DNS message header.
 pub const DNS_HEADER_LEN: usize = 12;
@@ -25,13 +25,13 @@ pub const MAX_EDNS_OPTION_DATA_LEN: usize = u16::MAX as usize;
 ///
 /// # Errors
 ///
-/// Returns an error when `len` exceeds [`MAX_DNS_MESSAGE_LEN`].
-pub fn validate_message_len(len: usize) -> io::Result<()> {
+/// Returns [`EncodeError::MessageTooLong`] when `len` exceeds
+/// [`MAX_DNS_MESSAGE_LEN`].
+pub fn validate_message_len(len: usize) -> Result<(), EncodeError> {
     if len > MAX_DNS_MESSAGE_LEN {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "DNS message is too large",
-        ));
+        return Err(EncodeError::MessageTooLong {
+            max: MAX_DNS_MESSAGE_LEN,
+        });
     }
     Ok(())
 }
@@ -40,13 +40,13 @@ pub fn validate_message_len(len: usize) -> io::Result<()> {
 ///
 /// # Errors
 ///
-/// Returns an error when `count` exceeds [`MAX_DNS_SECTION_COUNT`].
-pub fn validate_section_count(count: usize) -> io::Result<()> {
+/// Returns [`EncodeError::SectionCountTooLarge`] when `count` exceeds
+/// [`MAX_DNS_SECTION_COUNT`].
+pub fn validate_section_count(count: usize) -> Result<(), EncodeError> {
     if count > MAX_DNS_SECTION_COUNT {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "DNS section count is too large",
-        ));
+        return Err(EncodeError::SectionCountTooLarge {
+            max: MAX_DNS_SECTION_COUNT,
+        });
     }
     Ok(())
 }
@@ -58,21 +58,20 @@ pub fn validate_section_count(count: usize) -> io::Result<()> {
 ///
 /// # Errors
 ///
-/// Returns an error when the domain cannot be IDNA-encoded, contains an empty
-/// non-root label, contains a label longer than [`MAX_DNS_LABEL_WIRE_LEN`], or
-/// exceeds [`MAX_DNS_NAME_WIRE_LEN`] when encoded.
-pub fn validate_name(domain: &str) -> io::Result<()> {
-    let domain = idna::domain_to_ascii(domain).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid dns name '{domain}': {error}"),
-        )
+/// Returns [`EncodeError::InvalidName`] when the domain cannot be IDNA-encoded,
+/// [`EncodeError::EmptyLabel`] for an empty non-root label,
+/// [`EncodeError::LabelTooLong`] for a label longer than
+/// [`MAX_DNS_LABEL_WIRE_LEN`], and [`EncodeError::NameTooLong`] when the encoded
+/// name exceeds [`MAX_DNS_NAME_WIRE_LEN`].
+pub fn validate_name(domain: &str) -> Result<(), EncodeError> {
+    let ascii = idna::domain_to_ascii(domain).map_err(|_| EncodeError::InvalidName {
+        name: domain.to_string(),
     })?;
 
-    validate_ascii_name(&domain)
+    validate_ascii_name(&ascii)
 }
 
-pub(crate) fn validate_ascii_name(domain: &str) -> io::Result<()> {
+pub(crate) fn validate_ascii_name(domain: &str) -> Result<(), EncodeError> {
     if domain.is_empty() || domain == "." {
         return Ok(());
     }
@@ -80,25 +79,23 @@ pub(crate) fn validate_ascii_name(domain: &str) -> io::Result<()> {
     let mut wire_len = 1_usize;
     for label in domain.split_terminator('.') {
         if label.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("empty label in domain name '{domain}'"),
-            ));
+            return Err(EncodeError::EmptyLabel {
+                name: domain.to_string(),
+            });
         }
 
         if label.len() > MAX_DNS_LABEL_WIRE_LEN {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("label '{label}' longer than {MAX_DNS_LABEL_WIRE_LEN} characters"),
-            ));
+            return Err(EncodeError::LabelTooLong {
+                label: label.to_string(),
+                max: MAX_DNS_LABEL_WIRE_LEN,
+            });
         }
 
         let label_wire_len = label.len() + 1;
         if wire_len > MAX_DNS_NAME_WIRE_LEN - label_wire_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("domain name is longer than {MAX_DNS_NAME_WIRE_LEN} bytes"),
-            ));
+            return Err(EncodeError::NameTooLong {
+                max: MAX_DNS_NAME_WIRE_LEN,
+            });
         }
         wire_len += label_wire_len;
     }

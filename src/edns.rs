@@ -1,6 +1,7 @@
+use crate::errors::{DecodeError, EncodeError};
 use std::convert::TryFrom;
 use std::fmt;
-use std::io::{self, Cursor, Read};
+use std::io::{Cursor, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
@@ -157,33 +158,21 @@ impl EdnsOption {
     ///
     /// Returns an error when an option header or declared option data is
     /// truncated, or when a known option is malformed.
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<Self> {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<Self, DecodeError> {
         let mut header = [0; 4];
         cur.read_exact(&mut header)
-            .map_err(|error| match error.kind() {
-                io::ErrorKind::UnexpectedEof => io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "EDNS(0) option header is truncated",
-                ),
-                _ => error,
-            })?;
+            .map_err(|_| DecodeError::OptionTruncated)?;
 
         let code = u16::from_be_bytes([header[0], header[1]]);
         let len = usize::from(u16::from_be_bytes([header[2], header[3]]));
         let mut data = vec![0; len];
         cur.read_exact(&mut data)
-            .map_err(|error| match error.kind() {
-                io::ErrorKind::UnexpectedEof => io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "EDNS(0) option data is truncated",
-                ),
-                _ => error,
-            })?;
+            .map_err(|_| DecodeError::OptionTruncated)?;
 
         Self::parse_data(code, &data)
     }
 
-    fn parse_data(code: u16, data: &[u8]) -> io::Result<Self> {
+    fn parse_data(code: u16, data: &[u8]) -> Result<Self, DecodeError> {
         match code {
             EDNS_OPTION_NSID => Ok(Self::Nsid(data.to_vec())),
             EDNS_OPTION_CLIENT_SUBNET => EdnsClientSubnet::parse(data).map(Self::ClientSubnet),
@@ -197,7 +186,7 @@ impl EdnsOption {
         }
     }
 
-    pub(crate) fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         let mut data = Vec::new();
         match self {
             Self::Nsid(value) => data.extend_from_slice(value),
@@ -208,11 +197,8 @@ impl EdnsOption {
             Self::Unknown { data: value, .. } => data.extend_from_slice(value),
         }
 
-        let data_len = u16::try_from(data.len()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "EDNS(0) option data is too long",
-            )
+        let data_len = u16::try_from(data.len()).map_err(|_| EncodeError::OptionDataTooLong {
+            max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
         })?;
         buf.extend_from_slice(&self.code().to_be_bytes());
         buf.extend_from_slice(&data_len.to_be_bytes());
@@ -287,12 +273,9 @@ impl EdnsCookie {
         }
     }
 
-    fn parse(data: &[u8]) -> io::Result<Self> {
+    fn parse(data: &[u8]) -> Result<Self, DecodeError> {
         if data.len() < 8 || data.len() > 40 || (data.len() > 8 && data.len() < 16) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "EDNS(0) COOKIE option length is invalid",
-            ));
+            return Err(DecodeError::OptionLength { option: "COOKIE" });
         }
 
         let mut client_cookie = [0; 8];
@@ -304,7 +287,7 @@ impl EdnsCookie {
         })
     }
 
-    fn append_data_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn append_data_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         validate_server_cookie_len(self.server_cookie.len())?;
         buf.extend_from_slice(&self.client_cookie);
         buf.extend_from_slice(&self.server_cookie);
@@ -312,47 +295,47 @@ impl EdnsCookie {
     }
 }
 
-fn validate_server_cookie_len(len: usize) -> io::Result<()> {
+fn validate_server_cookie_len(len: usize) -> Result<(), EncodeError> {
     if len != 0 && !(8..=32).contains(&len) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "EDNS(0) server cookie length is invalid",
-        ));
+        return Err(EncodeError::InvalidOption {
+            option: "COOKIE",
+            reason: "server cookie must be empty or 8 to 32 bytes",
+        });
     }
     Ok(())
 }
 
-fn parse_tcp_keepalive(data: &[u8]) -> io::Result<Option<Duration>> {
+fn parse_tcp_keepalive(data: &[u8]) -> Result<Option<Duration>, DecodeError> {
     match data.len() {
         0 => Ok(None),
         2 => {
             let units = u16::from_be_bytes([data[0], data[1]]);
             Ok(Some(Duration::from_millis(u64::from(units) * 100)))
         }
-        _ => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "EDNS(0) TCP keepalive option length is invalid",
-        )),
+        _ => Err(DecodeError::OptionLength {
+            option: "TCP KEEPALIVE",
+        }),
     }
 }
 
-fn append_tcp_keepalive_to_vec(buf: &mut Vec<u8>, timeout: Option<Duration>) -> io::Result<()> {
+fn append_tcp_keepalive_to_vec(
+    buf: &mut Vec<u8>,
+    timeout: Option<Duration>,
+) -> Result<(), EncodeError> {
     let Some(timeout) = timeout else {
         return Ok(());
     };
 
     let millis = timeout.as_millis();
     if millis % 100 != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "EDNS(0) TCP keepalive timeout must use 100ms units",
-        ));
+        return Err(EncodeError::InvalidOption {
+            option: "TCP KEEPALIVE",
+            reason: "timeout must be a whole number of 100ms units",
+        });
     }
-    let units = u16::try_from(millis / 100).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "EDNS(0) TCP keepalive timeout is too large",
-        )
+    let units = u16::try_from(millis / 100).map_err(|_| EncodeError::InvalidOption {
+        option: "TCP KEEPALIVE",
+        reason: "timeout is too large",
     })?;
     buf.extend_from_slice(&units.to_be_bytes());
     Ok(())
@@ -394,12 +377,11 @@ impl EdnsClientSubnet {
         }
     }
 
-    fn parse(data: &[u8]) -> io::Result<Self> {
+    fn parse(data: &[u8]) -> Result<Self, DecodeError> {
         if data.len() < 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "EDNS(0) Client Subnet option is truncated",
-            ));
+            return Err(DecodeError::OptionLength {
+                option: "CLIENT SUBNET",
+            });
         }
 
         let family = u16::from_be_bytes([data[0], data[1]]);
@@ -409,20 +391,20 @@ impl EdnsClientSubnet {
             1 => 32,
             2 => 128,
             _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "EDNS(0) Client Subnet address family is unsupported",
-                ));
+                return Err(DecodeError::UnsupportedAddressFamily { family });
             }
         };
-        validate_subnet_prefix(source_prefix_len, scope_prefix_len, max_prefix_len)?;
+        if !subnet_prefix_valid(source_prefix_len, scope_prefix_len, max_prefix_len) {
+            return Err(DecodeError::SubnetPrefixTooLong {
+                max: max_prefix_len,
+            });
+        }
 
         let address_len = prefix_byte_len(source_prefix_len);
         if data.len() != 4 + address_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "EDNS(0) Client Subnet address length is invalid",
-            ));
+            return Err(DecodeError::OptionLength {
+                option: "CLIENT SUBNET",
+            });
         }
 
         let address = match family {
@@ -446,16 +428,21 @@ impl EdnsClientSubnet {
         })
     }
 
-    fn append_data_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn append_data_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         let (family, max_prefix_len, mut address) = match self.address {
             IpAddr::V4(address) => (1_u16, 32, address.octets().to_vec()),
             IpAddr::V6(address) => (2_u16, 128, address.octets().to_vec()),
         };
-        validate_subnet_prefix(
+        if !subnet_prefix_valid(
             self.source_prefix_len,
             self.scope_prefix_len,
             max_prefix_len,
-        )?;
+        ) {
+            return Err(EncodeError::InvalidOption {
+                option: "CLIENT SUBNET",
+                reason: "prefix length is longer than the address family allows",
+            });
+        }
 
         let address_len = prefix_byte_len(self.source_prefix_len);
         clear_unused_prefix_bits(&mut address, self.source_prefix_len);
@@ -468,14 +455,8 @@ impl EdnsClientSubnet {
     }
 }
 
-fn validate_subnet_prefix(source_prefix_len: u8, scope_prefix_len: u8, max: u8) -> io::Result<()> {
-    if source_prefix_len > max || scope_prefix_len > max {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "EDNS(0) Client Subnet prefix length is invalid",
-        ));
-    }
-    Ok(())
+fn subnet_prefix_valid(source_prefix_len: u8, scope_prefix_len: u8, max: u8) -> bool {
+    source_prefix_len <= max && scope_prefix_len <= max
 }
 
 fn prefix_byte_len(prefix_len: u8) -> usize {

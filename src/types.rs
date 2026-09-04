@@ -346,18 +346,6 @@ impl From<QR> for bool {
     }
 }
 
-impl QR {
-    #[deprecated(note = "use From<bool> for QR")]
-    pub fn from_bool(b: bool) -> QR {
-        b.into()
-    }
-
-    #[deprecated(note = "use From<QR> for bool")]
-    pub fn to_bool(self) -> bool {
-        self.into()
-    }
-}
-
 /// Specifies kind of query in this message. See [rfc1035], [rfc6895] and [DNS Parameters].
 ///
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035

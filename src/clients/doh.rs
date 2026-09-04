@@ -1,5 +1,4 @@
 use crate::Message;
-use crate::bail;
 use crate::clients::AsyncExchanger;
 use crate::clients::ToUrls;
 use crate::clients::mime::content_type_equal;
@@ -204,20 +203,16 @@ impl AsyncExchanger for Client {
         log::trace!("DoH remote address: {remote_addr}");
         log::trace!("DoH HTTP status: {}", resp.status());
 
-        let content_type = resp.headers().get(CONTENT_TYPE).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "response is missing content-type",
-            )
-        })?;
+        let content_type = resp
+            .headers()
+            .get(CONTENT_TYPE)
+            .ok_or(crate::Error::MissingContentType)?;
         log::trace!("DoH response content-type: {:?}", content_type);
         if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_MESSAGE) {
-            bail!(
-                InvalidData,
-                "recevied invalid content-type: {:?} expected {}",
-                content_type,
-                CONTENT_TYPE_APPLICATION_DNS_MESSAGE,
-            );
+            return Err(crate::Error::UnexpectedContentType {
+                actual: format!("{content_type:?}"),
+                expected: CONTENT_TYPE_APPLICATION_DNS_MESSAGE,
+            });
         }
 
         validate_http_status(resp.status())?;

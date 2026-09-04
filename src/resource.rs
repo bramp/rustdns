@@ -1,5 +1,5 @@
-use crate::ParseError;
-use crate::bail;
+use crate::FromStrError;
+use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::types::*;
 use byteorder::{BE, ReadBytesExt};
@@ -37,7 +37,7 @@ pub type PTR = String;
 pub struct TXT(pub Vec<Vec<u8>>);
 
 impl Resource {
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         match self {
             Resource::A(address) => buf.extend_from_slice(&address.octets()),
             Resource::AAAA(address) => buf.extend_from_slice(&address.octets()),
@@ -49,11 +49,7 @@ impl Resource {
             Resource::SOA(soa) => soa.append_rdata_to_vec(buf)?,
             Resource::SRV(srv) => srv.append_rdata_to_vec(buf)?,
             Resource::OPT | Resource::ANY => {
-                bail!(
-                    InvalidInput,
-                    "resource type '{}' cannot be encoded",
-                    self.r#type()
-                );
+                return Err(EncodeError::UnsupportedType(self.r#type()));
             }
         }
         Ok(())
@@ -65,14 +61,18 @@ impl Record {
     ///
     /// # Errors
     ///
-    /// Returns an error if the record name, TTL, or resource data cannot be
-    /// represented in DNS wire format.
-    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    /// Returns [`EncodeError::TtlTooLong`] when the TTL exceeds the 32-bit TTL
+    /// field, [`EncodeError::RdataTooLong`] when the encoded resource data
+    /// exceeds the record's length field, and [`EncodeError::UnsupportedType`]
+    /// for `OPT` and `ANY`, which have no record encoding. Name failures produce
+    /// the [`EncodeError`] name variants.
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.name)?;
         buf.extend_from_slice(&(self.r#type() as u16).to_be_bytes());
         buf.extend_from_slice(&(self.class as u16).to_be_bytes());
-        let ttl = u32::try_from(self.ttl.as_secs())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record TTL is too large"))?;
+        let ttl = u32::try_from(self.ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
+            max: u64::from(u32::MAX),
+        })?;
         buf.extend_from_slice(&ttl.to_be_bytes());
 
         let rdata_length_pos = buf.len();
@@ -81,8 +81,10 @@ impl Record {
 
         self.resource.append_rdata_to_vec(buf)?;
 
-        let rdata_length = u16::try_from(buf.len() - rdata_start)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record data is too long"))?;
+        let rdata_length =
+            u16::try_from(buf.len() - rdata_start).map_err(|_| EncodeError::RdataTooLong {
+                max: crate::limits::MAX_RDATA_LEN,
+            })?;
         buf[rdata_length_pos..rdata_start].copy_from_slice(&rdata_length.to_be_bytes());
         Ok(())
     }
@@ -92,7 +94,7 @@ impl Record {
         name: String,
         r#type: Type,
         class: Class,
-    ) -> io::Result<Record> {
+    ) -> Result<Record, DecodeError> {
         let ttl = cur.read_u32::<BE>()?;
         let len = cur.read_u16::<BE>()?;
 
@@ -110,9 +112,8 @@ impl Record {
         let pos = cur.position();
         let end = pos
             .checked_add(u64::from(len))
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "record length overflow"))?;
-        let end = usize::try_from(end)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "record length is invalid"))?;
+            .ok_or(DecodeError::OffsetOverflow)?;
+        let end = usize::try_from(end).map_err(|_| DecodeError::OffsetOverflow)?;
         let mut record = cur.sub_cursor(0, end)?;
         record.set_position(pos);
 
@@ -137,17 +138,13 @@ impl Record {
             // This should never appear in a answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => {
                 // TODO This could be a warning, instead of a full error.
-                bail!(InvalidData, "invalid record type '{}'", r#type);
+                return Err(DecodeError::UnexpectedType(r#type));
             }
         };
 
-        if record.remaining()? > 0 {
-            bail!(
-                Other,
-                "finished '{}' parsing record with {} bytes left over",
-                r#type,
-                record.remaining()?
-            );
+        let remaining = record.remaining()?;
+        if remaining > 0 {
+            return Err(DecodeError::TrailingBytes { count: remaining });
         }
 
         // Now catch up (this is safe since record.len() < cur.len())
@@ -214,30 +211,36 @@ pub struct SRV {
     pub name: String,
 }
 
-fn parse_a(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<A> {
+fn parse_a(cur: &mut Cursor<&[u8]>, class: Class) -> Result<A, DecodeError> {
     let mut buf = [0_u8; 4];
     cur.read_exact(&mut buf)?;
 
     match class {
         Class::Internet => Ok(A::new(buf[0], buf[1], buf[2], buf[3])),
 
-        _ => bail!(InvalidData, "unsupported A record class '{}'", class),
+        _ => Err(DecodeError::UnsupportedClass {
+            record_type: Type::A,
+            class,
+        }),
     }
 }
 
-fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> io::Result<AAAA> {
+fn parse_aaaa(cur: &mut Cursor<&[u8]>, class: Class) -> Result<AAAA, DecodeError> {
     let mut buf = [0_u8; 16];
     cur.read_exact(&mut buf)?;
 
     match class {
         Class::Internet => Ok(AAAA::from(buf)),
 
-        _ => bail!(InvalidData, "unsupported AAAA record class '{}'", class),
+        _ => Err(DecodeError::UnsupportedClass {
+            record_type: Type::AAAA,
+            class,
+        }),
     }
 }
 
 impl TXT {
-    fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<TXT> {
+    fn parse(cur: &mut Cursor<&[u8]>) -> Result<TXT, DecodeError> {
         let mut txts = Vec::new();
 
         loop {
@@ -246,7 +249,7 @@ impl TXT {
                 Ok(len) => len,
                 Err(e) => match e.kind() {
                     io::ErrorKind::UnexpectedEof => break,
-                    _ => return Err(e),
+                    _ => return Err(e.into()),
                 },
             };
 
@@ -258,10 +261,11 @@ impl TXT {
         Ok(TXT(txts))
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         for value in &self.0 {
-            let length = u8::try_from(value.len())
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "TXT value is too long"))?;
+            let length = u8::try_from(value.len()).map_err(|_| EncodeError::TxtStringTooLong {
+                max: usize::from(u8::MAX),
+            })?;
             buf.push(length);
             buf.extend_from_slice(value);
         }
@@ -270,10 +274,9 @@ impl TXT {
 }
 
 impl SOA {
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<SOA> {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SOA, DecodeError> {
         let mname = cur.read_qname()?;
-        let rname = Self::rname_to_email(&cur.read_qname()?)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let rname = Self::rname_to_email(&cur.read_qname()?).map_err(DecodeError::InvalidRname)?;
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
@@ -293,15 +296,16 @@ impl SOA {
         })
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.mname)?;
-        let rname = Self::email_to_rname(&self.rname)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let rname = Self::email_to_rname(&self.rname).map_err(|_| EncodeError::InvalidRname {
+            email: self.rname.clone(),
+        })?;
         Message::append_qname_to_vec(buf, &rname)?;
 
         let duration_to_u32 = |duration: Duration| {
-            u32::try_from(duration.as_secs()).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "SOA duration is too large")
+            u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
+                max: u64::from(u32::MAX),
             })
         };
         for value in [
@@ -319,7 +323,7 @@ impl SOA {
     /// Converts rnames to email address, for example, "admin.example.com" is
     /// converted to "admin@example.com", per the rules in
     /// <https://datatracker.ietf.org/doc/html/rfc1035#section-8>
-    pub fn rname_to_email(domain: &str) -> Result<String, ParseError> {
+    pub fn rname_to_email(domain: &str) -> Result<String, FromStrError> {
         // The logic is simple.
         // Find first unescaped dot and replace with a @
 
@@ -343,15 +347,15 @@ impl SOA {
         }
 
         if !done {
-            return Err(ParseError::InvalidRname(domain.to_string()));
+            return Err(FromStrError::InvalidRname(domain.to_string()));
         }
 
         Ok(result)
     }
 
-    pub fn email_to_rname(email: &str) -> Result<String, ParseError> {
+    pub fn email_to_rname(email: &str) -> Result<String, FromStrError> {
         match email.split_once('@') {
-            None => Err(ParseError::InvalidRname(email.to_string())),
+            None => Err(FromStrError::InvalidRname(email.to_string())),
 
             // Escape all the dots to the left of the '@',
             // replace the '@' with a '.', and leave everything after the '@' alone.
@@ -361,7 +365,7 @@ impl SOA {
 }
 
 impl MX {
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<MX> {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<MX, DecodeError> {
         let preference = cur.read_u16::<BE>()?;
         let exchange = cur.read_qname()?;
 
@@ -371,14 +375,14 @@ impl MX {
         })
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.extend_from_slice(&self.preference.to_be_bytes());
         Message::append_qname_to_vec(buf, &self.exchange)
     }
 }
 
 impl SRV {
-    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> io::Result<SRV> {
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SRV, DecodeError> {
         let priority = cur.read_u16::<BE>()?;
         let weight = cur.read_u16::<BE>()?;
         let port = cur.read_u16::<BE>()?;
@@ -393,7 +397,7 @@ impl SRV {
         })
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.extend_from_slice(&self.priority.to_be_bytes());
         buf.extend_from_slice(&self.weight.to_be_bytes());
         buf.extend_from_slice(&self.port.to_be_bytes());

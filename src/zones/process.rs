@@ -44,13 +44,6 @@ impl File {
         self.into_records_impl()
     }
 
-    /// Errors are discarded by this compatibility method. Prefer
-    /// [`File::try_into_records`] to retain error context.
-    #[deprecated(note = "use try_into_records to retain processing errors")]
-    pub fn into_records(self) -> Result<Vec<Record>, ()> {
-        self.try_into_records().map_err(|_| ())
-    }
-
     fn into_records_impl(self) -> Result<Vec<Record>, ProcessError> {
         let mut results = Vec::<Record>::new();
 

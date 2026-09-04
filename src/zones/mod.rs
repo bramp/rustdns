@@ -18,9 +18,9 @@ mod process;
 pub use process::ProcessError;
 
 /// A Zone File. This is the unprocessed version of the zone file
-    /// where domains such as "@" have not yet been resolved, and fields
-    /// are optional. To turn this into [`Vec<crate::Record>`] call
-    /// [`File::into_records`].
+/// where domains such as "@" have not yet been resolved, and fields
+/// are optional. To turn this into [`Vec<crate::Record>`] call
+/// [`File::try_into_records`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct File {
     /// The origin as defined when creating the Zone File. This is different than
@@ -56,17 +56,6 @@ impl File {
         }
 
         Ok(File { origin, entries })
-    }
-
-    #[deprecated(note = "use try_new to handle invalid origins")]
-    ///
-    /// # Panics
-    ///
-    /// Panics when `origin` is present but is not an absolute domain. Prefer
-    /// [`Self::try_new`] for caller-provided input.
-    pub fn new(mut origin: Option<String>, entries: Vec<Entry>) -> File {
-        Self::try_new(origin.take(), entries)
-            .unwrap_or_else(|error| panic!("failed to create zone file: {}", error))
     }
 }
 

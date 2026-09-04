@@ -15,6 +15,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum FromStrError {
     #[error("that resource type doesn't have a text representation")]
     UnsupportedType,
@@ -22,11 +23,14 @@ pub enum FromStrError {
     #[error("string doesn't match expected format")]
     InvalidFormat,
 
-    #[error(transparent)]
-    ParseIntError(#[from] ParseIntError),
+    #[error("invalid rname email address: '{0}'")]
+    InvalidRname(String),
 
     #[error(transparent)]
-    AddrParseError(#[from] AddrParseError),
+    Int(#[from] ParseIntError),
+
+    #[error(transparent)]
+    Addr(#[from] AddrParseError),
 }
 
 impl Resource {
@@ -57,17 +61,6 @@ impl Resource {
             // This should never appear in a answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => return Err(FromStrError::UnsupportedType),
         })
-    }
-
-    /// Parses resource text using the supplied record type.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the text is not valid for the requested record type,
-    /// contains an invalid number or address, or the type has no text representation.
-    #[deprecated(note = "use parse_text")]
-    pub fn from_str(r#type: Type, s: &str) -> Result<Self, FromStrError> {
-        Self::parse_text(r#type, s)
     }
 }
 

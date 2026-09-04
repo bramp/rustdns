@@ -1,6 +1,6 @@
 //! Various traits to help parsing of DNS messages.
 
-use crate::bail;
+use crate::errors::DecodeError;
 use crate::types::{Class, Type};
 use byteorder::{BE, ReadBytesExt};
 use num_traits::FromPrimitive;
@@ -91,15 +91,18 @@ pub trait DNSReadExt: io::Read + io::Seek {
     ///
     /// # Errors
     ///
-    /// Will return a io::Error(InvalidData) if the read domain name is invalid, or
-    /// a more general io::Error on any other read failure.
-    fn read_qname(&mut self) -> io::Result<String> {
+    /// Returns a [`DecodeError`] when the name is malformed, uses unsupported
+    /// compression, or runs past the end of the message.
+    fn read_qname(&mut self) -> Result<String, DecodeError> {
         self.read_qname_at_depth(0)
     }
 
-    fn read_qname_at_depth(&mut self, depth: usize) -> io::Result<String> {
+    fn read_qname_at_depth(&mut self, depth: usize) -> Result<String, DecodeError> {
         if depth > MAX_QNAME_POINTER_DEPTH {
-            bail!(InvalidData, "compressed qname pointer depth exceeded");
+            // TODO Write a test to ensure that exceeding the maximum pointer depth triggers this error.
+            return Err(DecodeError::NamePointerDepthExceeded {
+                max: MAX_QNAME_POINTER_DEPTH,
+            });
         }
 
         let mut qname = String::new();
@@ -125,17 +128,19 @@ pub trait DNSReadExt: io::Read + io::Seek {
                     // Really this is meant to be ASCII, but we read as utf8
                     // (as that what Rust provides).
                     let label = match std::str::from_utf8(&label) {
-                        Err(e) => bail!(InvalidData, "invalid label: {}", e),
+                        Err(e) => return Err(DecodeError::LabelNotUtf8(e)),
                         Ok(s) => s,
                     };
 
                     if !label.is_ascii() {
-                        bail!(InvalidData, "invalid label '{:}': not valid ascii", label);
+                        return Err(DecodeError::LabelNotAscii {
+                            label: label.to_string(),
+                        });
                     }
 
                     // Now puny decode this label returning its original unicode.
                     let label = match idna::domain_to_unicode(label) {
-                        (label, Err(e)) => bail!(InvalidData, "invalid label '{:}': {}", label, e),
+                        (label, Err(_)) => return Err(DecodeError::LabelNotIdna { label }),
                         (label, Ok(_)) => label,
                     };
 
@@ -151,10 +156,7 @@ pub trait DNSReadExt: io::Read + io::Seek {
 
                     // Make sure we don't get into a loop.
                     if ptr >= start {
-                        bail!(
-                            InvalidData,
-                            "invalid compressed pointer pointing to future bytes"
-                        );
+                        return Err(DecodeError::NamePointerNotBackwards);
                     }
 
                     // We are going to jump backwards, so record where we
@@ -172,11 +174,11 @@ pub trait DNSReadExt: io::Read + io::Seek {
                 }
 
                 // Unknown
-                _ => bail!(
-                    InvalidData,
-                    "unsupported compression type {0:b}",
-                    len & 0xC0
-                ),
+                _ => {
+                    return Err(DecodeError::UnsupportedNameCompression {
+                        bits: (len & 0xC0) >> 6,
+                    });
+                }
             }
         }
 
@@ -184,22 +186,22 @@ pub trait DNSReadExt: io::Read + io::Seek {
     }
 
     /// Reads a DNS Type.
-    fn read_type(&mut self) -> io::Result<Type> {
+    fn read_type(&mut self) -> Result<Type, DecodeError> {
         let r#type = self.read_u16::<BE>()?;
         let r#type = match FromPrimitive::from_u16(r#type) {
             Some(t) => t,
-            None => bail!(InvalidData, "invalid Type({})", r#type),
+            None => return Err(DecodeError::InvalidType(r#type)),
         };
 
         Ok(r#type)
     }
 
     /// Reads a DNS Class.
-    fn read_class(&mut self) -> io::Result<Class> {
+    fn read_class(&mut self) -> Result<Class, DecodeError> {
         let class = self.read_u16::<BE>()?;
         let class = match FromPrimitive::from_u16(class) {
             Some(t) => t,
-            None => bail!(InvalidData, "invalid Class({})", class),
+            None => return Err(DecodeError::InvalidClass(class)),
         };
 
         Ok(class)

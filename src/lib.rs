@@ -266,5 +266,10 @@ pub use crate::resource::*;
 // TODO Allow this resolve to use any available client
 pub use crate::clients::Resolver;
 
+pub use crate::errors::DecodeError;
+pub use crate::errors::EncodeError;
 pub use crate::errors::Error;
-pub use crate::errors::ParseError;
+#[cfg(feature = "json")]
+pub use crate::errors::JsonError;
+pub use crate::errors::Result;
+pub use crate::from_str::FromStrError;
