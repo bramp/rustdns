@@ -7,6 +7,48 @@ All notable changes to rustdns are documented here.
 ### Added
 
 - Added a declared minimum supported Rust version of 1.85.
+- Added `DecodeError` and `EncodeError`, structured error types for DNS
+  wire-format decoding and encoding, replacing the previous `std::io::Error`
+  values. Both implement `From<..> for std::io::Error` so existing callers can
+  migrate with a single `?` or `.into()`.
+- Added `JsonError` for DNS-over-HTTPS JSON responses, and `Error::Decode`,
+  `Error::Encode`, `Error::FromStr`, and `Error::Json` variants.
+- Added `Error::MissingContentType` and `Error::UnexpectedContentType` in place
+  of stringly-typed HTTP content-type failures.
+- Added a `rustdns::Result<T, E = Error>` type alias.
+- Marked `Error`, `DecodeError`, `EncodeError`, `FromStrError`, and `JsonError`
+  as `#[non_exhaustive]` so future variants are not breaking changes.
+
+### Changed
+
+- Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
+- `Message::from_slice` and `TryFrom<&[u8]> for Message` now return
+  `DecodeError`; `Message::to_vec`, the `append_to_vec` family, and
+  `limits::validate_*` now return `EncodeError`.
+- Renamed `ParseError` to `JsonError` and narrowed it to JSON response decoding.
+  Its `Int`, `Addr`, and `InvalidRname` variants moved to `FromStrError`, which
+  is now the single error type for text parsing.
+- Renamed error variants that stuttered with their enum name, for example
+  `Error::HttpError` to `Error::Http` and `Error::IoError` to `Error::Io`.
+- `JsonError::InvalidResource` and `DecodeError::InvalidRname` now expose their
+  cause through `Error::source` instead of formatting it into the message.
+- Documented the specific error variants returned by the public decoding,
+  encoding, and validation entry points.
+
+### Removed
+
+- Removed the deprecated `Message::add_question`. Use `Message::try_add_question`.
+- Removed the deprecated `Message::add_extension`. Use `Message::set_extension`.
+- Removed the deprecated `Extension::parse`. The cursor-oriented wire parser is
+  now crate-private.
+- Removed the deprecated `Extension::write`. Use `Extension::append_to_vec`.
+- Removed the deprecated `Resource::from_str`. Use `Resource::parse_text`.
+- Removed the deprecated `QR::from_bool` and `QR::to_bool`. Use the `From<bool>`
+  and `From<QR>` conversions.
+- Removed the deprecated `zones::File::new`. Use `zones::File::try_new`.
+- Removed the deprecated `zones::File::into_records`, which discarded error
+  detail behind `Result<Vec<Record>, ()>`. Use `File::try_into_records`.
+- Removed the exported `bail!` macro, along with the macro itself.
 
 ### Changed
 

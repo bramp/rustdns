@@ -117,8 +117,8 @@ struct layouts or enum exhaustiveness.
 
 ### Public API Cleanup
 
-- [ ] Remove deprecated infallible APIs after the migration period.
-- [ ] Make fallible APIs the primary constructors and builders.
+- [x] Remove deprecated infallible APIs after the migration period.
+- [x] Make fallible APIs the primary constructors and builders.
 - [ ] Audit all public methods against the method naming style guide in
   `DEVELOPERS.md` before the `1.0.0` API freeze.
 - [x] `Message`: keep `from_slice`, `to_vec`, and `append_to_vec` as the public
@@ -164,9 +164,9 @@ struct layouts or enum exhaustiveness.
   DNSSEC-style encoding options.
 - [ ] Add an explicit DNS encoding options API, including opt-in name
   compression, while preserving semantic message round trips.
-- [ ] Replace `Result<T, ()>` and remaining compatibility wrappers with structured
+- [x] Replace `Result<T, ()>` and remaining compatibility wrappers with structured
   public errors.
-- [ ] Replace remaining macro-backed parser and protocol errors with structured
+- [x] Replace remaining macro-backed parser and protocol errors with structured
   `thiserror` errors, then remove or privatize the exported `bail!` macro.
 - [ ] Complete removal of input-dependent `expect`, `unwrap`, assertions, and
   unchecked indexing from production input paths.
@@ -174,10 +174,10 @@ struct layouts or enum exhaustiveness.
 
 ### Rust Platform Migration
 
-- [ ] Set `rust-version = "1.85"` for the root crate and workspace tools.
-- [ ] Migrate the root crate and workspace tools from edition 2018 to edition 2024.
-- [ ] Set Cargo resolver 3 at the workspace level.
-- [ ] Resolve edition migration diagnostics without unrelated refactoring.
+- [x] Set `rust-version = "1.85"` for the root crate and workspace tools.
+- [x] Migrate the root crate and workspace tools from edition 2018 to edition 2024.
+- [x] Set Cargo resolver 3 at the workspace level.
+- [x] Resolve edition migration diagnostics without unrelated refactoring.
 - [ ] Move lint policy into workspace configuration where supported.
 - [ ] Ratchet toward `missing_docs`, `missing_debug_implementations`, and
   `unsafe_code = "forbid"`.
