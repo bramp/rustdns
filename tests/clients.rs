@@ -1,26 +1,21 @@
-#[cfg(any(
-    feature = "doh",
-    feature = "dot",
-    feature = "json",
-    feature = "tcp",
-    feature = "udp"
-))]
+#[cfg(any(feature = "doh", feature = "dot", feature = "json", feature = "sync"))]
 mod tests {
     #[cfg(feature = "doh")]
     use http::Method;
+    #[cfg(all(feature = "sync", feature = "do53"))]
     use rustdns::Message;
-    #[cfg(any(feature = "tcp", feature = "udp"))]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     use rustdns::clients::Exchanger;
-    #[cfg(feature = "tcp")]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     use std::io::{Read, Write};
-    #[cfg(feature = "tcp")]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     use std::net::TcpListener;
-    #[cfg(feature = "udp")]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     use std::net::UdpSocket;
-    #[cfg(feature = "tcp")]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     use std::thread;
 
-    #[cfg(feature = "udp")]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     #[test]
     fn udp_client_rejects_malformed_response() {
         let server = UdpSocket::bind("127.0.0.1:0").expect("bind UDP test server");
@@ -33,13 +28,13 @@ mod tests {
                 .expect("write malformed UDP response");
         });
 
-        let client = rustdns::clients::udp::Client::new(address).expect("create UDP client");
+        let client = rustdns::clients::sync::udp::Client::new(address);
 
         assert!(client.exchange(&Message::default()).is_err());
         handle.join().expect("join UDP test server");
     }
 
-    #[cfg(feature = "tcp")]
+    #[cfg(all(feature = "sync", feature = "do53"))]
     #[test]
     fn tcp_client_rejects_malformed_response_frame() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP test listener");
@@ -63,19 +58,22 @@ mod tests {
                 .expect("write malformed TCP response");
         });
 
-        let client = rustdns::clients::tcp::Client::new(address).expect("create TCP client");
+        let client = rustdns::clients::sync::tcp::Client::new(address);
 
         assert!(client.exchange(&Message::default()).is_err());
         server.join().expect("join TCP test server");
     }
 
-    #[cfg(feature = "dot")]
+    #[cfg(all(feature = "sync", feature = "dot"))]
     #[test]
     fn dot_client_requires_tls_server_name_for_ip_addresses() {
-        assert!(rustdns::clients::dot::Client::new("127.0.0.1:853").is_err());
+        assert!(rustdns::clients::sync::dot::Client::try_from_host_port("127.0.0.1:853").is_err());
         assert!(
-            rustdns::clients::dot::Client::new_with_server_name("dns.google", "127.0.0.1:853")
-                .is_ok()
+            rustdns::clients::sync::dot::Client::try_new(
+                "dns.google",
+                "127.0.0.1:853".parse().unwrap()
+            )
+            .is_ok()
         );
     }
 

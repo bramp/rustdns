@@ -6,10 +6,10 @@ use http::method::Method;
 use rustdns::clients::AsyncExchanger;
 use rustdns::clients::Exchanger;
 use rustdns::clients::doh::Client as DohClient;
-use rustdns::clients::dot::Client as DotClient;
 use rustdns::clients::json::Client as JsonClient;
-use rustdns::clients::tcp::Client as TcpClient;
-use rustdns::clients::udp::Client as UdpClient;
+use rustdns::clients::sync::dot::Client as DotClient;
+use rustdns::clients::sync::tcp::Client as TcpClient;
+use rustdns::clients::sync::udp::Client as UdpClient;
 use rustdns::types::*;
 use std::convert::TryInto;
 use std::env;
@@ -544,7 +544,7 @@ async fn main() -> Result<(), DigError> {
                 DigError::ArgParseError("at least one UDP server is required".to_string())
             })?;
             trace_request(&args, &server.to_string(), &query)?;
-            UdpClient::new(servers.as_slice())?
+            UdpClient::new(*server)
                 .exchange(&query)
                 .expect("could not exchange message")
         }
@@ -555,7 +555,7 @@ async fn main() -> Result<(), DigError> {
                 DigError::ArgParseError("at least one TCP server is required".to_string())
             })?;
             trace_request(&args, &server.to_string(), &query)?;
-            TcpClient::new(servers.as_slice())?
+            TcpClient::new(*server)
                 .exchange(&query)
                 .expect("could not exchange message")
         }
@@ -566,7 +566,7 @@ async fn main() -> Result<(), DigError> {
             })?;
             let server = server_with_default_port(server, 853);
             trace_request(&args, &server, &query)?;
-            DotClient::new(&server)?
+            DotClient::try_from_host_port(&server)?
                 .exchange(&query)
                 .expect("could not exchange message")
         }

@@ -1,180 +1,216 @@
 use crate::Message;
-use crate::clients::Exchanger;
-use crate::clients::stats::StatsBuilder;
-use crate::clients::tcp::encode_tcp_frame;
+use crate::clients::framing::encode_tcp_frame;
+use crate::clients::timeouts::with_timeout;
 use rustls::pki_types::ServerName;
-use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
-use socket2::{Socket, TcpKeepalive};
-use std::cell::Cell;
-use std::convert::TryFrom;
+use rustls::{ClientConfig, RootCertStore};
 use std::io;
-use std::io::Read;
-use std::io::Write;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::net::TcpStream;
-use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::Instant;
-
-const TCP_KEEPALIVE_TIME: Duration = Duration::from_secs(30);
-const DOT_CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
 
 pub const GOOGLE: &str = "dns.google:853";
 pub const CLOUDFLARE: &str = "cloudflare-dns.com:853";
 
-type TlsStream = StreamOwned<ClientConnection, TcpStream>;
-
-/// A DNS-over-TLS (DoT) client.
+/// An asynchronous DNS-over-TLS (DoT) client.
 ///
-/// DoT uses the same two-byte length-prefixed DNS message framing as DNS over
-/// TCP, but carries the framed messages inside a TLS connection. The
-/// host passed to [`Client::new`] is used for TLS SNI and certificate validation.
+/// This is a low-level client: it sends one query to one server and returns the
+/// response. It does not retry or fail over between servers. DoT uses the same
+/// two-byte length-prefixed framing as DNS over TCP, carried inside a TLS
+/// connection, so responses are not truncated.
+///
+/// The connection target and the TLS server name are independent, so a client
+/// can connect straight to an address without a bootstrap DNS lookup. See
+/// [`Client::try_new`] and [`Client::try_from_host_port`].
+///
+/// Exchanges are sequential and require mutable access. The TLS connection is
+/// reused across exchanges, and discarded on failure.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use rustdns::clients::dot::Client;
-/// use rustdns::clients::Exchanger;
 /// use rustdns::types::*;
 ///
-/// fn main() -> Result<(), rustdns::Error> {
+/// #[tokio::main]
+/// async fn main() -> Result<(), rustdns::Error> {
 ///     let mut query = Message::default();
 ///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
-///     let response = Client::new("dns.google:853")?
-///         .exchange(&query)
-///         .expect("could not exchange message");
+///     // No bootstrap lookup: the address is given, the name only validates TLS.
+///     let mut client = Client::try_new("dns.google", "8.8.8.8:853".parse().unwrap())?;
+///     let response = client.exchange(&query).await?;
 ///
 ///     println!("{}", response);
 ///     Ok(())
 /// }
 /// ```
 ///
-/// See <https://datatracker.ietf.org/doc/html/rfc7858>.
+/// See [rfc7858].
+///
+/// See the `clients` module docs for the `try_new`/`try_from_host_port` convention.
+///
+/// [rfc7858]: https://datatracker.ietf.org/doc/html/rfc7858
 pub struct Client {
     /// TLS server name used for SNI and certificate validation.
     server_name: String,
 
-    /// Resolved DNS server addresses. The first address is used for each exchange.
-    servers: Vec<SocketAddr>,
+    /// The DNS server this client queries.
+    server: SocketAddr,
 
-    /// Maximum time allowed to establish a TCP connection. Defaults to five seconds.
+    /// Maximum time allowed to establish the TCP connection before TLS starts.
+    /// Defaults to five seconds.
     connect_timeout: Duration,
-    /// Maximum time allowed for TLS-over-TCP reads. Defaults to five seconds; `None` disables it.
+
+    /// Maximum time allowed to read a framed response. Defaults to five
+    /// seconds; `None` disables it.
     read_timeout: Option<Duration>,
-    /// Maximum time allowed for TLS-over-TCP writes. Defaults to five seconds; `None` disables it.
+
+    /// Maximum time allowed to write a framed query. Defaults to five seconds;
+    /// `None` disables it.
     write_timeout: Option<Duration>,
 
     /// TLS configuration using WebPKI root certificates.
-    tls_config: Arc<ClientConfig>,
+    connector: TlsConnector,
 
-    /// Lazily created TLS connection and its last successful-use time.
-    connection: Cell<Option<(TlsStream, Instant)>>,
+    /// Lazily created TLS connection, reused across exchanges.
+    connection: Option<TlsStream<tokio::net::TcpStream>>,
 }
 
 impl Client {
-    /// Creates a new DoT client.
+    /// Creates a DoT client for `server`, validating its certificate against
+    /// `server_name`.
     ///
-    /// `server` should be a `host:port` string. The host is used as the TLS
-    /// server name for SNI and certificate validation. DoT conventionally uses
-    /// port 853.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `server` does not include a valid TLS server name,
-    /// address resolution fails, or no server address is supplied.
-    pub fn new(server: &str) -> Result<Self, crate::Error> {
-        let server_name = server_name_from_addr(server)?;
-        Self::new_with_server_name(&server_name, server)
-    }
-
-    /// Creates a new DoT client with an explicit TLS server name.
-    ///
-    /// Use this when connecting to an IP address or alternate socket address
-    /// while validating the TLS certificate against a DNS name.
+    /// The two are independent: `server` is where to connect, and
+    /// `server_name` is the name the certificate must be valid for. Passing an
+    /// address directly avoids the bootstrap DNS lookup that resolving a
+    /// hostname would require.
     ///
     /// # Errors
     ///
-    /// Returns an error if `server_name` is not valid for TLS validation, server
-    /// address resolution fails, or no server address is supplied.
-    pub fn new_with_server_name<A: ToSocketAddrs>(
-        server_name: &str,
-        servers: A,
-    ) -> Result<Self, crate::Error> {
-        Self::validate_server_name(server_name)?;
-        let servers: Vec<_> = servers.to_socket_addrs()?.collect();
-        if servers.is_empty() {
-            return Err(crate::Error::InvalidArgument(
-                "at least one DoT server is required".to_string(),
-            ));
-        }
+    /// Returns an error if `server_name` is not valid for TLS validation.
+    pub fn try_new(server_name: &str, server: SocketAddr) -> Result<Self, crate::Error> {
+        validate_server_name(server_name)?;
 
         Ok(Self {
             server_name: server_name.to_string(),
-            servers,
-            connect_timeout: Duration::new(5, 0),
-            read_timeout: Some(Duration::new(5, 0)),
-            write_timeout: Some(Duration::new(5, 0)),
-            tls_config: new_tls_config(),
-            connection: Cell::new(None),
+            server,
+            connect_timeout: Duration::from_secs(5),
+            read_timeout: Some(Duration::from_secs(5)),
+            write_timeout: Some(Duration::from_secs(5)),
+            connector: TlsConnector::from(new_tls_config()),
+            connection: None,
         })
     }
 
-    /// Sets the timeout for establishing the TCP connection before TLS starts.
+    /// Creates a DoT client from a `host:port` string, using the host for both
+    /// the address lookup and TLS validation.
+    ///
+    /// This resolves `server` with the system resolver, which is a bootstrap
+    /// dependency: it must not be served by the resolver this client is being
+    /// built for. Prefer [`Client::try_new`] when the address is already known.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `server` is not a `host:port` string with a valid
+    /// TLS server name, or resolution fails or produces no addresses.
+    pub async fn try_from_host_port(server: &str) -> Result<Self, crate::Error> {
+        let server_name = server_name_from_addr(server)?;
+        let address = tokio::net::lookup_host(server)
+            .await?
+            .next()
+            .ok_or_else(|| {
+                crate::Error::InvalidArgument(format!("no addresses found for '{server}'"))
+            })?;
+
+        Self::try_new(&server_name, address)
+    }
+
+    /// Sets the maximum time allowed to establish the TCP connection before TLS starts.
     pub fn set_connect_timeout(&mut self, timeout: Duration) {
         self.connect_timeout = timeout;
     }
 
-    /// Sets the timeout for TLS-over-TCP reads. Pass `None` to disable the timeout.
+    /// Sets the timeout for reading a response. Pass `None` to disable it.
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
         self.read_timeout = timeout;
     }
 
-    /// Sets the timeout for TLS-over-TCP writes. Pass `None` to disable the timeout.
+    /// Sets the timeout for writing a query. Pass `None` to disable it.
     pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
         self.write_timeout = timeout;
     }
 
-    fn validate_server_name(server_name: &str) -> Result<(), crate::Error> {
-        ServerName::try_from(server_name.to_string())
-            .map(|_| ())
-            .map_err(|error| {
-                crate::Error::InvalidArgument(format!("invalid DoT server name: {error}"))
-            })
-    }
-
-    fn get_stream(&self, server: &SocketAddr) -> Result<TlsStream, crate::Error> {
-        if let Some((stream, last_used)) = self.connection.take() {
-            if last_used.elapsed() <= DOT_CONNECTION_IDLE_TIMEOUT {
-                log::trace!(
-                    "DoT reusing TLS connection peer={}",
-                    stream.sock.peer_addr()?
-                );
-                return Ok(stream);
-            }
-            log::trace!(
-                "DoT discarding idle TLS connection peer={}",
-                stream.sock.peer_addr()?
-            );
+    /// Sends one DNS query and returns its response.
+    ///
+    /// The connection is discarded after any I/O, TLS, framing, or parsing
+    /// error; the failed query is not retried.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection, TLS handshake, exchange, or response
+    /// parsing fails.
+    pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
+        if self.connection.is_none() {
+            self.connection = Some(self.connect().await?);
         }
 
-        log::trace!("DoT target={server} sni={}", self.server_name);
-        let stream = TcpStream::connect_timeout(server, self.connect_timeout)?;
-        let socket = Socket::from(stream);
-        let keepalive = TcpKeepalive::new().with_time(TCP_KEEPALIVE_TIME);
-        socket.set_tcp_keepalive(&keepalive)?;
+        let read_timeout = self.read_timeout;
+        let write_timeout = self.write_timeout;
+        let result: io::Result<Message> = async {
+            let stream = self.connection.as_mut().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotConnected, "DoT connection unavailable")
+            })?;
 
-        let stream: TcpStream = socket.into();
+            let message = query.to_vec()?;
+            let frame = encode_tcp_frame(&message)?;
+            log::trace!("DoT sending {} bytes to {}", frame.len(), self.server);
+            with_timeout(write_timeout, "DoT write timed out", async {
+                stream.write_all(&frame).await?;
+                stream.flush().await
+            })
+            .await?;
+
+            let response = with_timeout(read_timeout, "DoT read timed out", async {
+                let length = stream.read_u16().await?;
+                log::trace!("DoT response length prefix={length}");
+                let mut response = vec![0; length.into()];
+                stream.read_exact(&mut response).await?;
+                Ok(response)
+            })
+            .await?;
+            log::trace!(
+                "DoT received {} bytes from {}",
+                response.len() + 2,
+                self.server
+            );
+
+            Ok(Message::from_slice(&response)?)
+        }
+        .await;
+
+        match result {
+            Ok(response) => Ok(response),
+            Err(error) => {
+                log::trace!("DoT discarding connection after error: {error}");
+                self.connection = None;
+                Err(error.into())
+            }
+        }
+    }
+
+    async fn connect(&self) -> Result<TlsStream<tokio::net::TcpStream>, crate::Error> {
+        log::trace!("DoT target={} sni={}", self.server, self.server_name);
+        let stream = tokio::time::timeout(
+            self.connect_timeout,
+            tokio::net::TcpStream::connect(self.server),
+        )
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoT connect timed out"))??;
         stream.set_nodelay(true)?;
-        stream.set_read_timeout(self.read_timeout)?;
-        stream.set_write_timeout(self.write_timeout)?;
-        log::trace!(
-            "DoT TCP connected local={} peer={}",
-            stream.local_addr()?,
-            stream.peer_addr()?
-        );
 
         let server_name = ServerName::try_from(self.server_name.clone()).map_err(|error| {
             io::Error::new(
@@ -182,15 +218,22 @@ impl Client {
                 format!("invalid DoT server name: {error}"),
             )
         })?;
-        let connection = ClientConnection::new(Arc::clone(&self.tls_config), server_name)
-            .map_err(io::Error::other)?;
-        log::trace!("DoT TLS connection created sni={}", self.server_name);
 
-        Ok(StreamOwned::new(connection, stream))
+        let stream = self.connector.connect(server_name, stream).await?;
+        log::trace!("DoT TLS connected peer={}", self.server);
+        Ok(stream)
     }
 }
 
-fn server_name_from_addr(server: &str) -> Result<String, crate::Error> {
+/// Checks that `server_name` can be used for TLS SNI and certificate validation.
+pub(crate) fn validate_server_name(server_name: &str) -> Result<(), crate::Error> {
+    ServerName::try_from(server_name.to_string())
+        .map(|_| ())
+        .map_err(|error| crate::Error::InvalidArgument(format!("invalid DoT server name: {error}")))
+}
+
+/// Extracts the TLS server name from a `host:port` string.
+pub(crate) fn server_name_from_addr(server: &str) -> Result<String, crate::Error> {
     let server = server.trim();
     let host = server
         .rsplit_once(':')
@@ -213,64 +256,12 @@ fn server_name_from_addr(server: &str) -> Result<String, crate::Error> {
         ));
     }
 
-    Client::validate_server_name(host)?;
+    validate_server_name(host)?;
     Ok(host.to_string())
 }
 
-impl Exchanger for Client {
-    /// Sends the query [`Message`] to the server via DNS-over-TLS and returns the result.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the TCP connection, TLS handshake, DNS framing, or
-    /// response parsing fails.
-    fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
-        let server = self.servers.first().ok_or_else(|| {
-            crate::Error::InvalidArgument("at least one DoT server is required".to_string())
-        })?;
-        let mut stream = self.get_stream(server)?;
-
-        let result: io::Result<Message> = (|| {
-            let message = query.to_vec()?;
-            let frame = encode_tcp_frame(&message)?;
-            let stats = StatsBuilder::start(frame.len());
-
-            log::trace!(
-                "DoT sending {} bytes to {} inside TLS",
-                frame.len(),
-                stream.sock.peer_addr()?
-            );
-            stream.write_all(&frame)?;
-            stream.flush()?;
-
-            let mut length = [0; 2];
-            stream.read_exact(&mut length)?;
-            let length = u16::from_be_bytes(length);
-            log::trace!("DoT response length prefix={length}");
-            let mut response = vec![0; length.into()];
-            stream.read_exact(&mut response)?;
-            log::trace!(
-                "DoT received {} bytes from {} inside TLS",
-                response.len() + 2,
-                stream.sock.peer_addr()?
-            );
-
-            let mut response = Message::from_slice(&response)?;
-            response.stats = Some(stats.end(stream.sock.peer_addr()?, usize::from(length) + 2));
-            Ok(response)
-        })();
-
-        match result {
-            Ok(response) => {
-                self.connection.set(Some((stream, Instant::now())));
-                Ok(response)
-            }
-            Err(error) => Err(error.into()),
-        }
-    }
-}
-
-fn new_tls_config() -> Arc<ClientConfig> {
+/// Builds a TLS client configuration using the WebPKI root certificates.
+pub(crate) fn new_tls_config() -> Arc<ClientConfig> {
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
@@ -283,36 +274,22 @@ fn new_tls_config() -> Arc<ClientConfig> {
 
 #[cfg(test)]
 mod tests {
-    use super::Client;
-    use super::server_name_from_addr;
-    use std::net::SocketAddr;
-    use std::time::Duration;
+    use super::*;
+
+    fn address() -> SocketAddr {
+        "8.8.8.8:853".parse().expect("valid address")
+    }
 
     #[test]
     fn rejects_invalid_server_name() {
-        assert!(Client::new("not a valid server name:853").is_err());
+        assert!(Client::try_new("not a valid server name", address()).is_err());
     }
 
     #[test]
-    fn rejects_empty_server_lists() {
-        assert!(Client::new_with_server_name("dns.google", &[] as &[SocketAddr]).is_err());
-    }
-
-    #[test]
-    fn configures_timeouts() {
-        let mut client =
-            Client::new_with_server_name("dns.google", "127.0.0.1:853").expect("create DoT client");
-
-        client.set_connect_timeout(Duration::from_secs(1));
-        client.set_read_timeout(None);
-        client.set_write_timeout(Some(Duration::from_secs(2)));
-    }
-
-    #[test]
-    fn new_extracts_server_name_from_host_port() {
-        let client = Client::new("dns.google:853").expect("create DoT client");
-
+    fn accepts_an_address_with_an_explicit_server_name() {
+        let client = Client::try_new("dns.google", address()).expect("create DoT client");
         assert_eq!(client.server_name, "dns.google");
+        assert_eq!(client.server, address());
     }
 
     #[test]

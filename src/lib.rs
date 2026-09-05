@@ -220,7 +220,13 @@
 #[macro_use]
 mod cfg;
 
-#[cfg(any(feature = "doh", feature = "json", feature = "tcp", feature = "udp"))]
+#[cfg(any(
+    feature = "doh",
+    feature = "json",
+    feature = "do53",
+    feature = "dot",
+    feature = "sync"
+))]
 pub mod clients;
 
 mod display;
@@ -260,11 +266,6 @@ pub use crate::edns::*;
 
 #[doc(inline)]
 pub use crate::resource::*;
-
-#[doc(inline)]
-#[cfg(feature = "udp")]
-// TODO Allow this resolve to use any available client
-pub use crate::clients::Resolver;
 
 pub use crate::errors::DecodeError;
 pub use crate::errors::EncodeError;
