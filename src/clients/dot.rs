@@ -1,6 +1,8 @@
 use crate::Message;
+use crate::clients::AsyncExchanger;
 use crate::clients::framing::encode_tcp_frame;
 use crate::clients::timeouts::with_timeout;
+use async_trait::async_trait;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
 use std::io;
@@ -26,12 +28,13 @@ pub const CLOUDFLARE: &str = "cloudflare-dns.com:853";
 /// can connect straight to an address without a bootstrap DNS lookup. See
 /// [`Client::try_new`] and [`Client::try_from_host_port`].
 ///
-/// Exchanges are sequential and require mutable access. The TLS connection is
-/// reused across exchanges, and discarded on failure.
+/// Exchanges are serialized across tasks. The TLS connection is reused across
+/// exchanges, and discarded on failure.
 ///
 /// # Example
 ///
 /// ```rust,no_run
+/// use rustdns::clients::AsyncExchanger;
 /// use rustdns::clients::dot::Client;
 /// use rustdns::types::*;
 ///
@@ -41,7 +44,7 @@ pub const CLOUDFLARE: &str = "cloudflare-dns.com:853";
 ///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
 ///     // No bootstrap lookup: the address is given, the name only validates TLS.
-///     let mut client = Client::try_new("dns.google", "8.8.8.8:853".parse().unwrap())?;
+///     let client = Client::try_new("dns.google", "8.8.8.8:853".parse().unwrap())?;
 ///     let response = client.exchange(&query).await?;
 ///
 ///     println!("{}", response);
@@ -65,19 +68,20 @@ pub struct Client {
     /// Defaults to five seconds.
     connect_timeout: Duration,
 
-    /// Maximum time allowed to read a framed response. Defaults to five
-    /// seconds; `None` disables it.
-    read_timeout: Option<Duration>,
+    /// Maximum time allowed to read a framed response. Defaults to five seconds.
+    read_timeout: Duration,
 
-    /// Maximum time allowed to write a framed query. Defaults to five seconds;
-    /// `None` disables it.
-    write_timeout: Option<Duration>,
+    /// Maximum time allowed to write a framed query. Defaults to five seconds.
+    write_timeout: Duration,
 
     /// TLS configuration using WebPKI root certificates.
     connector: TlsConnector,
 
     /// Lazily created TLS connection, reused across exchanges.
-    connection: Option<TlsStream<tokio::net::TcpStream>>,
+    // TODO(multiplexing): Moving from a serialized `Mutex<Option<TlsStream>>` to a background
+    // reader/writer task with an in-flight query map (`HashMap<u16, oneshot::Sender<Message>>`)
+    // will allow full pipelining under RFC 7766 §6.2.1.1 without locking across the entire RTT.
+    connection: tokio::sync::Mutex<Option<TlsStream<tokio::net::TcpStream>>>,
 }
 
 impl Client {
@@ -99,10 +103,10 @@ impl Client {
             server_name: server_name.to_string(),
             server,
             connect_timeout: Duration::from_secs(5),
-            read_timeout: Some(Duration::from_secs(5)),
-            write_timeout: Some(Duration::from_secs(5)),
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
             connector: TlsConnector::from(new_tls_config()),
-            connection: None,
+            connection: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -144,16 +148,42 @@ impl Client {
         self.connect_timeout = timeout;
     }
 
-    /// Sets the timeout for reading a response. Pass `None` to disable it.
-    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+    /// Sets the timeout for reading a response.
+    pub fn set_read_timeout(&mut self, timeout: Duration) {
         self.read_timeout = timeout;
     }
 
-    /// Sets the timeout for writing a query. Pass `None` to disable it.
-    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
+    /// Sets the timeout for writing a query.
+    pub fn set_write_timeout(&mut self, timeout: Duration) {
         self.write_timeout = timeout;
     }
 
+    async fn connect(&self) -> Result<TlsStream<tokio::net::TcpStream>, crate::Error> {
+        // TODO Are there other properties we should set on the connector? For example, `set_nodelay` or `set_keepalive`.
+
+        let server_name = ServerName::try_from(self.server_name.clone()).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid DoT server name: {error}"),
+            )
+        })?;
+
+        log::trace!("DoT target={} sni={}", self.server, self.server_name);
+        let stream = with_timeout(self.connect_timeout, "DoT connect timed out", async {
+            let stream = tokio::net::TcpStream::connect(self.server).await?;
+            stream.set_nodelay(true)?;
+            let stream = self.connector.connect(server_name, stream).await?;
+            Ok(stream)
+        })
+        .await?;
+
+        log::trace!("DoT TLS connected peer={}", self.server);
+        Ok(stream)
+    }
+}
+
+#[async_trait]
+impl AsyncExchanger for Client {
     /// Sends one DNS query and returns its response.
     ///
     /// The connection is discarded after any I/O, TLS, framing, or parsing
@@ -163,15 +193,16 @@ impl Client {
     ///
     /// Returns an error if the connection, TLS handshake, exchange, or response
     /// parsing fails.
-    pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
-        if self.connection.is_none() {
-            self.connection = Some(self.connect().await?);
+    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+        let mut connection = self.connection.lock().await;
+        if connection.is_none() {
+            *connection = Some(self.connect().await?);
         }
 
         let read_timeout = self.read_timeout;
         let write_timeout = self.write_timeout;
         let result: io::Result<Message> = async {
-            let stream = self.connection.as_mut().ok_or_else(|| {
+            let stream = connection.as_mut().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotConnected, "DoT connection unavailable")
             })?;
 
@@ -206,32 +237,14 @@ impl Client {
             Ok(response) => Ok(response),
             Err(error) => {
                 log::trace!("DoT discarding connection after error: {error}");
-                self.connection = None;
+                *connection = None;
                 Err(error.into())
             }
         }
     }
 
-    async fn connect(&self) -> Result<TlsStream<tokio::net::TcpStream>, crate::Error> {
-        log::trace!("DoT target={} sni={}", self.server, self.server_name);
-        let stream = tokio::time::timeout(
-            self.connect_timeout,
-            tokio::net::TcpStream::connect(self.server),
-        )
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "DoT connect timed out"))??;
-        stream.set_nodelay(true)?;
-
-        let server_name = ServerName::try_from(self.server_name.clone()).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("invalid DoT server name: {error}"),
-            )
-        })?;
-
-        let stream = self.connector.connect(server_name, stream).await?;
-        log::trace!("DoT TLS connected peer={}", self.server);
-        Ok(stream)
+    fn endpoint(&self) -> Arc<str> {
+        format!("tls://{}:{}", self.server_name, self.server.port()).into()
     }
 }
 
@@ -243,6 +256,7 @@ pub(crate) fn validate_server_name(server_name: &str) -> Result<(), crate::Error
 }
 
 /// Extracts the TLS server name from a `host:port` string.
+/// TODO Should this use a standard library parser instead of splitting on `:`? It would be nice to support IPv6 addresses in brackets.
 pub(crate) fn server_name_from_addr(server: &str) -> Result<String, crate::Error> {
     let server = server.trim();
     let host = server

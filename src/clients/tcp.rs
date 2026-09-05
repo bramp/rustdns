@@ -1,7 +1,10 @@
 use crate::Message;
+use crate::clients::AsyncExchanger;
 use crate::clients::framing::encode_tcp_frame;
 use crate::clients::timeouts::with_timeout;
+use async_trait::async_trait;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -17,12 +20,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// [`do53::Client`](crate::clients::do53::Client) to query over UDP first and
 /// upgrade to TCP only when the server truncates.
 ///
-/// Exchanges are sequential and require mutable access. The connection is
-/// discarded on failure.
+/// Exchanges are serialized across tasks. The connection is discarded on failure.
 ///
 /// # Example
 ///
 /// ```rust,no_run
+/// use rustdns::clients::AsyncExchanger;
 /// use rustdns::clients::tcp::Client;
 /// use rustdns::types::*;
 ///
@@ -31,7 +34,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 ///     let mut query = Message::default();
 ///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
-///     let mut client = Client::new("8.8.8.8:53".parse().unwrap());
+///     let client = Client::new("8.8.8.8:53".parse().unwrap());
 ///     let response = client.exchange(&query).await?;
 ///
 ///     println!("{}", response);
@@ -52,16 +55,17 @@ pub struct Client {
     /// Maximum time allowed to establish a connection. Defaults to five seconds.
     connect_timeout: Duration,
 
-    /// Maximum time allowed to read a framed response. Defaults to five
-    /// seconds; `None` disables it.
-    read_timeout: Option<Duration>,
+    /// Maximum time allowed to read a framed response. Defaults to five seconds.
+    read_timeout: Duration,
 
-    /// Maximum time allowed to write a framed query. Defaults to five seconds;
-    /// `None` disables it.
-    write_timeout: Option<Duration>,
+    /// Maximum time allowed to write a framed query. Defaults to five seconds.
+    write_timeout: Duration,
 
     /// Lazily created connection, reused across exchanges.
-    connection: Option<tokio::net::TcpStream>,
+    // TODO(multiplexing): Moving from a serialized `Mutex<Option<TcpStream>>` to a background
+    // reader/writer task with an in-flight query map (`HashMap<u16, oneshot::Sender<Message>>`)
+    // will allow full pipelining under RFC 7766 §6.2.1.1 without locking across the entire RTT.
+    connection: tokio::sync::Mutex<Option<tokio::net::TcpStream>>,
 }
 
 impl Client {
@@ -70,9 +74,9 @@ impl Client {
         Self {
             server,
             connect_timeout: Duration::from_secs(5),
-            read_timeout: Some(Duration::from_secs(5)),
-            write_timeout: Some(Duration::from_secs(5)),
-            connection: None,
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            connection: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -86,37 +90,39 @@ impl Client {
         self.connect_timeout = timeout;
     }
 
-    /// Sets the timeout for reading a response. Pass `None` to disable it.
-    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+    /// Sets the timeout for reading a response.
+    pub fn set_read_timeout(&mut self, timeout: Duration) {
         self.read_timeout = timeout;
     }
 
-    /// Sets the timeout for writing a query. Pass `None` to disable it.
-    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) {
+    /// Sets the timeout for writing a query.
+    pub fn set_write_timeout(&mut self, timeout: Duration) {
         self.write_timeout = timeout;
     }
+}
 
+#[async_trait]
+impl AsyncExchanger for Client {
     /// Sends one DNS query and returns its response.
     ///
     /// The connection is discarded after any I/O, framing, or parsing error;
     /// the failed query is not retried.
-    pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
-        if self.connection.is_none() {
+    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+        let mut connection = self.connection.lock().await;
+        if connection.is_none() {
             log::trace!("async TCP target={}", self.server);
-            let stream = tokio::time::timeout(
+            let stream = with_timeout(
                 self.connect_timeout,
+                "TCP connect timed out",
                 tokio::net::TcpStream::connect(self.server),
             )
-            .await
-            .map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::TimedOut, "TCP connect timed out")
-            })??;
+            .await?;
             log::trace!(
                 "async TCP connected local={} peer={}",
                 stream.local_addr()?,
                 stream.peer_addr()?
             );
-            self.connection = Some(stream);
+            *connection = Some(stream);
         } else {
             log::trace!("async TCP reusing connection peer={}", self.server);
         }
@@ -124,7 +130,7 @@ impl Client {
         let read_timeout = self.read_timeout;
         let write_timeout = self.write_timeout;
         let result: std::io::Result<Message> = async {
-            let stream = self.connection.as_mut().ok_or_else(|| {
+            let stream = connection.as_mut().ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
                     "TCP connection unavailable",
@@ -161,10 +167,14 @@ impl Client {
             Ok(response) => Ok(response),
             Err(error) => {
                 log::trace!("async TCP discarding connection after error: {error}");
-                self.connection = None;
+                *connection = None;
                 Err(error.into())
             }
         }
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("tcp://{}", self.server).into()
     }
 }
 
@@ -172,6 +182,7 @@ impl Client {
 mod tests {
     use super::Client;
     use crate::Message;
+    use crate::clients::AsyncExchanger;
     use std::net::SocketAddr;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -193,7 +204,7 @@ mod tests {
             }
         });
 
-        let mut client = Client::new(address);
+        let client = Client::new(address);
         assert!(client.exchange(&Message::default()).await.is_ok());
         assert!(client.exchange(&Message::default()).await.is_ok());
         server.await.expect("join test server");

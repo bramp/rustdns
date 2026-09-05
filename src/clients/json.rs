@@ -5,10 +5,10 @@ use crate::Question;
 use crate::Record;
 use crate::Resource;
 use crate::clients::AsyncExchanger;
+use crate::clients::http as client_http;
+use crate::clients::http::{BoxError, HttpClient};
 use crate::clients::mime::content_type_equal;
 use crate::clients::stats::StatsBuilder;
-use crate::clients::validate_http_status;
-use crate::clients::{BoxError, HttpClient, new_http_client};
 use crate::errors::JsonError;
 use async_trait::async_trait;
 use core::convert::TryInto;
@@ -186,6 +186,12 @@ impl TryInto<Record> for RecordJson {
 pub struct Client {
     /// HTTPS endpoint used for JSON DNS queries.
     server: Url,
+    /// Maximum time allowed to establish connection before TLS starts. Defaults to five seconds.
+    connect_timeout: Duration,
+    /// Maximum time allowed for receiving the response body. Defaults to five seconds.
+    read_timeout: Duration,
+    /// Maximum time allowed for sending the request. Defaults to five seconds.
+    write_timeout: Duration,
     /// Hyper client whose connection pool is reused across exchanges.
     http_client: HttpClient,
 }
@@ -197,7 +203,10 @@ impl Default for Client {
     fn default() -> Self {
         Self {
             server: Url::parse(GOOGLE).expect("valid Google JSON URL"),
-            http_client: new_http_client(),
+            connect_timeout: Duration::from_secs(5),
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            http_client: client_http::new_client(Duration::from_secs(5)),
         }
     }
 }
@@ -217,7 +226,10 @@ impl Client {
 
         Ok(Self {
             server,
-            http_client: new_http_client(),
+            connect_timeout: Duration::from_secs(5),
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            http_client: client_http::new_client(Duration::from_secs(5)),
         })
     }
 
@@ -242,12 +254,34 @@ impl Client {
     pub fn server(&self) -> &Url {
         &self.server
     }
+
+    /// Sets the maximum time allowed to establish a connection.
+    pub fn set_connect_timeout(&mut self, timeout: Duration) {
+        self.connect_timeout = timeout;
+        self.http_client = client_http::new_client(timeout);
+    }
+
+    /// Sets the timeout for reading the response body.
+    pub fn set_read_timeout(&mut self, timeout: Duration) {
+        self.read_timeout = timeout;
+    }
+
+    /// Sets the timeout for writing the request.
+    pub fn set_write_timeout(&mut self, timeout: Duration) {
+        self.write_timeout = timeout;
+    }
 }
 
 #[async_trait]
 impl AsyncExchanger for Client {
-    fn endpoint(&self) -> Option<std::sync::Arc<str>> {
-        Some(self.server.as_str().into())
+    fn endpoint(&self) -> std::sync::Arc<str> {
+        // Unofficial custom scheme to unambiguously differentiate JSON DoH from binary DoH (https://).
+        let without_scheme = self
+            .server
+            .as_str()
+            .strip_prefix("https://")
+            .unwrap_or(self.server.as_str());
+        format!("json+https://{without_scheme}").into()
     }
 
     /// Sends the [`Message`] to the `server` via HTTP and returns the result.
@@ -290,24 +324,23 @@ impl AsyncExchanger for Client {
         // url.query_pairs_mut().append_pair("edns_client_subnet", );
         // url.query_pairs_mut().append_pair("random_padding", );
 
-        // We have to do this wierd as_str().parse() thing because the
-        // http::Uri doesn't provide a way to easily mutate or construct it.
         let request_target = url.to_string();
-        let uri: http::Uri = url.as_str().parse()?;
-
         let req = Request::builder()
             .method(Method::GET)
-            .uri(uri)
+            .uri(url.as_str())
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_JSON)
-            .body(
-                Empty::<Bytes>::new()
-                    .map_err(|error: std::convert::Infallible| -> BoxError { match error {} })
-                    .boxed(),
-            )?;
+            .body(Empty::<Bytes>::new().map_err(BoxError::from).boxed())?;
 
         let stats = StatsBuilder::start(0);
         log::trace!("DoH JSON sending GET request to {request_target}");
-        let resp = client.request(req).await?;
+        let resp = match tokio::time::timeout(self.write_timeout, client.request(req)).await {
+            Ok(result) => result?,
+            Err(_) => {
+                return Err(
+                    io::Error::new(io::ErrorKind::TimedOut, "DoH JSON request timed out").into(),
+                );
+            }
+        };
 
         // Get connection information (if available)
         let remote_addr = match resp.extensions().get::<HttpInfo>() {
@@ -333,14 +366,26 @@ impl AsyncExchanger for Client {
             });
         }
 
-        validate_http_status(resp.status())?;
+        client_http::validate_status(resp.status())?;
 
         // Read the full body
-        let body = Limited::new(resp.into_body(), MAX_JSON_BODY_SIZE)
-            .collect()
-            .await
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
-            .to_bytes();
+        let body = match tokio::time::timeout(
+            self.read_timeout,
+            Limited::new(resp.into_body(), MAX_JSON_BODY_SIZE).collect(),
+        )
+        .await
+        {
+            Ok(result) => result
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+                .to_bytes(),
+            Err(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "DoH JSON response read timed out",
+                )
+                .into());
+            }
+        };
         log::trace!(
             "DoH JSON received {} response body bytes from {remote_addr}",
             body.len()
@@ -358,8 +403,8 @@ impl AsyncExchanger for Client {
 mod tests {
     use super::MAX_JSON_BODY_SIZE;
     use crate::Message;
+    use crate::clients::http as client_http;
     use crate::clients::json::MessageJson;
-    use crate::clients::validate_http_status;
     use http_body_util::{BodyExt, Full, Limited};
     use hyper::body::Bytes;
     use json_comments::StripComments;
@@ -532,8 +577,8 @@ mod tests {
     fn validates_success_client_statuses() {
         use http::StatusCode;
 
-        assert!(validate_http_status(StatusCode::OK).is_ok());
-        assert!(validate_http_status(StatusCode::BAD_REQUEST).is_err());
-        assert!(validate_http_status(StatusCode::INTERNAL_SERVER_ERROR).is_err());
+        assert!(client_http::validate_status(StatusCode::OK).is_ok());
+        assert!(client_http::validate_status(StatusCode::BAD_REQUEST).is_err());
+        assert!(client_http::validate_status(StatusCode::INTERNAL_SERVER_ERROR).is_err());
     }
 }

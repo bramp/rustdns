@@ -1,7 +1,10 @@
 use crate::Message;
+use crate::clients::AsyncExchanger;
 use crate::clients::tcp::Client as TcpClient;
 use crate::clients::udp::Client as UdpClient;
+use async_trait::async_trait;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A classic DNS ("Do53") client for one server, speaking UDP and TCP.
@@ -16,8 +19,8 @@ use std::time::Duration;
 /// response except the fact that it was truncated. If the TCP retry fails, that
 /// failure is returned rather than the truncated response.
 ///
-/// Exchanges are sequential and require mutable access. The UDP socket and TCP
-/// connection are reused across exchanges, and discarded on failure.
+/// Exchanges are serialized across tasks. The UDP socket and TCP connection are
+/// reused across exchanges, and discarded on failure.
 ///
 /// See the `clients` module docs for the `new`/`try_from_host_port` convention.
 ///
@@ -50,8 +53,8 @@ impl Client {
         self.server
     }
 
-    /// Sets the timeout for receiving the UDP response. Pass `None` to disable it.
-    pub fn set_udp_read_timeout(&mut self, timeout: Option<Duration>) {
+    /// Sets the timeout for receiving the UDP response.
+    pub fn set_udp_read_timeout(&mut self, timeout: Duration) {
         self.udp.set_read_timeout(timeout);
     }
 
@@ -61,6 +64,19 @@ impl Client {
         self.tcp.set_connect_timeout(timeout);
     }
 
+    /// Sets the timeout for reading a response over TCP.
+    pub fn set_tcp_read_timeout(&mut self, timeout: Duration) {
+        self.tcp.set_read_timeout(timeout);
+    }
+
+    /// Sets the timeout for writing a query over TCP.
+    pub fn set_tcp_write_timeout(&mut self, timeout: Duration) {
+        self.tcp.set_write_timeout(timeout);
+    }
+}
+
+#[async_trait]
+impl AsyncExchanger for Client {
     /// Sends one DNS query and returns its response, retrying over TCP when the
     /// UDP response is truncated.
     ///
@@ -68,7 +84,7 @@ impl Client {
     ///
     /// Returns an error if the UDP exchange fails, or if a truncated response
     /// could not be re-fetched over TCP.
-    pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
         let response = self.udp.exchange(query).await?;
         if !response.tc {
             return Ok(response);
@@ -79,6 +95,10 @@ impl Client {
             self.server
         );
         self.tcp.exchange(query).await
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("dns://{}", self.server).into()
     }
 }
 
@@ -151,7 +171,7 @@ mod tests {
             stream.write_all(&frame).await.expect("write TCP");
         });
 
-        let mut client = Client::new(addr);
+        let client = Client::new(addr);
         let response = client.exchange(&query()).await.expect("exchange succeeds");
 
         assert!(!response.tc, "truncated response leaked to the caller");
@@ -173,7 +193,7 @@ mod tests {
             udp.send_to(&response, peer).await.expect("write UDP");
         });
 
-        let mut client = Client::new(addr);
+        let client = Client::new(addr);
         assert!(client.exchange(&query()).await.is_err());
 
         udp_server.await.expect("join UDP server");
@@ -194,7 +214,7 @@ mod tests {
             udp.send_to(&response, peer).await.expect("write UDP");
         });
 
-        let mut client = Client::new(addr);
+        let client = Client::new(addr);
         let response = client.exchange(&query()).await.expect("exchange succeeds");
         assert_eq!(response.answers.len(), 1);
 

@@ -1,7 +1,10 @@
 use crate::Message;
+use crate::clients::AsyncExchanger;
 use crate::clients::timeouts::with_timeout;
 use crate::limits::MAX_DNS_MESSAGE_LEN;
+use async_trait::async_trait;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// An asynchronous DNS-over-UDP client.
@@ -13,12 +16,13 @@ use std::time::Duration;
 /// Prefer [`do53::Client`](crate::clients::do53::Client), which pairs UDP with
 /// TCP and performs the truncation retry required by [rfc2181] and [rfc7766].
 ///
-/// Exchanges are sequential and require mutable access. The socket is reused
-/// across exchanges, and discarded on failure.
+/// Exchanges are serialized across tasks. The socket is reused across exchanges,
+/// and discarded on failure.
 ///
 /// # Example
 ///
 /// ```rust,no_run
+/// use rustdns::clients::AsyncExchanger;
 /// use rustdns::clients::udp::Client;
 /// use rustdns::types::*;
 ///
@@ -27,7 +31,7 @@ use std::time::Duration;
 ///     let mut query = Message::default();
 ///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
-///     let mut client = Client::new("8.8.8.8:53".parse().unwrap());
+///     let client = Client::new("8.8.8.8:53".parse().unwrap());
 ///     let response = client.exchange(&query).await?;
 ///
 ///     println!("{}", response);
@@ -46,12 +50,11 @@ pub struct Client {
     /// The DNS server this client queries.
     server: SocketAddr,
 
-    /// Maximum time allowed to receive a response. Defaults to five seconds;
-    /// `None` disables it.
-    read_timeout: Option<Duration>,
+    /// Maximum time allowed to receive a response. Defaults to five seconds.
+    read_timeout: Duration,
 
     /// Lazily created socket, connected to `server` and reused across exchanges.
-    socket: Option<tokio::net::UdpSocket>,
+    socket: tokio::sync::Mutex<Option<tokio::net::UdpSocket>>,
 }
 
 impl Client {
@@ -59,8 +62,8 @@ impl Client {
     pub fn new(server: SocketAddr) -> Self {
         Self {
             server,
-            read_timeout: Some(Duration::from_secs(5)),
-            socket: None,
+            read_timeout: Duration::from_secs(5),
+            socket: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -69,17 +72,21 @@ impl Client {
         self.server
     }
 
-    /// Sets the timeout for receiving a response. Pass `None` to disable it.
+    /// Sets the timeout for receiving a response.
     ///
     /// UDP has no delivery guarantee, so without a timeout a dropped response
     /// leaves the exchange waiting indefinitely.
-    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+    pub fn set_read_timeout(&mut self, timeout: Duration) {
         self.read_timeout = timeout;
     }
+}
 
+#[async_trait]
+impl AsyncExchanger for Client {
     /// Sends one DNS query and returns its response.
-    pub async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
-        if self.socket.is_none() {
+    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+        let mut guard = self.socket.lock().await;
+        if guard.is_none() {
             log::trace!("async UDP target={}", self.server);
             let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await?;
             socket.connect(self.server).await?;
@@ -88,14 +95,14 @@ impl Client {
                 socket.local_addr()?,
                 socket.peer_addr()?
             );
-            self.socket = Some(socket);
+            *guard = Some(socket);
         } else {
             log::trace!("async UDP reusing connected socket peer={}", self.server);
         }
 
         let read_timeout = self.read_timeout;
         let result: std::io::Result<Message> = async {
-            let socket = self.socket.as_mut().ok_or_else(|| {
+            let socket = guard.as_mut().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::NotConnected, "UDP socket unavailable")
             })?;
             let request = query.to_vec()?;
@@ -121,10 +128,14 @@ impl Client {
             Ok(response) => Ok(response),
             Err(error) => {
                 log::trace!("async UDP discarding socket after error: {error}");
-                self.socket = None;
+                *guard = None;
                 Err(error.into())
             }
         }
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("udp://{}", self.server).into()
     }
 }
 
@@ -132,6 +143,7 @@ impl Client {
 mod tests {
     use super::Client;
     use crate::Message;
+    use crate::clients::AsyncExchanger;
     use std::net::SocketAddr;
     use tokio::net::UdpSocket;
 
@@ -155,7 +167,7 @@ mod tests {
                 .expect("write response");
         });
 
-        let mut client = Client::new(address);
+        let client = Client::new(address);
         assert!(client.exchange(&Message::default()).await.is_ok());
         server.await.expect("join test server");
     }
@@ -171,7 +183,7 @@ mod tests {
             .expect("read test socket address");
 
         let mut client = Client::new(address);
-        client.set_read_timeout(Some(std::time::Duration::from_millis(10)));
+        client.set_read_timeout(std::time::Duration::from_millis(10));
 
         let error = client
             .exchange(&Message::default())
