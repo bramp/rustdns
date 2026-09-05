@@ -1,6 +1,6 @@
 use crate::Message;
 use crate::clients::Exchanger;
-use crate::clients::stats::StatsBuilder;
+use crate::clients::common::stats::StatsBuilder;
 use socket2::{Socket, TcpKeepalive};
 use std::io;
 use std::io::Read;

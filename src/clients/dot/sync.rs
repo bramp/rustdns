@@ -1,8 +1,8 @@
 use crate::Message;
 use crate::clients::Exchanger;
+use crate::clients::common::framing::encode_tcp_frame;
+use crate::clients::common::stats::StatsBuilder;
 use crate::clients::dot::{new_tls_config, server_name_from_addr, validate_server_name};
-use crate::clients::framing::encode_tcp_frame;
-use crate::clients::stats::StatsBuilder;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 use socket2::{Socket, TcpKeepalive};

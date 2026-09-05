@@ -38,24 +38,7 @@ pub mod udp;
 #[cfg(feature = "sync")]
 pub mod sync;
 
-#[cfg(any(feature = "do53", feature = "dot"))]
-mod framing;
-
-#[cfg(any(feature = "doh", feature = "json"))]
-pub(crate) mod http;
-
-#[cfg(any(feature = "do53", feature = "dot", feature = "doh", feature = "json"))]
-pub(crate) mod timeouts;
-
-#[cfg(any(feature = "doh", feature = "json"))]
-mod mime;
-
-#[cfg(any(
-    feature = "doh",
-    feature = "json",
-    all(feature = "sync", any(feature = "do53", feature = "dot"))
-))]
-mod stats;
+pub(crate) mod common;
 
 /// Exchanger takes a query and returns a response.
 pub trait Exchanger {
@@ -79,10 +62,10 @@ pub trait AsyncExchanger {
 mod tests {
     #[test]
     fn clients_reject_plaintext_urls() {
-        let plaintext: url::Url = "http://dns.example/dns-query".parse\(\).unwrap\(\)\;
+        let plaintext: url::Url = "http://dns.example/dns-query".parse().unwrap();
 
         #[cfg(feature = "doh")]
-        assert!(super::doh::Client::try_new(plaintext.clone(), http::Method::GET\).is_err\(\)\)\;
+        assert!(super::doh::Client::try_new(plaintext.clone(), http::Method::GET).is_err());
 
         #[cfg(feature = "json")]
         assert!(super::json::Client::try_new(plaintext).is_err());

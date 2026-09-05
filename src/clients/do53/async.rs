@@ -105,7 +105,7 @@ impl AsyncExchanger for Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clients::framing::encode_tcp_frame;
+    use crate::clients::common::framing::encode_tcp_frame;
     use crate::types::{Class, QR, Rcode, Record, Resource, Type};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

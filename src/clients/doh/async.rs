@@ -1,9 +1,9 @@
 use crate::Message;
 use crate::clients::AsyncExchanger;
-use crate::clients::http as client_http;
-use crate::clients::http::{BoxError, HttpClient};
-use crate::clients::mime::content_type_equal;
-use crate::clients::stats::StatsBuilder;
+use crate::clients::common::http as client_http;
+use crate::clients::common::http::{BoxError, HttpClient};
+use crate::clients::common::mime::content_type_equal;
+use crate::clients::common::stats::StatsBuilder;
 use crate::limits::MAX_DNS_MESSAGE_LEN;
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -280,7 +280,7 @@ impl AsyncExchanger for Client {
 #[cfg(test)]
 mod tests {
     use super::{Client, MAX_DOH_BODY_SIZE};
-    use crate::clients::http as client_http;
+    use crate::clients::common::http as client_http;
     use http::Method;
     use http::StatusCode;
     use http_body_util::{BodyExt, Full, Limited};

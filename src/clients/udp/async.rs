@@ -1,6 +1,6 @@
 use crate::Message;
 use crate::clients::AsyncExchanger;
-use crate::clients::timeouts::with_timeout;
+use crate::clients::common::timeouts::with_timeout;
 use crate::limits::MAX_DNS_MESSAGE_LEN;
 use async_trait::async_trait;
 use std::net::SocketAddr;

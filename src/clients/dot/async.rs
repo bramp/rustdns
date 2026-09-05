@@ -1,7 +1,7 @@
 use crate::Message;
 use crate::clients::AsyncExchanger;
-use crate::clients::framing::encode_tcp_frame;
-use crate::clients::timeouts::with_timeout;
+use crate::clients::common::framing::encode_tcp_frame;
+use crate::clients::common::timeouts::with_timeout;
 use async_trait::async_trait;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};

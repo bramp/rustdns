@@ -5,10 +5,10 @@ use crate::Question;
 use crate::Record;
 use crate::Resource;
 use crate::clients::AsyncExchanger;
-use crate::clients::http as client_http;
-use crate::clients::http::{BoxError, HttpClient};
-use crate::clients::mime::content_type_equal;
-use crate::clients::stats::StatsBuilder;
+use crate::clients::common::http as client_http;
+use crate::clients::common::http::{BoxError, HttpClient};
+use crate::clients::common::mime::content_type_equal;
+use crate::clients::common::stats::StatsBuilder;
 use crate::errors::JsonError;
 use async_trait::async_trait;
 use core::convert::TryInto;
@@ -402,9 +402,9 @@ impl AsyncExchanger for Client {
 #[cfg(test)]
 mod tests {
     use super::MAX_JSON_BODY_SIZE;
+    use super::MessageJson;
     use crate::Message;
-    use crate::clients::http as client_http;
-    use crate::clients::json::MessageJson;
+    use crate::clients::common::http as client_http;
     use http_body_util::{BodyExt, Full, Limited};
     use hyper::body::Bytes;
     use json_comments::StripComments;

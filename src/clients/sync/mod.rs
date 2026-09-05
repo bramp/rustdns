@@ -5,13 +5,13 @@
 //! Prefer the asynchronous clients unless you specifically need blocking I/O.
 
 #[cfg(feature = "do53")]
-pub mod do53;
+pub use crate::clients::do53::sync as do53;
 
 #[cfg(feature = "do53")]
-pub mod tcp;
+pub use crate::clients::tcp::sync as tcp;
 
 #[cfg(feature = "do53")]
-pub mod udp;
+pub use crate::clients::udp::sync as udp;
 
 #[cfg(feature = "dot")]
-pub mod dot;
+pub use crate::clients::dot::sync as dot;
