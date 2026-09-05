@@ -246,6 +246,10 @@ impl Client {
 
 #[async_trait]
 impl AsyncExchanger for Client {
+    fn endpoint(&self) -> Option<std::sync::Arc<str>> {
+        Some(self.server.as_str().into())
+    }
+
     /// Sends the [`Message`] to the `server` via HTTP and returns the result.
     ///
     /// # Errors

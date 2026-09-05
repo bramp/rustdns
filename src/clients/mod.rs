@@ -15,6 +15,7 @@
 //! for human-entered strings, such as CLI arguments.
 
 use crate::Message;
+use std::sync::Arc;
 
 #[cfg(any(feature = "doh", feature = "json"))]
 use http_body_util::combinators::BoxBody;
@@ -115,11 +116,18 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait AsyncExchanger {
     async fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
+
+    /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL),
+    /// if available.
+    fn endpoint(&self) -> Option<Arc<str>> {
+        None
+    }
 }
 
 #[cfg(feature = "do53")]
 mod pooled {
     use super::{AsyncExchanger, Message, async_trait};
+    use std::sync::Arc;
 
     /// Like [`AsyncExchanger`], but requires exclusive access, for transports
     /// (such as the async UDP/TCP clients) that reuse a socket or connection
@@ -129,12 +137,21 @@ mod pooled {
             &mut self,
             query: &Message,
         ) -> impl std::future::Future<Output = Result<Message, crate::Error>> + Send;
+
+        /// Returns a string describing the endpoint of this exchanger, if available.
+        fn endpoint(&self) -> Option<Arc<str>> {
+            None
+        }
     }
 
     #[cfg(feature = "do53")]
     impl AsyncExchangerMut for super::udp::Client {
         async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
             self.exchange(query).await
+        }
+
+        fn endpoint(&self) -> Option<Arc<str>> {
+            Some(self.server().to_string().into())
         }
     }
 
@@ -143,12 +160,20 @@ mod pooled {
         async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
             self.exchange(query).await
         }
+
+        fn endpoint(&self) -> Option<Arc<str>> {
+            Some(self.server().to_string().into())
+        }
     }
 
     #[cfg(feature = "do53")]
     impl AsyncExchangerMut for super::do53::Client {
         async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
             self.exchange(query).await
+        }
+
+        fn endpoint(&self) -> Option<Arc<str>> {
+            Some(self.server().to_string().into())
         }
     }
 
@@ -157,15 +182,26 @@ mod pooled {
         async fn exchange(&mut self, query: &Message) -> Result<Message, crate::Error> {
             self.exchange(query).await
         }
+
+        fn endpoint(&self) -> Option<Arc<str>> {
+            Some(format!("{}:{}", self.server_name(), self.server().port()).into())
+        }
     }
 
     /// Adapts an [`AsyncExchangerMut`] transport into the object-safe
     /// [`AsyncExchanger`] by serializing exchanges through an internal async mutex.
-    pub struct Pooled<T>(tokio::sync::Mutex<T>);
+    pub struct Pooled<T> {
+        endpoint: Option<Arc<str>>,
+        transport: tokio::sync::Mutex<T>,
+    }
 
-    impl<T> Pooled<T> {
+    impl<T: AsyncExchangerMut> Pooled<T> {
         pub fn new(transport: T) -> Self {
-            Self(tokio::sync::Mutex::new(transport))
+            let endpoint = transport.endpoint();
+            Self {
+                endpoint,
+                transport: tokio::sync::Mutex::new(transport),
+            }
         }
     }
 
@@ -175,7 +211,11 @@ mod pooled {
         T: AsyncExchangerMut + Send,
     {
         async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
-            self.0.lock().await.exchange(query).await
+            self.transport.lock().await.exchange(query).await
+        }
+
+        fn endpoint(&self) -> Option<Arc<str>> {
+            self.endpoint.clone()
         }
     }
 }

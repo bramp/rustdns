@@ -29,6 +29,9 @@ All notable changes to rustdns are documented here.
 - Added `AsyncExchangerMut` and `Pooled<T>`, which adapt a `&mut self` async
   transport (such as the async UDP/TCP clients) into the object-safe
   `AsyncExchanger` trait.
+- Added an `endpoint(&self) -> Option<Arc<str>>` method to `AsyncExchanger` and
+  `AsyncExchangerMut` returning a canonical address or URL string for the target
+  server, implemented by all asynchronous transports and preserved through `Pooled`.
 
 ### Changed
 
