@@ -18,10 +18,50 @@ All notable changes to rustdns are documented here.
 - Added a `rustdns::Result<T, E = Error>` type alias.
 - Marked `Error`, `DecodeError`, `EncodeError`, `FromStrError`, and `JsonError`
   as `#[non_exhaustive]` so future variants are not breaking changes.
+- Added a classic DNS ("Do53") client under the new `do53` feature, combining
+  UDP and TCP for a single server. Queries go out over UDP; a truncated
+  (`TC=1`) response is re-sent over TCP to the *same* server, as required by
+  [rfc2181](https://datatracker.ietf.org/doc/html/rfc2181#section-9) and
+  [rfc7766](https://datatracker.ietf.org/doc/html/rfc7766#section-5). Because
+  both transports are built from one `SocketAddr`, the "same server"
+  requirement holds by construction. The truncated response is never returned
+  to the caller: if the TCP retry fails, that failure is returned instead.
+- Added `AsyncExchangerMut` and `Pooled<T>`, which adapt a `&mut self` async
+  transport (such as the async UDP/TCP clients) into the object-safe
+  `AsyncExchanger` trait.
 
 ### Changed
 
+- Clients are now asynchronous by default. `rustdns::clients::udp`,
+  `rustdns::clients::tcp`, and `rustdns::clients::dot` are the asynchronous
+  clients; the blocking variants moved to `rustdns::clients::sync::{udp, tcp,
+  dot, do53}` behind the new `sync` feature. The async UDP and TCP clients are
+  now named `Client` rather than `AsyncClient`.
+- Replaced the `udp`, `tcp`, `async-udp`, and `async-tcp` features with a
+  single `do53` feature covering classic DNS over UDP and TCP, and added the
+  `sync` feature for the blocking variants. `dot` no longer implies `tcp`.
+- Added an asynchronous DNS-over-TLS client, so DoT is no longer blocking-only.
+  This adds a `tokio-rustls` dependency.
+- The `udp`, `tcp`, and `do53` clients under `rustdns::clients::sync` now take
+  a single already-resolved `SocketAddr` via `new`, instead of collecting
+  addresses from a generic `ToSocketAddrs` argument (only the first was ever
+  used). Hostname resolution moved to the explicit, always-fallible
+  `try_from_host_port`.
+- Replaced DoT's `new`/`new_with_server_name` constructors (both the async and
+  sync clients) with `try_new(server_name, server: SocketAddr)`, which never
+  performs a DNS lookup, and `try_from_host_port(server: &str)`, which
+  resolves `server` with the system resolver. This matches the `new`/
+  `try_new`/`try_from_host_port` convention now documented on the `clients`
+  module.
+- Restored read and write timeouts on the async UDP, TCP, and DoT clients.
+  Previously only a connect timeout existed for TCP/DoT, and the async UDP
+  client had no timeout at all, so an unanswered query could hang forever.
 - Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
+- Set the Cargo resolver to version 3 at the workspace level, so dependency
+  resolution respects the declared minimum supported Rust version.
+- Upgraded dependencies to their latest versions compatible with Rust 1.85. This
+  pins `educe` to 0.6 and `time` to 0.3.45, because later releases require newer
+  toolchains.
 - `Message::from_slice` and `TryFrom<&[u8]> for Message` now return
   `DecodeError`; `Message::to_vec`, the `append_to_vec` family, and
   `limits::validate_*` now return `EncodeError`.
@@ -49,15 +89,6 @@ All notable changes to rustdns are documented here.
 - Removed the deprecated `zones::File::into_records`, which discarded error
   detail behind `Result<Vec<Record>, ()>`. Use `File::try_into_records`.
 - Removed the exported `bail!` macro, along with the macro itself.
-
-### Changed
-
-- Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
-- Set the Cargo resolver to version 3 at the workspace level, so dependency
-  resolution respects the declared minimum supported Rust version.
-- Upgraded dependencies to their latest versions compatible with Rust 1.85. This
-  pins `educe` to 0.6 and `time` to 0.3.45, because later releases require newer
-  toolchains.
 
 ## [0.7.0] - 2026-09-03
 
