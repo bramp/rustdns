@@ -10,7 +10,7 @@ rust-version = "1.85"
 serde = { version = "1.0.229", features = ["derive"] }
 yaml_serde = "0.10.7"
 hex = "0.4.3"
-rustdns = { path = "../", default-features = false, features = ["udp"] }
+rustdns = { path = "../", default-features = false, features = ["do53", "sync"] }
 
 
 [[bin]]
