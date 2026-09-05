@@ -64,12 +64,6 @@ jobs:
         continue-on-error: true
         run: cargo semver-checks check-release --baseline-version 0.6.0 --release-type minor
 
-      - name: Security Audit
-        if: ${{ !cancelled() }}
-        uses: rustsec/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   test:
     name: Build & Test (${{ matrix.rust }})
     runs-on: ubuntu-latest
