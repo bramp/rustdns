@@ -4,6 +4,7 @@ use crate::clients::sync::tcp::Client as TcpClient;
 use crate::clients::sync::udp::Client as UdpClient;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A synchronous classic DNS ("Do53") client, speaking UDP and TCP.
@@ -99,6 +100,16 @@ impl Client {
     pub fn set_tcp_connect_timeout(&mut self, timeout: Duration) {
         self.tcp.set_connect_timeout(timeout);
     }
+
+    /// Sets the timeout for TCP reads. Pass `None` to disable the timeout.
+    pub fn set_tcp_read_timeout(&mut self, timeout: Option<Duration>) {
+        self.tcp.set_read_timeout(timeout);
+    }
+
+    /// Sets the timeout for TCP writes. Pass `None` to disable the timeout.
+    pub fn set_tcp_write_timeout(&mut self, timeout: Option<Duration>) {
+        self.tcp.set_write_timeout(timeout);
+    }
 }
 
 impl Exchanger for Client {
@@ -119,6 +130,10 @@ impl Exchanger for Client {
             self.server
         );
         self.tcp.exchange(query)
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("dns://{}", self.server).into()
     }
 }
 

@@ -8,6 +8,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
@@ -213,6 +214,10 @@ impl Exchanger for Client {
             Some((stream, Instant::now()));
 
         Ok(resp)
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("tcp://{}", self.server).into()
     }
 }
 

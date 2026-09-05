@@ -91,4 +91,26 @@ mod tests {
     fn json_client_rejects_plaintext_servers() {
         assert!(rustdns::clients::json::Client::new("http://example.com/dns-query").is_err());
     }
+
+    #[cfg(all(feature = "sync", feature = "do53"))]
+    #[test]
+    fn sync_clients_report_endpoints() {
+        let addr = "127.0.0.1:53".parse().unwrap();
+        let udp = rustdns::clients::sync::udp::Client::new(addr);
+        assert_eq!(&*udp.endpoint(), "udp://127.0.0.1:53");
+
+        let tcp = rustdns::clients::sync::tcp::Client::new(addr);
+        assert_eq!(&*tcp.endpoint(), "tcp://127.0.0.1:53");
+
+        let do53 = rustdns::clients::sync::do53::Client::new(addr);
+        assert_eq!(&*do53.endpoint(), "dns://127.0.0.1:53");
+    }
+
+    #[cfg(all(feature = "sync", feature = "dot"))]
+    #[test]
+    fn sync_dot_client_reports_endpoint() {
+        let addr = "127.0.0.1:853".parse().unwrap();
+        let dot = rustdns::clients::sync::dot::Client::try_new("dns.google", addr).unwrap();
+        assert_eq!(&*dot.endpoint(), "tls://dns.google:853");
+    }
 }

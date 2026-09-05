@@ -4,6 +4,7 @@ use crate::clients::stats::StatsBuilder;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::net::UdpSocket;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub const GOOGLE_IPV4_PRIMARY: &str = "8.8.8.8:53";
@@ -136,5 +137,9 @@ impl Exchanger for Client {
         resp.stats = Some(stats.end(socket.peer_addr()?, len));
 
         Ok(resp)
+    }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("udp://{}", self.server).into()
     }
 }

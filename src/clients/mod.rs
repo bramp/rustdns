@@ -109,6 +109,9 @@ pub(crate) fn validate_http_status(status: StatusCode) -> io::Result<()> {
 /// Exchanger takes a query and returns a response.
 pub trait Exchanger {
     fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
+
+    /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
+    fn endpoint(&self) -> Arc<str>;
 }
 
 use async_trait::async_trait;

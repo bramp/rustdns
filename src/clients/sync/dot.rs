@@ -232,6 +232,10 @@ impl Exchanger for Client {
             Err(error) => Err(error.into()),
         }
     }
+
+    fn endpoint(&self) -> Arc<str> {
+        format!("tls://{}:{}", self.server_name, self.server.port()).into()
+    }
 }
 
 #[cfg(test)]
