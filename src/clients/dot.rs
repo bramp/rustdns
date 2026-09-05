@@ -106,6 +106,16 @@ impl Client {
         })
     }
 
+    /// Returns the server this client queries.
+    pub fn server(&self) -> SocketAddr {
+        self.server
+    }
+
+    /// Returns the TLS server name used for certificate validation.
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
     /// Creates a DoT client from a `host:port` string, using the host for both
     /// the address lookup and TLS validation.
     ///

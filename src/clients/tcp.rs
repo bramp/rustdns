@@ -76,6 +76,11 @@ impl Client {
         }
     }
 
+    /// Returns the server this client queries.
+    pub fn server(&self) -> SocketAddr {
+        self.server
+    }
+
     /// Sets the maximum time allowed to establish a connection.
     pub fn set_connect_timeout(&mut self, timeout: Duration) {
         self.connect_timeout = timeout;

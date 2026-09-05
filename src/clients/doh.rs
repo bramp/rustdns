@@ -1,6 +1,5 @@
 use crate::Message;
 use crate::clients::AsyncExchanger;
-use crate::clients::ToUrls;
 use crate::clients::mime::content_type_equal;
 use crate::clients::stats::StatsBuilder;
 use crate::clients::validate_http_status;
@@ -44,7 +43,7 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///     let mut query = Message::default();
 ///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
-///     let response = Client::new("https://dns.google/dns-query", Method::GET)?
+///     let response = Client::try_from_url("https://dns.google/dns-query", Method::GET)?
 ///        .exchange(&query)
 ///        .await
 ///        .expect("could not exchange message");
@@ -56,8 +55,8 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///
 /// See <https://datatracker.ietf.org/doc/html/rfc8484>
 pub struct Client {
-    /// HTTPS endpoints used for DNS queries. The first endpoint is currently used for each exchange.
-    servers: Vec<Url>,
+    /// HTTPS endpoint used for DNS queries.
+    server: Url,
     /// HTTP method used for DNS-over-HTTPS requests. Only `GET` and `POST` are accepted.
     method: Method,
     /// Hyper client whose connection pool is reused across exchanges.
@@ -70,7 +69,7 @@ impl std::panic::UnwindSafe for Client {}
 impl Default for Client {
     fn default() -> Self {
         Client {
-            servers: Vec::default(),
+            server: Url::parse(GOOGLE).expect("valid Google DoH URL"),
             method: Method::GET,
             http_client: new_http_client(),
         }
@@ -78,19 +77,14 @@ impl Default for Client {
 }
 
 impl Client {
-    /// Creates a new Client bound to the specific servers.
-    ///
-    /// Be aware that the servers will typically be in the form of `https://domain_name/`. That
-    /// `domain_name` will be resolved by the system's standard DNS library. I don't have a good
-    /// work-around for this yet.
+    /// Creates a new DoH client bound to the specified HTTPS URL.
     ///
     /// # Errors
     ///
-    /// Returns an error if no server is supplied, a URL cannot be parsed, a server
-    /// does not use HTTPS, or `method` is not `GET` or `POST`.
-    pub fn new<A: ToUrls>(servers: A, method: Method) -> Result<Self, crate::Error> {
+    /// Returns an error if `server` does not use HTTPS, or `method` is not `GET` or `POST`.
+    pub fn try_new(server: Url, method: Method) -> Result<Self, crate::Error> {
         match method {
-            Method::GET | Method::POST => (), // Nothing,
+            Method::GET | Method::POST => (),
             _ => {
                 return Err(crate::Error::InvalidArgument(
                     "only GET and POST allowed".to_string(),
@@ -98,23 +92,39 @@ impl Client {
             }
         }
 
-        let servers: Vec<_> = servers.to_urls()?.collect();
-        if servers.is_empty() {
-            return Err(crate::Error::InvalidArgument(
-                "at least one DoH server is required".to_string(),
-            ));
-        }
-        if servers.iter().any(|server| server.scheme() != "https") {
+        if server.scheme() != "https" {
             return Err(crate::Error::InvalidArgument(
                 "DoH servers must use HTTPS".to_string(),
             ));
         }
 
         Ok(Self {
-            servers,
+            server,
             method,
             http_client: new_http_client(),
         })
+    }
+
+    /// Creates a new DoH client by parsing a URL string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `url` cannot be parsed, does not use HTTPS, or `method` is invalid.
+    pub fn try_from_url(url: &str, method: Method) -> Result<Self, crate::Error> {
+        let parsed = url
+            .parse::<Url>()
+            .map_err(|e| crate::Error::InvalidArgument(format!("invalid URL '{url}': {e}")))?;
+        Self::try_new(parsed, method)
+    }
+
+    /// Compatibility constructor. Prefer [`Client::try_new`] or [`Client::try_from_url`].
+    pub fn new(server: &str, method: Method) -> Result<Self, crate::Error> {
+        Self::try_from_url(server, method)
+    }
+
+    /// Returns the HTTPS endpoint this client queries.
+    pub fn server(&self) -> &Url {
+        &self.server
     }
 }
 
@@ -129,9 +139,6 @@ impl AsyncExchanger for Client {
     // TODO Decide if this should be async or not.
     // Can return ::std::io::Error
     async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
-        let server = self.servers.first().ok_or_else(|| {
-            crate::Error::InvalidArgument("at least one DoH server is required".to_string())
-        })?;
         let mut query = query.clone();
         query.id = 0;
 
@@ -145,7 +152,7 @@ impl AsyncExchanger for Client {
             .method(&self.method)
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_MESSAGE);
 
-        let mut request_target = server.to_string();
+        let mut request_target = self.server.to_string();
         let req = match self.method {
             Method::GET => {
                 // Encode the message as a base64 string
@@ -153,7 +160,7 @@ impl AsyncExchanger for Client {
                 URL_SAFE_NO_PAD.encode_string(p, &mut buf);
 
                 // and add to the query params.
-                let mut url = server.clone(); // TODO Support more than one server
+                let mut url = self.server.clone();
                 url.query_pairs_mut().append_pair(DNS_QUERY_PARAM, &buf);
                 request_target = url.to_string();
 
@@ -167,7 +174,7 @@ impl AsyncExchanger for Client {
                 )?
             }
             Method::POST => {
-                req.uri(server.as_str()) // TODO Support more than one server
+                req.uri(self.server.as_str())
                     .header(CONTENT_TYPE, CONTENT_TYPE_APPLICATION_DNS_MESSAGE)
                     .body(
                         Full::new(Bytes::from(p))

@@ -64,6 +64,11 @@ impl Client {
         }
     }
 
+    /// Returns the server this client queries.
+    pub fn server(&self) -> SocketAddr {
+        self.server
+    }
+
     /// Sets the timeout for receiving a response. Pass `None` to disable it.
     ///
     /// UDP has no delivery guarantee, so without a timeout a dropped response

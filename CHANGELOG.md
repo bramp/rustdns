@@ -32,6 +32,12 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- `doh::Client` and `json::Client` now store a single server `Url` instead of a
+  vector. Added `try_new(Url)`, `try_from_url(&str)`, and `new(&str)` (convenience
+  alias).
+- Added `.server()` getters to all clients (`udp::Client`, `tcp::Client`,
+  `dot::Client`, `doh::Client`, `json::Client`, and `do53::Client`), plus
+  `.server_name()` to `dot::Client`.
 - Clients are now asynchronous by default. `rustdns::clients::udp`,
   `rustdns::clients::tcp`, and `rustdns::clients::dot` are the asynchronous
   clients; the blocking variants moved to `rustdns::clients::sync::{udp, tcp,
@@ -89,6 +95,8 @@ All notable changes to rustdns are documented here.
 - Removed the deprecated `zones::File::into_records`, which discarded error
   detail behind `Result<Vec<Record>, ()>`. Use `File::try_into_records`.
 - Removed the exported `bail!` macro, along with the macro itself.
+- Removed the `ToUrls` trait and helper module; web clients now configure a
+  single `Url`.
 
 ## [0.7.0] - 2026-09-03
 

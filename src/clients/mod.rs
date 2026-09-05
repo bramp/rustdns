@@ -1,23 +1,18 @@
 //! DNS clients (transports).
 //!
-//! `udp`, `tcp`, `do53`, and `dot` (async and their `sync` equivalents) follow
-//! one constructor convention:
+//! `udp`, `tcp`, `do53`, `dot`, `doh`, and `json` follow one constructor convention:
 //!
-//! - `new(server: SocketAddr, ..)` — `server` is already resolved. Infallible,
-//!   unless another argument needs validation (see `try_new`). Never performs
+//! - `new(server, ..)` — `server` is already resolved / typed (e.g. `SocketAddr` or `Url`).
+//!   Infallible, unless argument validation is needed (see `try_new`). Never performs
 //!   a DNS lookup.
-//! - `try_new(.., server: SocketAddr, ..)` — same as `new`, but returns
-//!   `Result` because some other argument needs validation, for example DoT's
-//!   TLS server name. Still never performs a DNS lookup.
-//! - `try_from_host_port(server: &str)` — resolves a `host:port` string before
-//!   constructing the client. This is a bootstrap DNS dependency: it must not
-//!   be served by the resolver being built. The sync clients block the
-//!   calling thread to resolve; the async DoT client awaits
-//!   `tokio::net::lookup_host` instead. Always fallible.
+//! - `try_new(server, ..)` — same as `new`, but returns `Result` because validation
+//!   is required (for example, HTTPS scheme for DoH/JSON, or TLS server name for DoT).
+//! - `try_from_host_port(server: &str)` / `try_from_url(server: &str, ..)` — resolves or
+//!   parses a string representation before constructing the client.
 //!
-//! Prefer `new`/`try_new` whenever the address is already known, such as
-//! inside a `Resolver` upstream. Reach for `try_from_host_port` only for
-//! one-off, human-entered addresses, such as CLI arguments.
+//! Prefer `new`/`try_new` whenever the address/URL is already known, such as
+//! inside a `Resolver` upstream. Reach for `try_from_host_port` / `try_from_url`
+//! for human-entered strings, such as CLI arguments.
 
 use crate::Message;
 
@@ -66,14 +61,6 @@ mod framing;
 
 #[cfg(any(feature = "do53", feature = "dot"))]
 mod timeouts;
-
-cfg_feature! {
-    #![feature = "http_deps"]
-
-    mod to_urls;
-
-    pub use self::to_urls::ToUrls;
-}
 
 #[cfg(any(feature = "doh", feature = "json"))]
 mod mime;
@@ -199,11 +186,13 @@ pub use self::pooled::{AsyncExchangerMut, Pooled};
 #[cfg(test)]
 mod tests {
     #[test]
-    fn clients_reject_empty_server_lists() {
+    fn clients_reject_plaintext_urls() {
+        let plaintext: url::Url = "http://dns.example/dns-query".parse().unwrap();
+
         #[cfg(feature = "doh")]
-        assert!(super::doh::Client::new(&[] as &[url::Url], http::Method::GET).is_err());
+        assert!(super::doh::Client::try_new(plaintext.clone(), http::Method::GET).is_err());
 
         #[cfg(feature = "json")]
-        assert!(super::json::Client::new(&[] as &[url::Url]).is_err());
+        assert!(super::json::Client::try_new(plaintext).is_err());
     }
 }

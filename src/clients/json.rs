@@ -5,7 +5,6 @@ use crate::Question;
 use crate::Record;
 use crate::Resource;
 use crate::clients::AsyncExchanger;
-use crate::clients::ToUrls;
 use crate::clients::mime::content_type_equal;
 use crate::clients::stats::StatsBuilder;
 use crate::clients::validate_http_status;
@@ -172,7 +171,7 @@ impl TryInto<Record> for RecordJson {
 ///     let mut query = Message::default();
 ///     query.try_add_question("bramp.net", Type::A, Class::Internet)?;
 ///
-///     let response = json::Client::new("https://dns.google/resolve")?
+///     let response = json::Client::try_from_url("https://dns.google/resolve")?
 ///        .exchange(&query)
 ///        .await
 ///        .expect("could not exchange message");
@@ -185,8 +184,8 @@ impl TryInto<Record> for RecordJson {
 /// See <https://developers.google.com/speed/public-dns/docs/doh/json> and
 /// <https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json>
 pub struct Client {
-    /// HTTPS endpoints used for JSON DNS queries. The first endpoint is currently used for each exchange.
-    servers: Vec<Url>,
+    /// HTTPS endpoint used for JSON DNS queries.
+    server: Url,
     /// Hyper client whose connection pool is reused across exchanges.
     http_client: HttpClient,
 }
@@ -197,40 +196,51 @@ impl std::panic::UnwindSafe for Client {}
 impl Default for Client {
     fn default() -> Self {
         Self {
-            servers: Vec::new(),
+            server: Url::parse(GOOGLE).expect("valid Google JSON URL"),
             http_client: new_http_client(),
         }
     }
 }
 
 impl Client {
-    /// Creates a new Client bound to the specific servers.
-    ///
-    /// Be aware that the servers will typically be in the form of `https://domain_name/`. That
-    /// `domain_name` will be resolved by the system's standard DNS library. I don't have a good
-    /// work-around for this yet.
+    /// Creates a new DoH JSON client bound to the specified HTTPS URL.
     ///
     /// # Errors
     ///
-    /// Returns an error if no server is supplied, a URL cannot be parsed, or a
-    /// server does not use HTTPS.
-    pub fn new<A: ToUrls>(servers: A) -> Result<Self, crate::Error> {
-        let servers: Vec<_> = servers.to_urls()?.collect();
-        if servers.is_empty() {
-            return Err(crate::Error::InvalidArgument(
-                "at least one DoH JSON server is required".to_string(),
-            ));
-        }
-        if servers.iter().any(|server| server.scheme() != "https") {
+    /// Returns an error if `server` does not use HTTPS.
+    pub fn try_new(server: Url) -> Result<Self, crate::Error> {
+        if server.scheme() != "https" {
             return Err(crate::Error::InvalidArgument(
                 "DoH JSON servers must use HTTPS".to_string(),
             ));
         }
 
         Ok(Self {
-            servers,
+            server,
             http_client: new_http_client(),
         })
+    }
+
+    /// Creates a new DoH JSON client by parsing a URL string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `url` cannot be parsed or does not use HTTPS.
+    pub fn try_from_url(url: &str) -> Result<Self, crate::Error> {
+        let parsed = url
+            .parse::<Url>()
+            .map_err(|e| crate::Error::InvalidArgument(format!("invalid URL '{url}': {e}")))?;
+        Self::try_new(parsed)
+    }
+
+    /// Compatibility constructor. Prefer [`Client::try_new`] or [`Client::try_from_url`].
+    pub fn new(server: &str) -> Result<Self, crate::Error> {
+        Self::try_from_url(server)
+    }
+
+    /// Returns the HTTPS endpoint this client queries.
+    pub fn server(&self) -> &Url {
+        &self.server
     }
 }
 
@@ -250,9 +260,6 @@ impl AsyncExchanger for Client {
                 "expected exactly one question must be provided".to_string(),
             ));
         }
-        let server = self.servers.first().ok_or_else(|| {
-            crate::Error::InvalidArgument("at least one DoH JSON server is required".to_string())
-        })?;
 
         let client = &self.http_client;
 
@@ -260,7 +267,7 @@ impl AsyncExchanger for Client {
             crate::Error::InvalidArgument("expected one DNS question".to_string())
         })?;
 
-        let mut url = server.clone(); // TODO Support more than one server
+        let mut url = self.server.clone();
         url.query_pairs_mut().append_pair("name", &question.name);
         url.query_pairs_mut()
             .append_pair("type", &question.r#type.to_string());

@@ -577,7 +577,7 @@ async fn main() -> Result<(), DigError> {
                 DigError::ArgParseError("at least one DoH server is required".to_string())
             })?;
             trace_request(&args, server.as_str(), &query)?;
-            DohClient::new(servers.as_slice(), Method::GET)?
+            DohClient::try_new(server.clone(), Method::GET)?
                 .exchange(&query)
                 .await
                 .expect("could not exchange message")
@@ -589,7 +589,7 @@ async fn main() -> Result<(), DigError> {
                 DigError::ArgParseError("at least one JSON DoH server is required".to_string())
             })?;
             trace_request(&args, server.as_str(), &query)?;
-            JsonClient::new(servers.as_slice())?
+            JsonClient::try_new(server.clone())?
                 .exchange(&query)
                 .await
                 .expect("could not exchange message")
