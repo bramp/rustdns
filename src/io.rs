@@ -99,7 +99,6 @@ pub trait DNSReadExt: io::Read + io::Seek {
 
     fn read_qname_at_depth(&mut self, depth: usize) -> Result<String, DecodeError> {
         if depth > MAX_QNAME_POINTER_DEPTH {
-            // TODO Write a test to ensure that exceeding the maximum pointer depth triggers this error.
             return Err(DecodeError::NamePointerDepthExceeded {
                 max: MAX_QNAME_POINTER_DEPTH,
             });

@@ -223,7 +223,8 @@ impl Message {
         limits::validate_ascii_name(&ascii_domain)
             .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
 
-        // TODO Don't allow more than 255 questions.
+        limits::validate_section_count(self.questions.len() + 1)?;
+
         let q = Question {
             name: domain,
             r#type,
@@ -671,6 +672,29 @@ mod tests {
                 .is_err()
         );
         assert!(message.questions.is_empty());
+    }
+
+    #[test]
+    fn try_add_question_rejects_excessive_questions() {
+        let mut message = Message {
+            questions: vec![
+                Question {
+                    name: "example.com".to_string(),
+                    r#type: Type::A,
+                    class: Class::Internet,
+                };
+                crate::limits::MAX_DNS_SECTION_COUNT
+            ],
+            ..Default::default()
+        };
+
+        let result = message.try_add_question("another.example.com", Type::A, Class::Internet);
+        assert!(matches!(
+            result,
+            Err(crate::Error::Encode(
+                crate::errors::EncodeError::SectionCountTooLarge { .. }
+            ))
+        ));
     }
 
     #[test]

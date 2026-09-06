@@ -169,8 +169,6 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error for request construction failures, unsuccessful HTTP
     /// responses, invalid content types, oversized bodies, or invalid DNS data.
-    // TODO Decide if this should be async or not.
-    // Can return ::std::io::Error
     async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
         let mut query = query.clone();
         query.id = 0;
@@ -246,8 +244,7 @@ impl AsyncExchanger for Client {
         }
 
         client_http::validate_status(resp.status())?;
-
-        // TODO check Content-Length, but don't allow us to consume a body longer than 65535 bytes!
+        client_http::validate_content_length(resp.headers(), MAX_DOH_BODY_SIZE)?;
 
         // Read the full body
         let body = match tokio::time::timeout(

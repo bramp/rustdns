@@ -55,7 +55,10 @@ enum DigError {
     RustDnsError(#[from] rustdns::Error),
 }
 
+const USAGE: &str = "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+ignore|+noignore] [+tries=N] [+retry=N] [+time=secs] [+verbose] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {domain} {type}";
+
 struct Args {
+    help: bool,
     client: Client,
     servers: Vec<String>,
     verbose: bool,
@@ -171,6 +174,7 @@ impl Args {
 impl Default for Args {
     fn default() -> Self {
         Args {
+            help: false,
             client: Client::Udp,
             servers: Vec::new(),
             verbose: false,
@@ -435,12 +439,24 @@ fn test_parse_ignore_truncation_flags() {
     assert!(!args.ignore_truncation);
 }
 
+#[test]
+fn test_parse_help_flags() {
+    for flag in ["-h", "--help", "+help"] {
+        let args = parse_args([flag].iter().map(|arg| arg.to_string())).expect("should parse");
+        assert!(args.help, "failed to parse help for {flag}");
+    }
+}
+
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut result = Args::default();
     let mut type_or_domain = Vec::<String>::new();
 
     for arg in args {
         match arg.as_str() {
+            "-h" | "--help" | "+help" => {
+                result.help = true;
+                return Ok(result);
+            }
             "+udp" => result.client = Client::Udp,
             "+tcp" => result.client = Client::Tcp,
             "+dot" => result.client = Client::DoT,
@@ -571,18 +587,19 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), DigError> {
-    // TODO --help doesn't work
-
     let args = match parse_args(env::args().skip(1)) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{}", e);
-            eprintln!(
-                "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+ignore|+noignore] [+tries=N] [+retry=N] [+time=secs] [+verbose] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
-            );
+            eprintln!("{USAGE}");
             process::exit(1);
         }
     };
+
+    if args.help {
+        println!("{USAGE}");
+        return Ok(());
+    }
 
     if args.verbose {
         init_verbose_logging();

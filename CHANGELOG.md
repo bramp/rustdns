@@ -96,8 +96,8 @@ All notable changes to rustdns are documented here.
 - Reorganized client modules into per-transport directories (`clients/{udp,
   tcp, do53, dot, doh, json}`) co-locating async and sync implementations, with
   private shared helpers in `clients::common`.
-- Updated `dig` to use `Resolver` for resolution, adding support for `+tries=N`,
-  `+retry=N`, `+time=secs`, and `+ignore`/`+noignore` flags.
+- Updated `dig` to use `Resolver` for resolution, adding support for `-h`/`--help`,
+  `+tries=N`, `+retry=N`, `+time=secs`, and `+ignore`/`+noignore` flags.
 - Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
 - Set the Cargo resolver to version 3 at the workspace level, so dependency
   resolution respects the declared minimum supported Rust version.
