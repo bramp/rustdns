@@ -219,6 +219,14 @@ impl Exchanger for Client {
     fn endpoint(&self) -> Arc<str> {
         format!("tcp://{}", self.server).into()
     }
+
+    fn channel_security(&self) -> crate::types::ChannelSecurity {
+        if self.server.ip().is_loopback() {
+            crate::types::ChannelSecurity::Loopback
+        } else {
+            crate::types::ChannelSecurity::Insecure
+        }
+    }
 }
 
 #[cfg(test)]

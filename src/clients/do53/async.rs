@@ -2,6 +2,7 @@ use crate::Message;
 use crate::clients::AsyncExchanger;
 use crate::clients::tcp::Client as TcpClient;
 use crate::clients::udp::Client as UdpClient;
+use crate::types::ChannelSecurity;
 use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -99,6 +100,14 @@ impl AsyncExchanger for Client {
 
     fn endpoint(&self) -> Arc<str> {
         format!("dns://{}", self.server).into()
+    }
+
+    fn channel_security(&self) -> ChannelSecurity {
+        if self.server.ip().is_loopback() {
+            ChannelSecurity::Loopback
+        } else {
+            ChannelSecurity::Insecure
+        }
     }
 }
 
@@ -219,5 +228,20 @@ mod tests {
         assert_eq!(response.answers.len(), 1);
 
         udp_server.await.expect("join UDP server");
+    }
+
+    #[test]
+    fn secure_channel_detects_loopback() {
+        let loopback = Client::new("127.0.0.1:53".parse().unwrap());
+        assert_eq!(loopback.channel_security(), ChannelSecurity::Loopback);
+        assert!(loopback.is_secure_channel());
+
+        let loopback_v6 = Client::new("[::1]:53".parse().unwrap());
+        assert_eq!(loopback_v6.channel_security(), ChannelSecurity::Loopback);
+        assert!(loopback_v6.is_secure_channel());
+
+        let non_loopback = Client::new("8.8.8.8:53".parse().unwrap());
+        assert_eq!(non_loopback.channel_security(), ChannelSecurity::Insecure);
+        assert!(!non_loopback.is_secure_channel());
     }
 }

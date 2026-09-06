@@ -274,6 +274,87 @@ impl Extension {
     }
 }
 
+/// The transport security classification of a communication channel.
+#[derive(Copy, Clone, Debug, Display, EnumString, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum ChannelSecurity {
+    /// Insecure, unencrypted plaintext transport across a network (e.g. UDP or TCP on non-loopback).
+    Insecure,
+
+    /// Unencrypted communication restricted to the local loopback interface (`127.0.0.0/8` or `::1`),
+    /// typically connecting to a trusted local validating resolver daemon (e.g. `unbound` or `systemd-resolved`).
+    Loopback,
+
+    /// Cryptographically encrypted and authenticated transport (e.g. DNS-over-HTTPS or DNS-over-TLS).
+    Encrypted,
+}
+
+impl ChannelSecurity {
+    /// Returns whether this channel provides transport-layer confidentiality or local host isolation
+    /// sufficient to guard against on-path spoofing of DNS responses.
+    #[inline]
+    pub fn is_secure(&self) -> bool {
+        matches!(self, ChannelSecurity::Loopback | ChannelSecurity::Encrypted)
+    }
+}
+
+/// The DNSSEC security status of a response.
+#[derive(Copy, Clone, Debug, Display, EnumString, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum SecurityStatus {
+    /// Authenticity was cryptographically validated (e.g. `AD=1` from a trusted secure channel).
+    Secure,
+
+    /// The zone is proven or indicated to be unsigned (e.g. `AD=0` with `NoError`).
+    Insecure,
+
+    /// DNSSEC validation failed (e.g. `SERVFAIL` returned by an upstream validator, or tampered data).
+    Bogus,
+
+    /// DNSSEC validation status cannot be established (e.g. `AD=1` received over an unencrypted,
+    /// non-loopback plaintext channel under [`UpstreamTrustPolicy::SecureTransportOnly`]).
+    Indeterminate,
+}
+
+/// The DNSSEC validation policy configured on a resolver.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum DnssecMode {
+    /// DNSSEC validation is disabled (default). The resolver does not set `DO=1`
+    /// and accepts responses without validation.
+    #[default]
+    Off,
+
+    /// Relies on upstream recursive resolver DNSSEC validation.
+    ///
+    /// Sets the EDNS(0) `DO=1` (DNSSEC OK) bit on queries. When receiving responses:
+    /// - If `require_secure` is `true`, lookups only succeed if `security_status` is [`SecurityStatus::Secure`].
+    ///   Unsigned domains ([`SecurityStatus::Insecure`]), bogus, or indeterminate responses fail the lookup.
+    /// - If `require_secure` is `false`, unsigned domains ([`SecurityStatus::Insecure`]) are also accepted,
+    ///   while bogus or indeterminate responses fail the lookup.
+    TrustUpstream {
+        /// Whether only cryptographically secure (signed) domains are accepted.
+        require_secure: bool,
+    },
+
+    /// Performs strict local DNSSEC validation down to configured trust anchors.
+    /// (Reserved for future local validation).
+    StrictLocal,
+}
+
+/// Policy dictating when upstream `AD` (Authenticated Data) assertions are trusted.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub enum UpstreamTrustPolicy {
+    /// Honor the upstream `AD=1` bit only if the transport is secure (DoH, DoT, or loopback).
+    /// If received over an unencrypted non-loopback transport, the status is treated as [`SecurityStatus::Indeterminate`].
+    #[default]
+    SecureTransportOnly,
+
+    /// Always honor `AD=1` regardless of transport security.
+    ///
+    /// Intended for trusted private networks, lab environments, or testing.
+    AlwaysTrust,
+}
+
 /// Stats related to the specific query, optionally filed in by the client
 /// and does not change the query behaviour.
 #[derive(Clone, Debug, PartialEq)]

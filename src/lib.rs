@@ -290,6 +290,7 @@ pub use crate::resource::*;
 pub use crate::clients::Resolver;
 
 pub use crate::errors::DecodeError;
+pub use crate::errors::DnssecError;
 pub use crate::errors::EncodeError;
 pub use crate::errors::Error;
 #[cfg(feature = "json")]

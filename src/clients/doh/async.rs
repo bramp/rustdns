@@ -163,6 +163,10 @@ impl AsyncExchanger for Client {
         self.server.as_str().into()
     }
 
+    fn channel_security(&self) -> crate::types::ChannelSecurity {
+        crate::types::ChannelSecurity::Encrypted
+    }
+
     /// Sends the [`Message`] to the `server` via HTTP and returns the result.
     ///
     /// # Errors
@@ -277,6 +281,7 @@ impl AsyncExchanger for Client {
 #[cfg(test)]
 mod tests {
     use super::{Client, MAX_DOH_BODY_SIZE};
+    use crate::clients::AsyncExchanger;
     use crate::clients::common::http as client_http;
     use http::Method;
     use http::StatusCode;
@@ -305,5 +310,15 @@ mod tests {
         assert!(client_http::validate_status(StatusCode::OK).is_ok());
         assert!(client_http::validate_status(StatusCode::BAD_REQUEST).is_err());
         assert!(client_http::validate_status(StatusCode::INTERNAL_SERVER_ERROR).is_err());
+    }
+
+    #[test]
+    fn secure_channel_is_true() {
+        let client = Client::new("https://dns.google/dns-query", Method::GET).expect("valid DoH");
+        assert_eq!(
+            client.channel_security(),
+            crate::types::ChannelSecurity::Encrypted
+        );
+        assert!(client.is_secure_channel());
     }
 }

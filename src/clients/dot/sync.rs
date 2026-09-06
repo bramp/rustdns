@@ -236,6 +236,10 @@ impl Exchanger for Client {
     fn endpoint(&self) -> Arc<str> {
         format!("tls://{}:{}", self.server_name, self.server.port()).into()
     }
+
+    fn channel_security(&self) -> crate::types::ChannelSecurity {
+        crate::types::ChannelSecurity::Encrypted
+    }
 }
 
 #[cfg(test)]

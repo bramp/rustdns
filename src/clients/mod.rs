@@ -56,12 +56,34 @@ cfg_feature! {
     };
 }
 
+use crate::types::ChannelSecurity;
+
 /// Exchanger takes a query and returns a response.
 pub trait Exchanger {
     fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
     fn endpoint(&self) -> Arc<str>;
+
+    /// Returns the transport security classification of this exchanger.
+    ///
+    /// Defaults to [`ChannelSecurity::Insecure`].
+    ///
+    /// # Security & Cryptographic Policies
+    ///
+    /// Callers that require minimum TLS protocol versions (such as TLS 1.3), specific
+    /// cipher suites, certificate revocation checks, or custom trust roots should
+    /// configure those settings directly on the underlying client or connector
+    /// (e.g., via [`rustls::ClientConfig`]) when instantiating the exchanger.
+    fn channel_security(&self) -> ChannelSecurity {
+        ChannelSecurity::Insecure
+    }
+
+    /// Returns whether this exchanger communicates over a secure channel
+    /// (either [`ChannelSecurity::Loopback`] or [`ChannelSecurity::Encrypted`]).
+    fn is_secure_channel(&self) -> bool {
+        self.channel_security().is_secure()
+    }
 }
 
 use async_trait::async_trait;
@@ -72,6 +94,26 @@ pub trait AsyncExchanger {
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
     fn endpoint(&self) -> Arc<str>;
+
+    /// Returns the transport security classification of this exchanger.
+    ///
+    /// Defaults to [`ChannelSecurity::Insecure`].
+    ///
+    /// # Security & Cryptographic Policies
+    ///
+    /// Callers that require minimum TLS protocol versions (such as TLS 1.3), specific
+    /// cipher suites, certificate revocation checks, or custom trust roots should
+    /// configure those settings directly on the underlying client or connector
+    /// (e.g., via [`rustls::ClientConfig`]) when instantiating the exchanger.
+    fn channel_security(&self) -> ChannelSecurity {
+        ChannelSecurity::Insecure
+    }
+
+    /// Returns whether this exchanger communicates over a secure channel
+    /// (either [`ChannelSecurity::Loopback`] or [`ChannelSecurity::Encrypted`]).
+    fn is_secure_channel(&self) -> bool {
+        self.channel_security().is_secure()
+    }
 }
 
 #[cfg(test)]

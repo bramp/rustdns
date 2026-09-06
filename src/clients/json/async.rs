@@ -284,6 +284,10 @@ impl AsyncExchanger for Client {
         format!("json+https://{without_scheme}").into()
     }
 
+    fn channel_security(&self) -> crate::types::ChannelSecurity {
+        crate::types::ChannelSecurity::Encrypted
+    }
+
     /// Sends the [`Message`] to the `server` via HTTP and returns the result.
     ///
     /// # Errors

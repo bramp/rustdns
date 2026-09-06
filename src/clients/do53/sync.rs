@@ -2,6 +2,7 @@ use crate::Message;
 use crate::clients::Exchanger;
 use crate::clients::sync::tcp::Client as TcpClient;
 use crate::clients::sync::udp::Client as UdpClient;
+use crate::types::ChannelSecurity;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
@@ -134,6 +135,14 @@ impl Exchanger for Client {
 
     fn endpoint(&self) -> Arc<str> {
         format!("dns://{}", self.server).into()
+    }
+
+    fn channel_security(&self) -> ChannelSecurity {
+        if self.server.ip().is_loopback() {
+            ChannelSecurity::Loopback
+        } else {
+            ChannelSecurity::Insecure
+        }
     }
 }
 

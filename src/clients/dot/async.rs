@@ -246,6 +246,10 @@ impl AsyncExchanger for Client {
     fn endpoint(&self) -> Arc<str> {
         format!("tls://{}:{}", self.server_name, self.server.port()).into()
     }
+
+    fn channel_security(&self) -> crate::types::ChannelSecurity {
+        crate::types::ChannelSecurity::Encrypted
+    }
 }
 
 /// Checks that `server_name` can be used for TLS SNI and certificate validation.

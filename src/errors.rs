@@ -311,6 +311,10 @@ pub enum Error {
     #[error(transparent)]
     FromStr(#[from] FromStrError),
 
+    /// A DNSSEC validation error.
+    #[error(transparent)]
+    Dnssec(#[from] DnssecError),
+
     #[cfg(feature = "json")]
     #[error(transparent)]
     Json(#[from] JsonError),
@@ -355,4 +359,29 @@ pub enum JsonError {
     /// The response contained resource text that is not valid for its type.
     #[error("invalid {0} resource")]
     InvalidResource(Type, #[source] FromStrError),
+}
+
+/// An error encountered during DNSSEC validation.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DnssecError {
+    /// Upstream response lacks the Authenticated Data (AD) flag when DNSSEC is required.
+    #[error(
+        "DNSSEC validation failed: domain is insecure (response lacks Authenticated Data flag)"
+    )]
+    InsecureResponse,
+
+    /// Upstream response indicates DNSSEC validation failure (e.g. SERVFAIL / Bogus).
+    #[error("DNSSEC validation failed: upstream reported validation failure (Bogus / SERVFAIL)")]
+    BogusResponse,
+
+    /// Upstream claimed Authenticated Data (AD=1) over an unencrypted, non-loopback channel.
+    #[error(
+        "DNSSEC validation failed: cannot trust Authenticated Data (AD) over an untrusted transport"
+    )]
+    UntrustedChannel,
+
+    /// Local cryptographic validation failed.
+    #[error("DNSSEC local validation failed: {0}")]
+    ValidationFailed(String),
 }
