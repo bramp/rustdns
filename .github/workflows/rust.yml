@@ -125,3 +125,6 @@ jobs:
       - name: Run encode fuzz smoke test
         run: cargo fuzz run encode -- -max_len=4096 -runs=100
         working-directory: fuzz
+      - name: Run from-str fuzz smoke test
+        run: cargo fuzz run from-str -- -max_len=4096 -runs=100
+        working-directory: fuzz

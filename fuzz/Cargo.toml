@@ -32,3 +32,9 @@ name = "encode"
 path = "fuzz_targets/encode.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "from-str"
+path = "fuzz_targets/from-str.rs"
+test = false
+doc = false

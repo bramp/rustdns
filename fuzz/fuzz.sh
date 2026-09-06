@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-TARGETS=("from-slice" "encode")
+TARGETS=("from-slice" "encode" "from-str")
 
 DURATION="${1:-900}" # Default to 15 minutes (900s) per target
 SPECIFIC_TARGET="${2:-}"
@@ -92,7 +92,7 @@ for target in "${TARGETS[@]}"; do
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         echo "CRASH / BUG DETECTED for target '${target}'!"
         echo "Artifacts in: ${ARTIFACT_DIR}"
-        find "${ARTIFACT_DIR}" -type f -newerct "@$(( $(date +%s) - DURATION - 10 ))" 2>/dev/null || find "${ARTIFACT_DIR}" -type f
+        find "${ARTIFACT_DIR}" -type f
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         CRASH_FOUND=1
     else
@@ -101,7 +101,7 @@ for target in "${TARGETS[@]}"; do
 
     # Auto-run cmin if corpus exists and has files
     CORPUS_DIR="${SCRIPT_DIR}/corpus/${target}"
-    if [[ -d "${CORPUS_DIR}" ]] && [[ $(find "${CORPUS_DIR}" -type f | head -n 1) ]]; then
+    if [[ -d "${CORPUS_DIR}" ]] && [ -n "$(find "${CORPUS_DIR}" -type f -print -quit 2>/dev/null || find "${CORPUS_DIR}" -type f | head -n 1)" ]; then
         echo "===> Auto-minifying corpus for '${target}'..."
         (cd "${REPO_ROOT}" && cargo +nightly fuzz cmin "${target}")
         echo "===> Minification complete for '${target}'."

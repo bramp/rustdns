@@ -377,10 +377,11 @@ all untrusted input parsing, serialization invariants, and structured round-trip
     `MAX_DNS_LABEL_WIRE_LEN`, `MAX_DNS_NAME_WIRE_LEN`, `OPT` data length,
     `TXT` chunk limits) without panic or integer overflow.
   - Implemented in `fuzz_targets/encode.rs`.
-- [ ] **Text Resource Parsing (`fuzz_from_str`):**
+- [x] **Text Resource Parsing (`from-str`):**
   - Fuzz `Resource::parse_text(record_type, input_str)` across all `Type`
     variants to test regexes, integer ranges, IPv4/IPv6 parsers, and SOA rname
     email conversions against malformed text representations.
+  - Implemented in `fuzz_targets/from-str.rs`.
 - [ ] **DoH JSON Client Parsing (`fuzz_json`):**
   - Fuzz the JSON response parser (`serde_json::from_slice::<MessageJson>`
     followed by `TryInto::<Message>::try_into`) with arbitrary payload bytes to
