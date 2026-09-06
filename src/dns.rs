@@ -753,7 +753,7 @@ mod tests {
             }),
             Resource::SOA(SOA {
                 mname: "ns.example.com.".to_string(),
-                rname: "admin@example.com".to_string(),
+                rname: "admin.example.com.".to_string(),
                 serial: 1,
                 refresh: std::time::Duration::from_secs(2),
                 retry: std::time::Duration::from_secs(3),
@@ -780,14 +780,7 @@ mod tests {
             let encoded = message.to_vec().expect("resource should be encoded");
             let decoded = Message::from_slice(&encoded).expect("encoded resource should parse");
 
-            let decoded_resource = match &decoded.answers[0].resource {
-                Resource::SOA(soa) => Resource::SOA(SOA {
-                    rname: soa.rname.trim_end_matches('.').to_string(),
-                    ..soa.clone()
-                }),
-                resource => resource.clone(),
-            };
-            assert_eq!(decoded_resource, resource);
+            assert_eq!(decoded.answers[0].resource, resource);
         }
     }
 }

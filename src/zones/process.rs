@@ -184,24 +184,15 @@ impl File {
                     record_name,
                 )?,
             })),
-            Resource::SOA(soa) => {
-                let rname = Self::resolve_name(&soa.rname, origin, entry_index, record_name)?;
-                let rname = SOA::rname_to_email(&rname)
-                    .map_err(|_| ProcessError::InvalidRname {
-                        entry_index,
-                        record_name: record_name.to_string(),
-                        rname,
-                    })?;
-                Ok(Resource::SOA(SOA {
+            Resource::SOA(soa) => Ok(Resource::SOA(SOA {
                 mname: Self::resolve_name(&soa.mname, origin, entry_index, record_name)?,
-                rname,
+                rname: Self::resolve_name(&soa.rname, origin, entry_index, record_name)?,
                 serial: soa.serial,
                 refresh: soa.refresh,
                 retry: soa.retry,
                 expire: soa.expire,
                 minimum: soa.minimum,
-                }))
-            }
+            })),
             Resource::SRV(srv) => Ok(Resource::SRV(SRV {
                 priority: srv.priority,
                 weight: srv.weight,
@@ -245,7 +236,7 @@ mod tests {
             vec![
             	Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::SOA(SOA {
 	                mname: "ns.example.com".to_string(),
-	                rname: "username@example.com".to_string(),
+	                rname: "username.example.com".to_string(),
 	                serial: 2020091025,
 	                refresh: Duration::new(7200, 0),
 	                retry: Duration::new(3600, 0),

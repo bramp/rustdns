@@ -203,20 +203,14 @@ impl fmt::Display for MX {
 
 impl fmt::Display for SOA {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO Would be nice to display the rname as an email address (if possible).
+
         // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
-
-        // It's arguable that dns-admin@google.com looks better, but
-        // for now we'll keep the format dns-admin.google.com.
-        let rname = match Self::email_to_rname(&self.rname) {
-            Ok(name) => name,
-            Err(_) => self.rname.to_owned(), // Ignore the error
-        };
-
         write!(
             f,
             "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
             mname = self.mname,
-            rname = rname,
+            rname = self.rname,
             serial = self.serial,
             refresh = self.refresh.as_secs(),
             retry = self.retry.as_secs(),
@@ -298,7 +292,7 @@ mod tests {
                 (
                     Resource::SOA(SOA {
                         mname: "ns1.google.com.".to_string(),
-                        rname: "dns-admin@google.com.".to_string(),
+                        rname: "dns-admin.google.com.".to_string(),
 
                         serial: 379031418,
 

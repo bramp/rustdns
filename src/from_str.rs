@@ -23,8 +23,8 @@ pub enum FromStrError {
     #[error("string doesn't match expected format")]
     InvalidFormat,
 
-    #[error("invalid rname email address: '{0}'")]
-    InvalidRname(String),
+    #[error("invalid rname '{rname}': {reason}")]
+    InvalidRname { rname: String, reason: &'static str },
 
     #[error(transparent)]
     Int(#[from] ParseIntError),
@@ -81,15 +81,9 @@ impl FromStr for SOA {
         }
 
         if let Some(caps) = RE.captures(s) {
-            let rname = caps[2].to_string();
-            let rname = match Self::rname_to_email(&rname) {
-                Ok(name) => name,
-                Err(_) => rname, // Ignore the error
-            };
-
             Ok(SOA {
                 mname: caps[1].to_string(),
-                rname,
+                rname: caps[2].to_string(),
                 serial: caps[3].parse()?,
                 refresh: Duration::from_secs(caps[4].parse()?),
                 retry: Duration::from_secs(caps[5].parse()?),

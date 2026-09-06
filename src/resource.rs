@@ -183,11 +183,10 @@ pub struct SOA {
     /// The name server that was the original or primary source of data for this zone.
     pub mname: String,
 
-    /// The mailbox of the person responsible for this zone.
-    ///
-    /// This is stored as a valid email address, e.g "dns.admin@example.com", as opposed
-    /// to the format it's typically stored in SOA records "dns\.admin.example.com". Use
-    /// [`SOA::rname_to_email`] and [`SOA::email_to_rname`] to convert between the formats.
+    /// The mailbox domain name of the person responsible for this zone,
+    /// e.g. "dns-admin.google.com.". This is an encoded email address "dns-admin@google.com".
+    /// Use [`SOA::email`] or [`SOA::rname_to_email`] to convert to an email address, or [`SOA::email_to_rname`] to construct
+    /// an `rname` from an email address.
     pub rname: String,
 
     pub serial: u32,
@@ -276,7 +275,7 @@ impl TXT {
 impl SOA {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SOA, DecodeError> {
         let mname = cur.read_qname()?;
-        let rname = Self::rname_to_email(&cur.read_qname()?).map_err(DecodeError::InvalidRname)?;
+        let rname = cur.read_qname()?;
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
@@ -298,10 +297,7 @@ impl SOA {
 
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.mname)?;
-        let rname = Self::email_to_rname(&self.rname).map_err(|_| EncodeError::InvalidRname {
-            email: self.rname.clone(),
-        })?;
-        Message::append_qname_to_vec(buf, &rname)?;
+        Message::append_qname_to_vec(buf, &self.rname)?;
 
         let duration_to_u32 = |duration: Duration| {
             u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
@@ -320,34 +316,46 @@ impl SOA {
         Ok(())
     }
 
+    /// Converts the `rname` domain name to an email address per RFC 1035 §8.
+    ///
+    /// For example, `"dns-admin.google.com."` becomes `"dns-admin@google.com."`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FromStrError::InvalidRname`] if `rname` does not contain an
+    /// unescaped dot separating the mailbox local-part from the domain.
+    pub fn email(&self) -> Result<String, FromStrError> {
+        Self::rname_to_email(&self.rname)
+    }
+
     /// Converts rnames to email address, for example, "admin.example.com" is
     /// converted to "admin@example.com", per the rules in
     /// <https://datatracker.ietf.org/doc/html/rfc1035#section-8>
     pub fn rname_to_email(domain: &str) -> Result<String, FromStrError> {
-        // The logic is simple.
-        // Find first unescaped dot and replace with a @
-
-        // Handle the escaping. Replace the first . which isn't escapated with a \
+        // Find the first unescaped dot and replace with '@'.
+        // RFC 1035 §8: only '\.' is an escaped dot in the mailbox local-part.
         let mut result = String::with_capacity(domain.len());
-        let mut last_char = ' ';
+        let mut chars = domain.chars().peekable();
         let mut done = false;
-        for c in domain.chars() {
-            if last_char == '\\' {
-                // Last character was escape, so always append this one.
-                result.push(c);
+
+        while let Some(c) = chars.next() {
+            if c == '\\' && chars.peek() == Some(&'.') {
+                // '\.' escapes a dot: emit literal '.' without treating it as the '@' delimiter.
+                chars.next();
+                result.push('.');
             } else if c == '.' && !done {
                 result.push('@');
                 done = true;
-            } else if c != '\\' {
-                // Otherwise append if not an escape.
+            } else {
                 result.push(c);
             }
-
-            last_char = c;
         }
 
-        if !done {
-            return Err(FromStrError::InvalidRname(domain.to_string()));
+        if !done || result.starts_with('@') || result.ends_with('@') {
+            return Err(FromStrError::InvalidRname {
+                rname: domain.to_string(),
+                reason: "missing unescaped dot separating mailbox and domain",
+            });
         }
 
         Ok(result)
@@ -355,10 +363,19 @@ impl SOA {
 
     pub fn email_to_rname(email: &str) -> Result<String, FromStrError> {
         match email.split_once('@') {
-            None => Err(FromStrError::InvalidRname(email.to_string())),
+            None => Err(FromStrError::InvalidRname {
+                rname: email.to_string(),
+                reason: "missing '@' separator",
+            }),
+            Some((left, right)) if left.is_empty() || right.is_empty() => {
+                Err(FromStrError::InvalidRname {
+                    rname: email.to_string(),
+                    reason: "empty mailbox or domain in email address",
+                })
+            }
 
-            // Escape all the dots to the left of the '@',
-            // replace the '@' with a '.', and leave everything after the '@' alone.
+            // RFC 1035 §8: escape all the dots to the left of the '@',
+            // and replace the '@' with a '.'.
             Some((left, right)) => Ok(left.replace('.', "\\.") + "." + right),
         }
     }
@@ -422,12 +439,16 @@ mod tests {
     use crate::SOA;
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
+    use std::time::Duration;
 
     static RNAME_TESTS: &[(&str, &str)] = &[
         ("username.example.com", "username@example.com"),
         ("root.localhost", "root@localhost"),
         ("Action\\.domains.ISI.EDU", "Action.domains@ISI.EDU"),
         ("a\\.b\\.c.ISI.EDU", "a.b.c@ISI.EDU"),
+        // Edge cases found by fuzzing:
+        ("\\..example.com", ".@example.com"),
+        ("\\0.example.com", "\\0@example.com"), // 0 should not be unescaped.
     ];
 
     #[test]
@@ -451,10 +472,21 @@ mod tests {
     }
 
     #[test]
-    fn invalid_soa_rname_returns_error() {
+    fn test_soa_rname_roundtrip() {
+        for (domain, email) in RNAME_TESTS {
+            let got_email = SOA::rname_to_email(domain).expect("rname_to_email failed");
+            assert_eq!(&got_email, email);
+            let got_rname = SOA::email_to_rname(&got_email).expect("email_to_rname failed");
+            assert_eq!(&got_rname, domain, "round-trip mismatch for '{}'", domain);
+        }
+    }
+
+    #[test]
+    fn invalid_soa_email_returns_error() {
         let input = [
-            3, b'n', b's', b'\0', // mname
-            6, b'n', b'o', b't', b'a', b'n', b'\0', // invalid rname
+            2, b'n', b's', 0, // mname: "ns."
+            5, b'n', b'o', b't', b'a', b'n',
+            0, // rname: "notan." (no dot to separate mailbox and domain)
             0, 0, 0, 1, // serial
             0, 0, 0, 1, // refresh
             0, 0, 0, 1, // retry
@@ -462,6 +494,31 @@ mod tests {
             0, 0, 0, 1, // minimum
         ];
 
-        assert!(SOA::parse(&mut Cursor::new(&input)).is_err());
+        let soa = SOA::parse(&mut Cursor::new(&input)).expect("wire parsing should succeed");
+        assert_eq!(soa.rname, "notan.");
+        assert!(soa.email().is_err());
+    }
+
+    #[test]
+    fn test_soa_email_and_email_to_rname() {
+        let mut soa = SOA {
+            mname: "ns1.example.com.".to_string(),
+            rname: "root.localhost.".to_string(),
+            serial: 1,
+            refresh: Duration::from_secs(3600),
+            retry: Duration::from_secs(600),
+            expire: Duration::from_secs(86400),
+            minimum: Duration::from_secs(300),
+        };
+
+        soa.rname = SOA::email_to_rname("admin@example.com").expect("email_to_rname failed");
+        assert_eq!(soa.rname, "admin.example.com");
+        assert_eq!(soa.email().unwrap(), "admin@example.com");
+
+        soa.rname = SOA::email_to_rname("Action.domains@ISI.EDU").expect("email_to_rname failed");
+        assert_eq!(soa.rname, "Action\\.domains.ISI.EDU");
+        assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU");
+
+        assert!(SOA::email_to_rname("invalid_no_at").is_err());
     }
 }

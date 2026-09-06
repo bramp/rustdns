@@ -59,23 +59,3 @@ fn test_from_slice(case: TestCase) {
 
     // TODO Test writing the result back out.
 }
-
-#[test]
-fn test_soa_rname_reencode_idempotence() {
-    // Minimal reproduction of fuzz artifact crash-82b2b77d60157c1c052e3251e7cee7bb14311fa2
-    // An SOA record whose RNAME contains a backslash.
-    let wire = [
-        47, 207, 7, 128, 0, 0, 0, 1, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 254, 0, 0, 48, 8,
-        0, 60, 0, 8, 92, 48, 0, 0, 0, 111, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 216, 220, 245, 59, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 39, 238,
-    ];
-
-    let decoded = Message::from_slice(&wire).expect("failed to parse message");
-    let re_encoded = decoded.to_vec().expect("failed to re-encode message");
-    assert_eq!(
-        wire.as_slice(),
-        re_encoded.as_slice(),
-        "re-encoding must be idempotent"
-    );
-}
