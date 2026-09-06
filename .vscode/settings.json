@@ -1,0 +1,9 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "Cargo.toml",
+    "fuzz/Cargo.toml"
+  ],
+  "rust-analyzer.cargo.cfgs": [
+    "fuzzing"
+  ]
+}
