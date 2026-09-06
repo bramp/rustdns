@@ -56,9 +56,20 @@ All notable changes to rustdns are documented here.
   (see AWS's "Exponential Backoff And Jitter") define delay and jitter
   together. Defaults to exponential backoff with full jitter (200ms base,
   factor 2, capped at 2 seconds).
+- Added `SOA::email` to convert `SOA.rname` into an email address per RFC 1035 §8.
+- Added a dedicated `rname` fuzz target testing `SOA::rname_to_email` and
+  `SOA::email_to_rname` conversion and safety.
 
 ### Changed
 
+- `SOA.rname` is now stored as a domain name (`<domain-name>`) per RFC 1035 §3.3.13
+  rather than an email address containing `@`, ensuring wire-format decoding and
+  encoding are lossless and idempotent.
+- `SOA::rname_to_email` and `SOA::email_to_rname` now treat only `\.` as an escaped
+  dot in the mailbox local part per RFC 1035 §8, preserving backslashes in other
+  contexts.
+- `FromStrError::InvalidRname` now provides `{ rname: String, reason: &'static str }`
+  describing the failure reason.
 - `doh::Client` and `json::Client` now store a single server `Url` instead of a
   vector. Added `try_new(Url)`, `try_from_url(&str)`, and `new(&str)` (convenience
   alias).
