@@ -154,11 +154,11 @@ $ rustup component add llvm-tools-preview --toolchain nightly
 $ ./fuzz/fuzz.sh
 
 # Or run a specific target for a custom duration (in seconds):
-$ ./fuzz/fuzz.sh 60 from_slice
+$ ./fuzz/fuzz.sh 60 from-slice
 $ ./fuzz/fuzz.sh 60 encode
 
 # Or run cargo-fuzz directly:
-$ cargo +nightly fuzz run from_slice
+$ cargo +nightly fuzz run from-slice
 $ cargo +nightly fuzz run encode
 ```
 

@@ -4,7 +4,7 @@
 # Usage:
 #   ./fuzz/fuzz.sh                 # Runs each target for 15 minutes (900s)
 #   ./fuzz/fuzz.sh 1800            # Runs each target for 30 minutes (1800s)
-#   ./fuzz/fuzz.sh 60 from_slice   # Runs only from_slice for 60s
+#   ./fuzz/fuzz.sh 60 from-slice   # Runs only from-slice for 60s
 #   ./fuzz/fuzz.sh --cmin          # Minifies corpora for all targets
 
 set -euo pipefail
@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-TARGETS=("from_slice" "encode")
+TARGETS=("from-slice" "encode")
 
 DURATION="${1:-900}" # Default to 15 minutes (900s) per target
 SPECIFIC_TARGET="${2:-}"

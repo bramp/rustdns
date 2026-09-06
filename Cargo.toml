@@ -10,7 +10,6 @@ edition = "2024"
 rust-version = "1.85"
 keywords = ["dns", "idna", "serialization"]
 license = "Apache-2.0"
-readme = "README.md"
 repository = "https://github.com/bramp/rustdns"
 
 [workspace]

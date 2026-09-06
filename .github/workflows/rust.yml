@@ -119,8 +119,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - name: Run from_slice fuzz smoke test
-        run: cargo fuzz run from_slice -- -max_len=4096 -runs=100
+      - name: Run from-slice fuzz smoke test
+        run: cargo fuzz run from-slice -- -max_len=4096 -runs=100
         working-directory: fuzz
       - name: Run encode fuzz smoke test
         run: cargo fuzz run encode -- -max_len=4096 -runs=100

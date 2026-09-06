@@ -22,8 +22,8 @@ features = ["arbitrary"]
 members = ["."]
 
 [[bin]]
-name = "from_slice"
-path = "fuzz_targets/from_slice.rs"
+name = "from-slice"
+path = "fuzz_targets/from-slice.rs"
 test = false
 doc = false
 
