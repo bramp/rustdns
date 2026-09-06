@@ -142,13 +142,24 @@ This was generated with `cargo run -p generate_tests`.
 
 ### Fuzzing
 
-The library has been extensively fuzzed. Try for yourself:
+The library has been extensively fuzzed. You can run all fuzzers using the
+provided helper script or with `cargo-fuzz` directly:
 
 ```shell
 $ cargo install cargo-fuzz
 $ rustup toolchain install nightly
 $ rustup component add llvm-tools-preview --toolchain nightly
+
+# Run all fuzz targets (defaults to 15m each with safe worker & memory limits):
+$ ./fuzz/fuzz.sh
+
+# Or run a specific target for a custom duration (in seconds):
+$ ./fuzz/fuzz.sh 60 from_slice
+$ ./fuzz/fuzz.sh 60 encode
+
+# Or run cargo-fuzz directly:
 $ cargo +nightly fuzz run from_slice
+$ cargo +nightly fuzz run encode
 ```
 
 If `cargo` is installed outside rustup, such as through Homebrew, use
@@ -156,7 +167,7 @@ nightly's Cargo explicitly:
 
 ```shell
 $ nightly_bin="$(dirname "$(rustup which --toolchain nightly cargo)")"
-$ PATH="$nightly_bin:$PATH" cargo fuzz run from_slice
+$ PATH="$nightly_bin:$PATH" ./fuzz/fuzz.sh
 ```
 ### Test Data
 

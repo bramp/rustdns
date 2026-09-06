@@ -351,6 +351,53 @@ components so they can be composed and tested independently.
 - [ ] Run `cargo publish --dry-run` for `1.0.0`.
 - [ ] Release and tag `1.0.0`.
 
+## Fuzzing Strategy
+
+Expand fuzz testing beyond the single `Message::from_slice` smoke fuzzer to cover
+all untrusted input parsing, serialization invariants, and structured round-trips:
+
+- [ ] **Zone File and Preprocessor Fuzzing (`fuzz_zones`):**
+  - Fuzz `File::from_str` with arbitrary strings to exercise both the Pest
+    grammar parser and semantic processing (`try_into_records`).
+  - Fuzz the zone `preprocess` routine directly with arbitrary parenthesized,
+    quoted, and comment-heavy input to ensure brace counter arithmetic and
+    token replacement never underflow or panic.
+  - Fuzz single `Record::from_str` parses across malformed zone entries.
+- [x] **Round-Trip Serialization Invariants (`from_slice`):**
+  - For any valid message decoded by `Message::from_slice`, assert that
+    `to_vec()` or `append_to_vec()` executes without panicking.
+  - If encoding succeeds, verify that decoding the encoded bytes produces an
+    equivalent or canonicalized message (`from_slice(data) -> to_vec() -> from_slice()`).
+  - Exercised directly in `fuzz_targets/from_slice.rs` across the full seed corpus.
+- [x] **Structured Encoding and Limits (`encode`):**
+  - Use structured generation (`arbitrary::Arbitrary`) to generate arbitrary
+    in-memory `Message`, `Question`, `Record`, and `Edns` structs.
+  - Assert that serialization through `to_vec()` and `append_to_vec()`
+    strictly returns `Result::Err(EncodeError)` on boundary conditions (e.g.
+    `MAX_DNS_LABEL_WIRE_LEN`, `MAX_DNS_NAME_WIRE_LEN`, `OPT` data length,
+    `TXT` chunk limits) without panic or integer overflow.
+  - Implemented in `fuzz_targets/encode.rs`.
+- [ ] **Text Resource Parsing (`fuzz_from_str`):**
+  - Fuzz `Resource::parse_text(record_type, input_str)` across all `Type`
+    variants to test regexes, integer ranges, IPv4/IPv6 parsers, and SOA rname
+    email conversions against malformed text representations.
+- [ ] **DoH JSON Client Parsing (`fuzz_json`):**
+  - Fuzz the JSON response parser (`serde_json::from_slice::<MessageJson>`
+    followed by `TryInto::<Message>::try_into`) with arbitrary payload bytes to
+    ensure invalid RCODEs, malformed questions/answers, and unexpected types are
+    safely rejected without panics.
+- [ ] **EDNS Option Binary Parsing (`fuzz_edns`):**
+  - Fuzz `EdnsOption::from_slice` and subsequent serialization across all
+    supported options (ECS, Cookie, Keepalive, Padding, NSID) with malformed
+    option payloads, truncated addresses, and invalid masks.
+- [ ] **Display / Formatter Safety:**
+  - Verify that successfully parsed `Message`, `Record`, `Resource`, and `File`
+    instances can be formatted via `Display` (`"{}"`) and `Debug` (`"{:?}"`)
+    without panicking on non-UTF-8 bytes or extreme values.
+- [ ] **Continuous Fuzzing Integration:**
+  - Maintain fuzz corpus seeds for newly added targets under `fuzz/corpus/`.
+  - Add quick fuzz smoke tests to CI for each target.
+
 ## Definition Of Done
 
 - Compatibility fixes are clearly separated from new features.

@@ -4,16 +4,18 @@ name = "rustdns-fuzz"
 version = "0.0.0"
 authors = ["Automatically generated"]
 publish = false
-edition = "2018"
+edition = "2024"
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
+arbitrary = { version = "1.4", features = ["derive"] }
 libfuzzer-sys = "0.4.13"
 
 [dependencies.rustdns]
 path = ".."
+features = ["arbitrary"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -22,5 +24,11 @@ members = ["."]
 [[bin]]
 name = "from_slice"
 path = "fuzz_targets/from_slice.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "encode"
+path = "fuzz_targets/encode.rs"
 test = false
 doc = false

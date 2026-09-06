@@ -151,7 +151,7 @@ pub enum DecodeError {
 ///
 /// Returned by [`Message::to_vec`](crate::Message::to_vec) and the `append_to_vec`
 /// family. These describe values that cannot be represented in DNS wire format.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EncodeError {
     /// A domain name could not be converted to ASCII by IDNA processing.
