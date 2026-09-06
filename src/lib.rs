@@ -225,7 +225,8 @@ mod cfg;
     feature = "json",
     feature = "do53",
     feature = "dot",
-    feature = "sync"
+    feature = "sync",
+    feature = "resolver"
 ))]
 pub mod clients;
 
@@ -266,6 +267,10 @@ pub use crate::edns::*;
 
 #[doc(inline)]
 pub use crate::resource::*;
+
+#[doc(inline)]
+#[cfg(feature = "resolver")]
+pub use crate::clients::Resolver;
 
 pub use crate::errors::DecodeError;
 pub use crate::errors::EncodeError;

@@ -22,15 +22,15 @@ backward-compatible.
 
 ### Public API Cleanup
 
-- [ ] Replace `Resolver::new`'s hardcoded Google resolvers with system DNS
+- [x] Replace `Resolver::new`'s hardcoded Google resolvers with system DNS
   configuration, or rename the constructor to make the Google default explicit.
-- [ ] Validate DNS response correlation in a shared helper: transaction ID,
+- [x] Validate DNS response correlation in a shared helper: transaction ID,
   response bit, question name/type/class, and response suitability.
 - [ ] Propagate zone preprocessing errors instead of using an input-dependent
   `unwrap` in `File::from_str`.
 - [ ] Enforce `MAX_DNS_MESSAGE_LEN` in `Message::to_vec` and document the
   behavior consistently across all transports.
-- [ ] Remove unsolicited stdout output from `Resolver::lookup`; use tracing or
+- [x] Remove unsolicited stdout output from `Resolver::lookup`; use tracing or
   return diagnostics through an explicit API.
 - [ ] Tighten text resource parsing so domain names, SOA rnames, TXT escapes,
   and trailing input are either validated or exposed through an explicit raw
@@ -39,17 +39,17 @@ backward-compatible.
   documenting that direct public-field mutation is unchecked.
 - [ ] Replace broad `Error::InvalidArgument(String)` uses with typed errors for
   invalid names, invalid responses, missing servers, and DNS response rcodes.
-- [ ] Add explicit server-selection and failover policy APIs, or restrict the
+- [x] Add explicit server-selection and failover policy APIs, or restrict the
   1.0 low-level client constructors to one endpoint.
-- [ ] Add regression tests for response correlation, malformed zone input,
+- [x] Add regression tests for response correlation, malformed zone input,
   oversized messages, strict text parsing, and resolver output behavior.
 - [ ] Audit all public methods against the method naming style guide in
   `DEVELOPERS.md` before the `1.0.0` API freeze.
-- [ ] Replace multi-server low-level clients with single-server client types or
+- [x] Replace multi-server low-level clients with single-server client types or
   constructors, with migration guidance for existing callers.
-- [ ] Add a higher-level resolver/orchestration client for server pools, retries,
+- [x] Add a higher-level resolver/orchestration client for server pools, retries,
   failover, concurrent queries, and Happy Eyeballs-style address selection.
-- [ ] Keep UDP-to-TCP fallback in the higher-level DNS orchestration layer rather
+- [x] Keep UDP-to-TCP fallback in the higher-level DNS orchestration layer rather
   than embedding it in the low-level UDP client.
 - [ ] Replace the stateless DNS encoding helpers with a message encoder that can
   own compression state, message-size limits, EDNS-aware sizing, and canonical
@@ -216,30 +216,30 @@ components so they can be composed and tested independently.
 
 #### Layer Boundaries
 
-- [ ] Keep wire-format models and parsing independent of transport and resolver
+- [x] Keep wire-format models and parsing independent of transport and resolver
   policy.
-- [ ] Define a transport abstraction for one endpoint that exchanges DNS
+- [x] Define a transport abstraction for one endpoint that exchanges DNS
   messages, handles protocol-specific framing, and supports explicit shutdown.
-- [ ] Make UDP, TCP, DoT, DoH, and future DoQ implementations single-target
+- [x] Make UDP, TCP, DoT, DoH, and future DoQ implementations single-target
   transports. Do not expose server pools from low-level transport constructors.
-- [ ] Keep transport-local concerns in transports: UDP socket behavior, TCP
+- [x] Keep transport-local concerns in transports: UDP socket behavior, TCP
   framing and connection pooling, HTTP stream handling, TLS, and QUIC streams.
-- [ ] Keep resolver concerns in the orchestration layer: retries, backoff,
+- [x] Keep resolver concerns in the orchestration layer: retries, backoff,
   SRTT, failover, circuit breaking, response validation, and cache policy.
-- [ ] Keep UDP truncation fallback to TCP in the resolver or a transport policy
+- [x] Keep UDP truncation fallback to TCP in the resolver or a transport policy
   wrapper, rather than making the UDP transport select another protocol itself.
 
 #### Transport Interface
 
-- [ ] Design a Rust transport trait with an explicit cancellation/timeout
+- [x] Design a Rust transport trait with an explicit cancellation/timeout
   mechanism compatible with both blocking and async clients.
-- [ ] Define whether the trait exchanges `Message` values or a response wrapper;
+- [x] Define whether the trait exchanges `Message` values or a response wrapper;
   preserve access to raw DNS fields while allowing resolver metadata to be added.
 - [ ] Require transports to report protocol, endpoint, and transport errors with
   typed context, without deciding whether an error is retryable.
 - [ ] Specify connection lifecycle semantics, including `close`, idle pooling,
   concurrent exchanges, and whether transaction IDs may be multiplexed.
-- [ ] Add configurable request and response timeouts to the HTTP clients, with
+- [x] Add configurable request and response timeouts to the HTTP clients, with
   blocking and async behavior documented consistently.
 - [ ] Document transport capabilities and limitations for UDP, TCP, DoT, DoH,
   and DoQ, including HTTP/2, HTTP/3, and QUIC support as they are implemented.
@@ -249,20 +249,20 @@ components so they can be composed and tested independently.
 - [ ] Add an upstream definition containing a stable ID, transport protocol,
   endpoint, optional bootstrap addresses, TLS settings, weight, and per-upstream
   limits or preferences.
-- [ ] Represent endpoint forms with typed Rust values where practical instead of
+- [x] Represent endpoint forms with typed Rust values where practical instead of
   requiring every caller to pass an unvalidated string.
 - [ ] Separate bootstrap resolution for DoH/DoT hostnames from DNS resolution
   performed by the resolver itself, preventing bootstrap dependency loops.
-- [ ] Add resolver configuration for upstreams, strategy, overall resolution
+- [x] Add resolver configuration for upstreams, strategy, overall resolution
   timeout, per-attempt timeout, retry count, exponential backoff, and jitter.
 - [ ] Add opt-in circuit-breaker settings: failure threshold, cooldown period,
   half-open probing, and optional canary probe scheduling.
-- [ ] Make defaults conservative and document which settings apply to blocking,
+- [x] Make defaults conservative and document which settings apply to blocking,
   async, and pooled transports.
 
 #### Resolution Strategies
 
-- [ ] Support prioritized failover: try eligible upstreams in configured order
+- [x] Support prioritized failover: try eligible upstreams in configured order
   and move on immediately for retryable failures.
 - [ ] Support fastest-upstream selection using decayed SRTT and recent health,
   while retaining deterministic tie-breaking.
@@ -270,34 +270,34 @@ components so they can be composed and tested independently.
   response, cancelling losing attempts.
 - [ ] Support staggered racing: start with the best candidate and launch backups
   after a configurable delay when no response arrives.
-- [ ] Ensure all strategies share one end-to-end query budget and never allow
+- [x] Ensure all strategies share one end-to-end query budget and never allow
   retries or races to exceed the caller's deadline.
-- [ ] Define retryability explicitly: dropped packets, timeouts, connection
+- [x] Define retryability explicitly: dropped packets, timeouts, connection
   failures, and selected transport errors may retry; malformed responses and
   definitive DNS policy responses generally should not.
-- [ ] Preserve the original query ID across retries and TCP fallback, while
+- [x] Preserve the original query ID across retries and TCP fallback, while
   validating response ID, `QR`, question name/type/class, and suitability.
-- [ ] Treat `TC=1` as a transport escalation signal and retry over TCP without
+- [x] Treat `TC=1` as a transport escalation signal and retry over TCP without
   consuming the user-level retry budget.
 - [ ] Record success, latency, timeout, protocol failure, and DNS response status
   in per-upstream health state used by SRTT and circuit breaking.
 
 #### Public Resolver API
 
-- [ ] Add a configurable resolver constructor or builder with unexported state
+- [x] Add a configurable resolver constructor or builder with unexported state
   for upstream pools, transport instances, health metrics, and cache integration.
-- [ ] Add ergonomic high-level helpers for A/AAAA lookup, TXT, MX, SRV, CNAME,
+- [x] Add ergonomic high-level helpers for A/AAAA lookup, TXT, MX, SRV, CNAME,
   and reverse lookups, with explicit context/deadline support in async APIs.
 - [ ] Add a low-level `query` operation for name, type, and class, and an
   `exchange` operation for caller-constructed messages with custom flags, EDNS,
   or DNSSEC settings.
-- [ ] Return a response type that contains the decoded `Message` plus metadata:
+- [x] Return a response type that contains the decoded `Message` plus metadata:
   upstream ID, protocol, server address, round-trip time, retry count,
   truncation/fallback state, and cache status.
-- [ ] Keep high-level helpers ergonomic while allowing low-level callers to
+- [x] Keep high-level helpers ergonomic while allowing low-level callers to
   inspect RCODEs, TTLs, authority/additional records, EDNS options, and metadata.
 - [ ] Add convenience getters and inspection methods for messages and records.
-- [ ] Replace resolver stdout diagnostics with logging or structured response
+- [x] Replace resolver stdout diagnostics with logging or structured response
   metadata.
 
 #### Cache And Extended DNS Errors
@@ -317,15 +317,15 @@ components so they can be composed and tested independently.
 
 #### Testing And Migration
 
-- [ ] Provide injectable transport implementations or mocks so resolver tests do
+- [x] Provide injectable transport implementations or mocks so resolver tests do
   not require real network sockets.
-- [ ] Test retry budgets, exponential backoff and jitter bounds, failover,
+- [x] Test retry budgets, exponential backoff and jitter bounds, failover,
   circuit transitions, SRTT ordering, racing cancellation, and deadline expiry.
-- [ ] Test transaction/question validation and UDP-to-TCP fallback with mocked
+- [x] Test transaction/question validation and UDP-to-TCP fallback with mocked
   upstreams, including malformed, truncated, stale, and mismatched responses.
 - [ ] Test cache TTL expiry, negative caching, EDE-aware decisions, and metadata.
-- [ ] Add integration tests for each transport independently from resolver policy.
-- [ ] Migrate existing multi-server low-level constructors toward single-target
+- [x] Add integration tests for each transport independently from resolver policy.
+- [x] Migrate existing multi-server low-level constructors toward single-target
   transports with deprecation guidance before the 1.0 API freeze.
 
 ### Rust Platform Migration

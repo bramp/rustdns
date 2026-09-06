@@ -3,13 +3,13 @@
 mod util;
 
 use http::method::Method;
-use rustdns::clients::AsyncExchanger;
-use rustdns::clients::Exchanger;
+use rustdns::clients::do53::Client as Do53Client;
 use rustdns::clients::doh::Client as DohClient;
+use rustdns::clients::dot::Client as DotClient;
 use rustdns::clients::json::Client as JsonClient;
-use rustdns::clients::sync::dot::Client as DotClient;
-use rustdns::clients::sync::tcp::Client as TcpClient;
-use rustdns::clients::sync::udp::Client as UdpClient;
+use rustdns::clients::tcp::Client as TcpClient;
+use rustdns::clients::udp::Client as UdpClient;
+use rustdns::clients::{Backoff, Resolver};
 use rustdns::types::*;
 use std::convert::TryInto;
 use std::env;
@@ -59,6 +59,9 @@ struct Args {
     client: Client,
     servers: Vec<String>,
     verbose: bool,
+    tries: u32,
+    timeout: Duration,
+    ignore_truncation: bool,
 
     /// Query this types
     r#type: rustdns::Type,
@@ -171,6 +174,10 @@ impl Default for Args {
             client: Client::Udp,
             servers: Vec::new(),
             verbose: false,
+            // Standard dig defaults: 3 total tries (2 retries) and 5s timeout.
+            tries: 3,
+            timeout: Duration::from_secs(5),
+            ignore_truncation: false,
 
             r#type: Type::A,
             domains: Vec::new(),
@@ -387,6 +394,47 @@ fn test_parse_dot_args_use_google_dot_by_default() {
     assert_eq!(args.servers, vec![rustdns::clients::dot::GOOGLE]);
 }
 
+#[test]
+fn test_parse_retry_and_time_args() {
+    let args = parse_args(
+        ["+tries=4", "+time=2", "example.com"]
+            .iter()
+            .map(|arg| arg.to_string()),
+    )
+    .expect("tries and time should parse");
+
+    assert_eq!(args.tries, 4);
+    assert_eq!(args.timeout, Duration::from_secs(2));
+}
+
+#[test]
+fn test_parse_retry_flag() {
+    let args = parse_args(
+        ["+retry=3", "example.com"]
+            .iter()
+            .map(|arg| arg.to_string()),
+    )
+    .expect("retry should parse");
+
+    // +retry=3 means 3 retries, i.e. 4 total tries
+    assert_eq!(args.tries, 4);
+}
+
+#[test]
+fn test_parse_ignore_truncation_flags() {
+    let args = parse_args(["+ignore", "example.com"].iter().map(|arg| arg.to_string()))
+        .expect("should parse");
+    assert!(args.ignore_truncation);
+
+    let args = parse_args(
+        ["+noignore", "example.com"]
+            .iter()
+            .map(|arg| arg.to_string()),
+    )
+    .expect("should parse");
+    assert!(!args.ignore_truncation);
+}
+
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut result = Args::default();
     let mut type_or_domain = Vec::<String>::new();
@@ -398,9 +446,33 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "+dot" => result.client = Client::DoT,
             "+doh" => result.client = Client::DoH,
             "+json" => result.client = Client::Json,
+            "+ignore" => result.ignore_truncation = true,
+            "+noignore" => result.ignore_truncation = false,
             "+verbose" => result.verbose = true,
 
             _ => {
+                if let Some(val) = arg.strip_prefix("+tries=") {
+                    let tries = val
+                        .parse::<u32>()
+                        .map_err(|e| format!("invalid +tries: {e}"))?;
+                    result.tries = tries;
+                    continue;
+                }
+                if let Some(val) = arg.strip_prefix("+retry=") {
+                    let retries = val
+                        .parse::<u32>()
+                        .map_err(|e| format!("invalid +retry: {e}"))?;
+                    result.tries = retries.saturating_add(1);
+                    continue;
+                }
+                if let Some(val) = arg.strip_prefix("+time=") {
+                    let secs = val
+                        .parse::<u64>()
+                        .map_err(|e| format!("invalid +time: {e}"))?;
+                    result.timeout = Duration::from_secs(secs);
+                    continue;
+                }
+
                 if let Some(option) = parse_edns_flag(&arg)? {
                     result.edns_options.push(option);
                     continue;
@@ -506,7 +578,7 @@ async fn main() -> Result<(), DigError> {
         Err(e) => {
             eprintln!("{}", e);
             eprintln!(
-                "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+verbose] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
+                "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+ignore|+noignore] [+tries=N] [+retry=N] [+time=secs] [+verbose] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {{domain}} {{type}}"
             );
             process::exit(1);
         }
@@ -536,68 +608,90 @@ async fn main() -> Result<(), DigError> {
     // println!();
     println!("{}", query);
 
-    // TODO make all DNS client implement a Exchange trait
-    let resp = match args.client {
+    let mut builder = Resolver::builder()
+        .retries(args.tries.saturating_sub(1))
+        .timeout(args.timeout)
+        .backoff(Backoff::None);
+
+    match args.client {
         Client::Udp => {
-            let servers = to_sockaddrs(&args.servers, 53)?;
-            let server = servers.first().ok_or_else(|| {
-                DigError::ArgParseError("at least one UDP server is required".to_string())
-            })?;
-            trace_request(&args, &server.to_string(), &query)?;
-            UdpClient::new(*server)
-                .exchange(&query)
-                .expect("could not exchange message")
+            let addrs = to_sockaddrs(&args.servers, 53)?;
+            if addrs.is_empty() {
+                return Err(DigError::ArgParseError(
+                    "at least one UDP server is required".to_string(),
+                ));
+            }
+            for addr in addrs {
+                if args.ignore_truncation {
+                    builder = builder.upstream(UdpClient::new(addr));
+                } else {
+                    builder = builder.upstream(Do53Client::new(addr));
+                }
+            }
         }
-
         Client::Tcp => {
-            let servers = to_sockaddrs(&args.servers, 53)?;
-            let server = servers.first().ok_or_else(|| {
-                DigError::ArgParseError("at least one TCP server is required".to_string())
-            })?;
-            trace_request(&args, &server.to_string(), &query)?;
-            TcpClient::new(*server)
-                .exchange(&query)
-                .expect("could not exchange message")
+            let addrs = to_sockaddrs(&args.servers, 53)?;
+            if addrs.is_empty() {
+                return Err(DigError::ArgParseError(
+                    "at least one TCP server is required".to_string(),
+                ));
+            }
+            for addr in addrs {
+                builder = builder.upstream(TcpClient::new(addr));
+            }
         }
-
         Client::DoT => {
-            let server = args.servers.first().ok_or_else(|| {
-                DigError::ArgParseError("at least one DoT server is required".to_string())
-            })?;
-            let server = server_with_default_port(server, 853);
-            trace_request(&args, &server, &query)?;
-            DotClient::try_from_host_port(&server)?
-                .exchange(&query)
-                .expect("could not exchange message")
+            if args.servers.is_empty() {
+                return Err(DigError::ArgParseError(
+                    "at least one DoT server is required".to_string(),
+                ));
+            }
+            for server in &args.servers {
+                let server_addr = server_with_default_port(server, 853);
+                let client = DotClient::try_from_host_port(&server_addr).await?;
+                builder = builder.upstream(client);
+            }
         }
-
         Client::DoH => {
-            let servers = args.servers_to_urls()?;
-            let server = servers.first().ok_or_else(|| {
-                DigError::ArgParseError("at least one DoH server is required".to_string())
-            })?;
-            trace_request(&args, server.as_str(), &query)?;
-            DohClient::try_new(server.clone(), Method::GET)?
-                .exchange(&query)
-                .await
-                .expect("could not exchange message")
+            let urls = args.servers_to_urls()?;
+            if urls.is_empty() {
+                return Err(DigError::ArgParseError(
+                    "at least one DoH server is required".to_string(),
+                ));
+            }
+            for url in urls {
+                let client = DohClient::try_new(url, Method::GET)?;
+                builder = builder.upstream(client);
+            }
         }
-
         Client::Json => {
-            let servers = args.servers_to_urls()?;
-            let server = servers.first().ok_or_else(|| {
-                DigError::ArgParseError("at least one JSON DoH server is required".to_string())
-            })?;
-            trace_request(&args, server.as_str(), &query)?;
-            JsonClient::try_new(server.clone())?
-                .exchange(&query)
-                .await
-                .expect("could not exchange message")
+            let urls = args.servers_to_urls()?;
+            if urls.is_empty() {
+                return Err(DigError::ArgParseError(
+                    "at least one JSON DoH server is required".to_string(),
+                ));
+            }
+            for url in urls {
+                let client = JsonClient::try_new(url)?;
+                builder = builder.upstream(client);
+            }
         }
-    };
+    }
+
+    let resolver = builder.build()?;
+    if let Some(first_server) = args.servers.first() {
+        trace_request(&args, first_server, &query)?;
+    }
+
+    let response = resolver.exchange(&query).await?;
 
     println!("response:");
-    println!("{}", resp);
+    println!("{}", response.message);
+    if args.verbose {
+        eprintln!(";; Query time: {} msec", response.meta.elapsed.as_millis());
+        eprintln!(";; SERVER: {}", response.meta.upstream);
+        eprintln!(";; ATTEMPTS: {}", response.meta.attempts);
+    }
 
     Ok(())
 }

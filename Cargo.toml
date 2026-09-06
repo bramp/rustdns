@@ -25,7 +25,7 @@ members = [
 default = ["clients", "zones"]
 
 # Enable the DNS clients (asynchronous, plus the blocking variants).
-clients = ["doh", "json", "do53", "dot", "sync"]
+clients = ["doh", "json", "do53", "dot", "resolver", "sync"]
 
 # Classic DNS (Do53): asynchronous UDP and TCP clients, plus a combined client
 # that retries over TCP when a UDP response is truncated.
@@ -33,6 +33,9 @@ do53 = ["dep:tokio"]
 
 # Blocking variants of the enabled clients, under `rustdns::clients::sync`.
 sync = []
+
+# Async, multi-upstream Resolver (builder-configured, works with any AsyncExchanger).
+resolver = ["dep:tokio"]
 
 # DNS over HTTPS (DoH) client (rfc8484).
 doh  = ["http_deps", "base64"]

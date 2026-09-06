@@ -13,6 +13,7 @@ pub(crate) type HttpClient = HyperClient<HttpsConnector<HttpConnector>, BoxBody<
 
 pub(crate) fn new_client(connect_timeout: Duration) -> HttpClient {
     let mut http = HttpConnector::new();
+    http.enforce_http(false);
     // TODO Are there other properties we should set on the connector? For example, `set_nodelay` or `set_keepalive`.
     http.set_connect_timeout(Some(connect_timeout));
 

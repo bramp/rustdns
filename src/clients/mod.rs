@@ -40,6 +40,22 @@ pub mod sync;
 
 pub(crate) mod common;
 
+cfg_feature! {
+    #![feature = "clients"]
+
+    mod into_exchanger;
+    pub use self::into_exchanger::IntoAsyncExchanger;
+}
+
+cfg_feature! {
+    #![feature = "resolver"]
+
+    mod resolver;
+    pub use self::resolver::{
+        Backoff, Resolver, ResolverBuilder, Response, ResponseMeta, Strategy,
+    };
+}
+
 /// Exchanger takes a query and returns a response.
 pub trait Exchanger {
     fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;

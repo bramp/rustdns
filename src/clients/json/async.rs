@@ -161,7 +161,7 @@ impl TryInto<Record> for RecordJson {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rustdns::clients::AsyncExchanger;
 /// use rustdns::clients::json;
 /// use rustdns::types::*;

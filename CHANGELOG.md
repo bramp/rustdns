@@ -18,6 +18,24 @@ All notable changes to rustdns are documented here.
 - Added a `rustdns::Result<T, E = Error>` type alias.
 - Marked `Error`, `DecodeError`, `EncodeError`, `FromStrError`, and `JsonError`
   as `#[non_exhaustive]` so future variants are not breaking changes.
+- Added an async, multi-upstream `Resolver` under the new `resolver` feature
+  (included by `clients`), configured with `Resolver::builder()`. It supports
+  prioritized failover across upstreams using any `AsyncExchanger` transport
+  (UDP, TCP, DoH, DoT, JSON), retries with jittered backoff, and `ServFail`
+  failover. Each transport is responsible for bounding how long one exchange
+  may take (via its own phase timeouts) and for `TC=1` retries; the resolver
+  only enforces the overall deadline, not a separate per-attempt timeout.
+  `Resolver::exchange`/`Resolver::lookup` use the resolver's configured
+  default budget; `Resolver::exchange_with_deadline`/
+  `Resolver::lookup_with_deadline` accept an explicit `Instant` deadline, so
+  DNS resolution can share a caller's own remaining budget when it is one
+  step inside a larger, already deadline-bound operation. `exchange` returns
+  a `Response` containing the decoded `Message` plus `ResponseMeta` (upstream
+  endpoint, attempt count, elapsed time).
+- Added the `IntoAsyncExchanger` trait for converting transports, `SocketAddr`,
+  `IpAddr`, `Url`, or URI strings (`dns://`, `udp://`, `tcp://`, `tls://`,
+  `https://`, and `json+https://`) directly into an `AsyncExchanger`, used by
+  `ResolverBuilder::upstream()`.
 - Added a classic DNS ("Do53") client under the new `do53` feature, combining
   UDP and TCP for a single server. Queries go out over UDP; a truncated
   (`TC=1`) response is re-sent over TCP to the *same* server, as required by
@@ -26,12 +44,18 @@ All notable changes to rustdns are documented here.
   both transports are built from one `SocketAddr`, the "same server"
   requirement holds by construction. The truncated response is never returned
   to the caller: if the TCP retry fails, that failure is returned instead.
-- Added `AsyncExchangerMut` and `Pooled<T>`, which adapt a `&mut self` async
-  transport (such as the async UDP/TCP clients) into the object-safe
-  `AsyncExchanger` trait.
-- Added an `endpoint(&self) -> Option<Arc<str>>` method to `AsyncExchanger` and
-  `AsyncExchangerMut` returning a canonical address or URL string for the target
-  server, implemented by all asynchronous transports and preserved through `Pooled`.
+- Added an `endpoint(&self) -> Arc<str>` method to both `AsyncExchanger` and
+  `Exchanger` returning a canonical address or URL string for the target
+  server across all transports (`dns://`, `udp://`, `tcp://`, `tls://`,
+  `https://`, and `json+https://`).
+- Added a `Backoff` enum (`None`, `Constant`, `Linear`, `Exponential`,
+  `ExponentialFullJitter`, `DecorrelatedJitter`) selecting the delay strategy
+  `Resolver` applies between retries against the same upstream, set via
+  `ResolverBuilder::backoff`. Jitter is part of the chosen strategy rather
+  than a separate resolver-level setting, since named backoff algorithms
+  (see AWS's "Exponential Backoff And Jitter") define delay and jitter
+  together. Defaults to exponential backoff with full jitter (200ms base,
+  factor 2, capped at 2 seconds).
 
 ### Changed
 
@@ -65,6 +89,15 @@ All notable changes to rustdns are documented here.
 - Restored read and write timeouts on the async UDP, TCP, and DoT clients.
   Previously only a connect timeout existed for TCP/DoT, and the async UDP
   client had no timeout at all, so an unanswered query could hang forever.
+- Unified async clients directly under `AsyncExchanger` by giving `udp`,
+  `tcp`, `do53`, and `dot` internal synchronization for connection state,
+  allowing concurrent `&self` usage without requiring `&mut self` or external
+  pooling wrappers.
+- Reorganized client modules into per-transport directories (`clients/{udp,
+  tcp, do53, dot, doh, json}`) co-locating async and sync implementations, with
+  private shared helpers in `clients::common`.
+- Updated `dig` to use `Resolver` for resolution, adding support for `+tries=N`,
+  `+retry=N`, `+time=secs`, and `+ignore`/`+noignore` flags.
 - Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
 - Set the Cargo resolver to version 3 at the workspace level, so dependency
   resolution respects the declared minimum supported Rust version.
@@ -100,6 +133,9 @@ All notable changes to rustdns are documented here.
 - Removed the exported `bail!` macro, along with the macro itself.
 - Removed the `ToUrls` trait and helper module; web clients now configure a
   single `Url`.
+- Removed the blocking, single-client `Resolver` (`Resolver::new`,
+  `Resolver::new_with_client`, and the synchronous `Exchanger`-based
+  `Resolver::lookup`). Use the new async `Resolver::builder()` API.
 
 ## [0.7.0] - 2026-09-03
 

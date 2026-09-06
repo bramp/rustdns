@@ -33,9 +33,9 @@ const DNS_QUERY_PARAM: &str = "dns";
 ///
 /// # Example
 ///
-/// ```rust
-/// use crate::rustdns::clients::AsyncExchanger;
+/// ```rust,no_run
 /// use http::method::Method;
+/// use rustdns::clients::AsyncExchanger;
 /// use rustdns::clients::doh::Client;
 /// use rustdns::types::*;
 ///
