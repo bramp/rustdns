@@ -17,6 +17,8 @@ enum RecordSection {
     Additionals,
 }
 
+const INITIAL_CAPACITY: usize = 16;
+
 /// A helper class to hold state while the parsing is happening.
 // TODO add list of parse errors
 pub(crate) struct MessageParser<'a> {
@@ -81,7 +83,8 @@ impl<'a> MessageParser<'a> {
     }
 
     fn read_questions(&mut self, count: u16) -> Result<(), DecodeError> {
-        self.m.questions.reserve_exact(count.into());
+        let initial_capacity = (count as usize).min(INITIAL_CAPACITY);
+        self.m.questions.reserve(initial_capacity);
 
         for _ in 0..count {
             let name = self.cur.read_qname()?;
@@ -104,7 +107,8 @@ impl<'a> MessageParser<'a> {
             RecordSection::Authorities => &mut self.m.authoritys,
             RecordSection::Additionals => &mut self.m.additionals,
         };
-        records.reserve_exact(count.into());
+        let initial_capacity = (count as usize).min(INITIAL_CAPACITY);
+        records.reserve(initial_capacity);
 
         for _ in 0..count {
             let name = self.cur.read_qname()?;
@@ -521,6 +525,8 @@ mod tests {
             vec![],
             vec![0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
             vec![0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 3, b'a'],
+            // Large section count (qdcount = 65535) with no questions attached.
+            vec![0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0],
         ];
 
         for input in cases {
@@ -782,5 +788,49 @@ mod tests {
 
             assert_eq!(decoded.answers[0].resource, resource);
         }
+    }
+
+    #[test]
+    fn test_message_with_maximum_tiny_questions() {
+        // In a DNS message capped at 65535 bytes (MAX_DNS_MESSAGE_LEN), the 12-byte header
+        // leaves 65523 bytes. A minimal question is the root domain "." (1 byte: 0x00),
+        // followed by 2 bytes for type and 2 bytes for class (5 bytes total).
+        // (65535 - 12) / 5 = 13104 questions, totaling 12 + 13104 * 5 = 65532 bytes.
+        const QUESTION_COUNT: usize = (crate::limits::MAX_DNS_MESSAGE_LEN - 12) / 5;
+        assert_eq!(QUESTION_COUNT, 13104);
+
+        let mut message = Message {
+            id: 0x1234,
+            rd: true,
+            ..Default::default()
+        };
+
+        for _ in 0..QUESTION_COUNT {
+            message.questions.push(Question {
+                name: ".".to_string(),
+                r#type: Type::A,
+                class: Class::Internet,
+            });
+        }
+
+        let encoded = message
+            .to_vec()
+            .expect("message with maximum tiny questions should encode");
+        assert_eq!(encoded.len(), 12 + QUESTION_COUNT * 5);
+        assert!(encoded.len() <= crate::limits::MAX_DNS_MESSAGE_LEN);
+
+        let decoded = Message::from_slice(&encoded)
+            .expect("message with maximum tiny questions should decode");
+        assert_eq!(decoded.id, 0x1234);
+        assert!(decoded.rd);
+        assert_eq!(decoded.questions.len(), QUESTION_COUNT);
+        assert_eq!(decoded.questions[0].name, ".");
+        assert_eq!(decoded.questions[0].r#type, Type::A);
+        assert_eq!(decoded.questions[0].class, Class::Internet);
+
+        let re_encoded = decoded
+            .to_vec()
+            .expect("decoded message with maximum tiny questions should re-encode");
+        assert_eq!(encoded, re_encoded);
     }
 }
