@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.rust == 'stable' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           fail_ci_if_error: false
