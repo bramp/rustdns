@@ -21,6 +21,23 @@ pub const MAX_RDATA_LEN: usize = u16::MAX as usize;
 /// Maximum EDNS option data length representable in an EDNS option.
 pub const MAX_EDNS_OPTION_DATA_LEN: usize = u16::MAX as usize;
 
+/// Recommended EDNS(0) UDP payload size (1232 bytes) to avoid IP fragmentation,
+/// per DNS Flag Day 2020 and [RFC 8900].
+///
+/// Calculated as the minimum IPv6 MTU (1280 bytes per [RFC 8200 §5]) minus the
+/// 40-byte IPv6 header and the 8-byte UDP header: `1280 - 40 - 8 = 1232`.
+///
+/// Advertising a buffer larger than 1232 over UDP can result in IP packet
+/// fragmentation when large responses (such as DNSSEC keys and signatures) are
+/// returned. Fragmented UDP packets are frequently dropped by firewalls, NATs,
+/// and middleboxes, and are vulnerable to cache poisoning injection attacks.
+/// A buffer size of 1232 ensures larger responses signal truncation (`TC=1`),
+/// allowing the client to safely fallback to TCP.
+///
+/// [RFC 8200 §5]: https://datatracker.ietf.org/doc/html/rfc8200#section-5
+/// [RFC 8900]: https://datatracker.ietf.org/doc/html/rfc8900
+pub const EDNS_SAFE_UDP_PAYLOAD_SIZE: u16 = 1232;
+
 /// Validates that `len` can be represented as one complete DNS message.
 ///
 /// # Errors
