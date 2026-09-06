@@ -50,3 +50,9 @@ name = "edns"
 path = "fuzz_targets/edns.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "rname"
+path = "fuzz_targets/rname.rs"
+test = false
+doc = false
