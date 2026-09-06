@@ -149,6 +149,27 @@ impl EdnsOption {
         }
     }
 
+    /// Internal helper for fuzzing and testing only.
+    #[doc(hidden)]
+    #[cfg(any(test, fuzzing))]
+    pub fn fuzz_parse(cur: &mut Cursor<&[u8]>) -> Result<Self, DecodeError> {
+        Self::parse(cur)
+    }
+
+    /// Internal helper for fuzzing and testing only.
+    #[doc(hidden)]
+    #[cfg(any(test, fuzzing))]
+    pub fn fuzz_parse_data(code: u16, data: &[u8]) -> Result<Self, DecodeError> {
+        Self::parse_data(code, data)
+    }
+
+    /// Internal helper for fuzzing and testing only.
+    #[doc(hidden)]
+    #[cfg(any(test, fuzzing))]
+    pub fn fuzz_append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        self.append_to_vec(buf)
+    }
+
     /// Parses a single EDNS(0) option from an OPT RDATA cursor.
     ///
     /// Use this inside the OPT record RDATA loop. It reads the option code,

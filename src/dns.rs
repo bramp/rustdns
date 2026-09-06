@@ -115,7 +115,7 @@ impl<'a> MessageParser<'a> {
                     return Err(DecodeError::MultipleOptRecords);
                 }
 
-                let ext = Extension::parse_internal(&mut self.cur, name, r#type)?;
+                let ext = Extension::parse(&mut self.cur, name, r#type)?;
 
                 self.m.extension = Some(ext);
             } else {
@@ -406,6 +406,17 @@ impl TryFrom<&[u8]> for Message {
 }
 
 impl Extension {
+    /// Internal helper for fuzzing and testing only.
+    #[doc(hidden)]
+    #[cfg(any(test, fuzzing))]
+    pub fn fuzz_parse(
+        cur: &mut Cursor<&[u8]>,
+        domain: String,
+        r#type: Type,
+    ) -> Result<Extension, DecodeError> {
+        Self::parse(cur, domain, r#type)
+    }
+
     /// Parses an EDNS(0) OPT record from a DNS message.
     ///
     /// # Errors
@@ -413,7 +424,7 @@ impl Extension {
     /// Returns a [`DecodeError`] when the record is not an OPT record, does not
     /// use the root name, is truncated, declares options beyond the remaining
     /// message, or contains malformed known options.
-    pub(crate) fn parse_internal(
+    pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
         domain: String,
         r#type: Type,

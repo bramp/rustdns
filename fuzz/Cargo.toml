@@ -38,3 +38,15 @@ name = "from-str"
 path = "fuzz_targets/from-str.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "edns"
+path = "fuzz_targets/edns.rs"
+test = false
+doc = false

@@ -382,15 +382,17 @@ all untrusted input parsing, serialization invariants, and structured round-trip
     variants to test regexes, integer ranges, IPv4/IPv6 parsers, and SOA rname
     email conversions against malformed text representations.
   - Implemented in `fuzz_targets/from-str.rs`.
-- [ ] **DoH JSON Client Parsing (`fuzz_json`):**
+- [x] **DoH JSON Client Parsing (`json`):**
   - Fuzz the JSON response parser (`serde_json::from_slice::<MessageJson>`
     followed by `TryInto::<Message>::try_into`) with arbitrary payload bytes to
     ensure invalid RCODEs, malformed questions/answers, and unexpected types are
     safely rejected without panics.
-- [ ] **EDNS Option Binary Parsing (`fuzz_edns`):**
-  - Fuzz `EdnsOption::from_slice` and subsequent serialization across all
-    supported options (ECS, Cookie, Keepalive, Padding, NSID) with malformed
-    option payloads, truncated addresses, and invalid masks.
+  - Implemented in `fuzz_targets/json.rs` via `rustdns::clients::json::parse_response`.
+- [x] **EDNS Option Binary Parsing (`edns`):**
+  - Fuzz `EdnsOption::from_slice`, `EdnsOption::from_code_and_data`, and subsequent
+    serialization across all supported options (ECS, Cookie, Keepalive, Padding, NSID)
+    with malformed option payloads, truncated addresses, and invalid masks.
+  - Implemented in `fuzz_targets/edns.rs`.
 - [ ] **Display / Formatter Safety:**
   - Verify that successfully parsed `Message`, `Record`, `Resource`, and `File`
     instances can be formatted via `Display` (`"{}"`) and `Debug` (`"{:?}"`)

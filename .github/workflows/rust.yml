@@ -128,3 +128,9 @@ jobs:
       - name: Run from-str fuzz smoke test
         run: cargo fuzz run from-str -- -max_len=4096 -runs=100
         working-directory: fuzz
+      - name: Run json fuzz smoke test
+        run: cargo fuzz run json -- -max_len=4096 -runs=100
+        working-directory: fuzz
+      - name: Run edns fuzz smoke test
+        run: cargo fuzz run edns -- -max_len=4096 -runs=100
+        working-directory: fuzz

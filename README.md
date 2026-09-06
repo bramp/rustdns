@@ -157,11 +157,15 @@ $ ./fuzz/fuzz.sh
 $ ./fuzz/fuzz.sh 60 from-slice
 $ ./fuzz/fuzz.sh 60 encode
 $ ./fuzz/fuzz.sh 60 from-str
+$ ./fuzz/fuzz.sh 60 json
+$ ./fuzz/fuzz.sh 60 edns
 
 # Or run cargo-fuzz directly:
 $ cargo +nightly fuzz run from-slice
 $ cargo +nightly fuzz run encode
 $ cargo +nightly fuzz run from-str
+$ cargo +nightly fuzz run json
+$ cargo +nightly fuzz run edns
 ```
 
 If `cargo` is installed outside rustup, such as through Homebrew, use

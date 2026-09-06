@@ -390,12 +390,24 @@ impl AsyncExchanger for Client {
             body.len()
         );
 
-        let m: MessageJson = serde_json::from_slice(&body).map_err(JsonError::Serde)?;
-        let mut m: Message = m.try_into()?;
+        let mut m = parse_response(&body)?;
         m.stats = Some(stats.end(remote_addr, body.len()));
 
         return Ok(m);
     }
+}
+
+fn parse_response(body: &[u8]) -> Result<Message, JsonError> {
+    let m: MessageJson = serde_json::from_slice(body).map_err(JsonError::Serde)?;
+    m.try_into()
+}
+
+/// Parses a DNS-over-HTTPS JSON response body into a [`Message`].
+/// Internal helper for fuzzing and testing only.
+#[doc(hidden)]
+#[cfg(any(test, fuzzing))]
+pub fn fuzz_parse_response(body: &[u8]) -> Result<Message, JsonError> {
+    parse_response(body)
 }
 
 #[cfg(test)]

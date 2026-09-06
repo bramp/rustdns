@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-TARGETS=("from-slice" "encode" "from-str")
+TARGETS=("from-slice" "encode" "from-str" "json" "edns")
 
 DURATION="${1:-900}" # Default to 15 minutes (900s) per target
 SPECIFIC_TARGET="${2:-}"
