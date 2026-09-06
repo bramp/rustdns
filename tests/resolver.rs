@@ -288,4 +288,98 @@ mod tests {
 
         assert!(resolver.is_ok());
     }
+
+    struct DnssecClient {
+        // TODO Should this be called FakeDnssecClient or something?
+        secure: bool,
+        ad: bool,
+    }
+
+    #[async_trait]
+    impl AsyncExchanger for DnssecClient {
+        fn endpoint(&self) -> std::sync::Arc<str> {
+            "dnssec-upstream".into()
+        }
+
+        fn channel_security(&self) -> ChannelSecurity {
+            if self.secure {
+                ChannelSecurity::Encrypted
+            } else {
+                ChannelSecurity::Insecure
+            }
+        }
+
+        async fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
+            let mut resp = respond(query, Some(Resource::A("127.0.0.1".parse().unwrap())));
+            resp.ad = self.ad;
+            Ok(resp)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resolver_dnssec_trust_upstream() {
+        // Secure channel with AD=1 -> Secure
+        let resolver = Resolver::builder()
+            .dnssec_mode(DnssecMode::TrustUpstream {
+                require_secure: true,
+            })
+            .upstream(DnssecClient {
+                secure: true,
+                ad: true,
+            })
+            .build()
+            .unwrap();
+        let resp = resolver.query("a.bramp.net", Type::A).await.unwrap();
+        assert_eq!(resp.meta.security_status, SecurityStatus::Secure);
+        let ips = resolver.lookup("a.bramp.net").await.unwrap();
+        assert_eq!(ips, vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
+
+        // Secure channel with AD=0 and require_secure=true -> fails with InsecureResponse
+        let resolver_strict = Resolver::builder()
+            .dnssec_mode(DnssecMode::TrustUpstream {
+                require_secure: true,
+            })
+            .upstream(DnssecClient {
+                secure: true,
+                ad: false,
+            })
+            .build()
+            .unwrap();
+        assert!(matches!(
+            resolver_strict.query("a.bramp.net", Type::A).await,
+            Err(rustdns::Error::Dnssec(
+                rustdns::DnssecError::InsecureResponse
+            ))
+        ));
+        assert!(matches!(
+            resolver_strict.lookup("a.bramp.net").await,
+            Err(rustdns::Error::Dnssec(
+                rustdns::DnssecError::InsecureResponse
+            ))
+        ));
+
+        // Insecure channel with AD=1 under SecureTransportOnly -> fails with UntrustedChannel
+        let resolver_untrusted = Resolver::builder()
+            .dnssec_mode(DnssecMode::TrustUpstream {
+                require_secure: false,
+            })
+            .upstream(DnssecClient {
+                secure: false,
+                ad: true,
+            })
+            .build()
+            .unwrap();
+        assert!(matches!(
+            resolver_untrusted.query("a.bramp.net", Type::A).await,
+            Err(rustdns::Error::Dnssec(
+                rustdns::DnssecError::UntrustedChannel
+            ))
+        ));
+        assert!(matches!(
+            resolver_untrusted.lookup("a.bramp.net").await,
+            Err(rustdns::Error::Dnssec(
+                rustdns::DnssecError::UntrustedChannel
+            ))
+        ));
+    }
 }

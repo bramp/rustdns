@@ -328,6 +328,424 @@ components so they can be composed and tested independently.
 - [x] Migrate existing multi-server low-level constructors toward single-target
   transports with deprecation guidance before the 1.0 API freeze.
 
+### DNSSEC Support & Upstream Trust Architecture
+
+This architecture adds DNSSEC validation support and upstream trust policies to `rustdns`
+across two incremental phases, deferring local cryptographic chain-of-trust verification
+(RFC 4034/4035) to a future milestone.
+
+#### 1. Background & Threat Model
+
+DNSSEC (RFC 4033, 4034, 4035, 6840) authenticates DNS resource record sets using cryptographic
+signatures (`RRSIG`) anchored in delegations (`DS`) up to the root key-signing key (KSK).
+
+When a client queries a validating recursive resolver:
+- The resolver fetches signatures and keys, verifies the chain of trust, and sets the `AD`
+  (Authentic Data) bit in the DNS response header if the response is proven authentic.
+- If signature verification fails (tampered records, expired signatures, broken chain), the
+  upstream recursive resolver returns `SERVFAIL` (`Bogus`).
+- If a zone is unsigned (no `DS` record in parent zone), it returns `NoError` with `AD=0` (`Insecure`).
+
+**Security Boundary**:
+The `AD` bit is a single unencrypted flag in the DNS header. Over plaintext transports (`UDP/53`
+or `TCP/53`), an on-path attacker can easily forge responses with `AD=1`. Therefore, a stub client
+can only trust the upstream `AD` bit when:
+1. The transport is authenticated and encrypted (DNS-over-HTTPS, DNS-over-TLS), OR
+2. The transport runs over a secure local loopback (`127.0.0.1` or `::1`) to a trusted local
+   validating resolver daemon (such as `systemd-resolved` or `unbound`), OR
+3. The administrator explicitly overrides transport validation via configuration (`AlwaysTrust`).
+
+#### 2. Architecture & API Specification
+
+```text
++-------------------------------------------------------------+
+|                      Application API                        |
+|   lookup(name) -> IP   /   query(name, type) -> Response    |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                      Resolver Engine                        |
+|  - Sets EDNS(0) DO=1 when DNSSEC is enabled                 |
+|  - Evaluates AD bit + transport security -> SecurityStatus  |
+|  - Enforces fail-closed validation on lookup()              |
++-------------------------------------------------------------+
+                              |
+                              v
++-------------------------------------------------------------+
+|                AsyncExchanger / Transports                  |
+|  - is_secure_channel() -> bool                              |
+|    - DoT / DoH / JSON: true                                 |
+|    - UDP / TCP / Do53: true if loopback, else false         |
++-------------------------------------------------------------+
+```
+
+##### 2.1 Transport Security Contract
+Extend `AsyncExchanger` and `Exchanger` traits in `src/clients/mod.rs`:
+```rust
+pub trait Exchanger {
+    fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
+    fn endpoint(&self) -> Arc<str>;
+    fn is_secure_channel(&self) -> bool { false }
+}
+
+#[async_trait]
+pub trait AsyncExchanger {
+    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
+    fn endpoint(&self) -> Arc<str>;
+    fn is_secure_channel(&self) -> bool { false }
+}
+```
+- Implementations:
+  - `doh::Client`, `dot::Client`, `json::Client`: `true`
+  - `udp::Client`, `tcp::Client`, `do53::Client`: `self.server.ip().is_loopback()`
+
+##### 2.2 Security Status & DNSSEC Modes
+In `src/types.rs`:
+```rust
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum SecurityStatus {
+    Secure,        // Validated cryptographic authenticity (AD=1 over trusted channel)
+    Insecure,      // Valid unsigned zone (AD=0, NoError)
+    Bogus,         // Validation failed upstream (SERVFAIL or explicit DNSSEC validation failure)
+    Indeterminate, // Validation status cannot be asserted (e.g. AD=1 over insecure plaintext transport)
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum DnssecMode {
+    #[default]
+    Off,
+    TrustUpstream { require_secure: bool },
+    StrictLocal, // Reserved for local cryptographic verification
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum UpstreamTrustPolicy {
+    #[default]
+    SecureTransportOnly,
+    AlwaysTrust,
+}
+```
+
+##### 2.3 Resolver API Integration
+In `ResolverBuilder`:
+- `dnssec_mode(mut self, mode: DnssecMode) -> Self`
+- `upstream_trust_policy(mut self, policy: UpstreamTrustPolicy) -> Self`
+
+In `ResponseMeta`:
+- `pub security_status: SecurityStatus`
+
+In `Resolver`:
+- High-level `lookup` / `lookup_with_deadline`: Enforces fail-closed semantics. If `DnssecMode::TrustUpstream { require_secure: true }`, any response that is not `SecurityStatus::Secure` returns an error. If `require_secure: false`, `SecurityStatus::Insecure` is accepted, while `Bogus` or `Indeterminate` (under `SecureTransportOnly`) returns an error.
+- Low-level `query(&self, name: &str, rtype: Type) -> Result<Response, crate::Error>`: Returns the full `Response` allowing inspection of `Message`, answer records, authority records, and `meta.security_status`.
+
+##### 2.4 Wire Parsing & Unknown Record Resilience
+1. **Fallback `Resource::Raw`**:
+   ```rust
+   pub enum Resource {
+       ...
+       Raw { type_code: u16, data: Vec<u8> },
+   }
+   ```
+   Ensures unknown record types (e.g., DNSSEC records returned when `DO=1` is sent) do not cause `DecodeError::InvalidType`.
+2. **DNSSEC Record Types**:
+   - `Type::DS (43)`
+   - `Type::RRSIG (46)`
+   - `Type::NSEC (47)`
+   - `Type::DNSKEY (48)`
+   - `Type::NSEC3 (50)`
+   - `Type::NSEC3PARAM (51)`
+   Structured types in `src/resource.rs` implementing RFC 4034 and RFC 5155 wire serialization and deserialization.
+
+#### DNSSEC Implementation Checklist
+
+- [x] **Phase 1: Transport-Guarded Upstream Trust**
+  - [x] Add `fn is_secure_channel(&self) -> bool` to `AsyncExchanger` and `Exchanger` in `src/clients/mod.rs`.
+  - [x] Implement `is_secure_channel` for `doh`, `dot`, and `json` (returns `true`).
+  - [x] Implement `is_secure_channel` for `udp`, `tcp`, and `do53` (checks `ip().is_loopback()`).
+       - TODO I wonder if is_secure_channel is sufficent. I wonder if we should inspect "What is your security" and it can return say the algorithm, or something like that. If DoH depends on HTTPS, but then the server fallbacks to a weak algorithm, is that still secure?
+  - [x] Update mock exchangers in `tests/resolver.rs` and `src/clients/resolver/mod.rs`.
+  - [x] Define `SecurityStatus`, `DnssecMode`, and `UpstreamTrustPolicy` in `src/types.rs`.
+  - [x] Add typed DNSSEC errors in `src/errors.rs`.
+  - [x] Add `dnssec_mode`, `upstream_trust_policy`, and `payload_size` to `ResolverBuilder` and `Resolver`.
+  - [x] In `Resolver::exchange`, preserve verbatim caller messages, evaluate `is_secure_channel()`, assess `AD` bit / `Rcode`, and populate `ResponseMeta::security_status`.
+  - [x] In `Resolver::query`, construct queries with configured `payload_size` (default 1232 bytes per RFC 8900) and `DO=1` when DNSSEC is enabled.
+  - [x] In `Resolver::lookup`, enforce fail-closed semantics based on `DnssecMode`.
+- [ ] **Phase 2: DNSSEC Wire Parsing & Safe Record Fallback**
+  - [ ] Add `Resource::Raw` fallback in `src/types.rs` and update `src/resource.rs` / `src/dns.rs` so unhandled type codes decode into raw bytes without failing.
+  - [ ] Add DNSSEC variants to `Type` (`DS=43`, `RRSIG=46`, `NSEC=47`, `DNSKEY=48`, `NSEC3=50`, `NSEC3PARAM=51`).
+  - [ ] Implement wire decoding and encoding for `RRSIG`, `DNSKEY`, `DS`, `NSEC`, and `NSEC3` per RFC 4034/5155 in `src/resource.rs`.
+  - [ ] Add CLI flags to `dig/main.rs` (`+dnssec`, `+ad`, `+noad`, `+cd`) and display `SecurityStatus` in output.
+- [ ] **Verification & Validation**
+  - [ ] Add unit tests for `is_secure_channel` across all clients.
+  - [ ] Add mock resolver tests for `DO=1`, `AD=1` secure vs plaintext, unsigned `AD=0` (standard vs strict), and `SERVFAIL` (bogus).
+  - [ ] Add round-trip wire encoding/decoding tests for DNSSEC records and raw fallback.
+  - [ ] Verify `cargo test --workspace --all-features`, `cargo clippy`, and `cargo fmt`.
+
+### WebAssembly (WASM) Support & DNS-over-JSON Decoupling
+
+This design addresses [GitHub Issue #7](https://github.com/bramp/rustdns/issues/7),
+enabling pure DNS-over-JSON parsing and serialization on WebAssembly targets
+(`wasm32-unknown-unknown`, `wasm32-wasip1`) and in environments without native
+networking or Tokio runtimes.
+
+#### 1. Background & Problem Statement
+
+Currently, the `json` Cargo feature bundles both data-format handling (Serde) and
+the HTTP client transport:
+```toml
+json = ["http_deps", "serde", "serde_json"]
+```
+Because `http_deps` pulls in `hyper`, `hyper-util`, `hyper-rustls`, `tokio`, and
+socket-oriented dependencies, enabling `json` causes compilation to fail on
+WebAssembly targets (`wasm32-unknown-unknown`).
+
+In addition:
+1. **Private Parsing Logic**: JSON parsing (`MessageJson`, `parse_response`) is
+   an unexported internal detail inside [src/clients/json/async.rs](src/clients/json/async.rs). Callers
+   executing inside WASM (e.g., in a web browser or Cloudflare Worker) fetching
+   DNS responses via host APIs (such as `web_sys::fetch`, `reqwest`, or JS fetch)
+   have no way to decode JSON payloads into a `Message`.
+2. **Runtime Panic Hazard (`rand::rng()`)**: `Message::default()` populates
+   `id: Message::random_id()`, which calls `rand::rng()`. On bare
+   `wasm32-unknown-unknown` targets lacking a configured `getrandom` backend,
+   instantiating messages via default construction can panic at runtime.
+3. **Incomplete Schema Coverage**: The internal `MessageJson` only decodes
+   `Question` and `Answer` fields, ignoring `Authority` and `Additional` records
+   present in Google and Cloudflare DNS-over-HTTPS JSON responses (RFC 8427).
+
+#### 2. Architecture & Design
+
+```text
++------------------------------------------------------------------------+
+|                            Application Layer                           |
+|   - Browser / WASM: fetches JSON via host API (fetch / web-sys)        |
+|   - Native CLI / Server: uses Resolver or async clients                |
++------------------------------------------------------------------------+
+              |                                          |
+  (pure serde / wasm friendly)               (network I/O via hyper)
+              v                                          v
++-----------------------------+            +-----------------------------+
+|     rustdns::json           |            | rustdns::clients::json      |
+|  - Feature: "json"          |            |  - Feature: "json-client"   |
+|  - from_slice / from_str    |<-----------|  - Client::try_new(Url)     |
+|  - to_string / to_writer    | (delegates |  - Implements AsyncExchanger|
+|  - Zero I/O dependencies    |  parsing)  |  - Requires "http_deps"     |
++-----------------------------+            +-----------------------------+
+              |
+              v
++-----------------------------+
+|       rustdns::Message      |
+|  - In-memory DNS model      |
+|  - Explicit response fields |
+|  - Zero WASM runtime panics |
++-----------------------------+
+```
+
+##### 2.1 Feature Decoupling
+Split the responsibilities into two distinct Cargo features:
+- `json`: Enables pure data serialization and deserialization via `serde` and
+  `serde_json`. Zero network or Tokio dependencies. Compiles cleanly on
+  `wasm32-unknown-unknown` and `no_std`+alloc environments.
+- `json-client`: Enables the HTTP client transport (`rustdns::clients::json::Client`)
+  and `IntoAsyncExchanger` support for `json+https://`. Depends on `json` and
+  `http_deps`.
+- `clients`: Preserves backward compatibility by bundling `json-client` (alongside
+  `doh`, `do53`, `dot`, `resolver`, and `sync`). Default crate configurations
+  continue to compile all clients without breaking changes.
+
+##### 2.2 Core JSON Module ([src/json.rs](src/json.rs))
+Extract and elevate JSON handling into a top-level module:
+- Types: `MessageJson`, `QuestionJson`, `RecordJson`, and error types.
+- Extended Schema: Add `Authority` and `Additional` sections with `#[serde(default)]`
+  to support complete responses from Google and Cloudflare.
+- Safe Response Conversion:
+  ```rust
+  impl TryFrom<MessageJson> for Message { ... }
+  impl TryFrom<&Message> for MessageJson { ... }
+  ```
+  In `TryFrom<MessageJson>`, explicitly set `id: 0`, `qr: QR::Response`, and other
+  DNS header fields without delegating to `Message::default()`, guaranteeing no
+  implicit `rand::rng()` calls during decoding.
+- Public Helpers:
+  - `rustdns::json::from_slice(body: &[u8]) -> Result<Message, JsonError>`
+  - `rustdns::json::from_str(s: &str) -> Result<Message, JsonError>`
+  - `rustdns::json::to_string(msg: &Message) -> Result<String, JsonError>`
+
+##### 2.3 Ergonomic `Message` Methods
+Behind `#[cfg(feature = "json")]` in [src/dns.rs](src/dns.rs):
+- `Message::from_json_slice(bytes: &[u8]) -> Result<Message, JsonError>`
+- `Message::from_json_str(s: &str) -> Result<Message, JsonError>`
+- `Message::to_json_string(&self) -> Result<String, JsonError>`
+
+##### 2.4 Transport Integration
+In [src/clients/json/async.rs](src/clients/json/async.rs):
+- Keep `Client` and `AsyncExchanger` intact, guarded by `#[cfg(feature = "json-client")]`.
+- Replace the internal `parse_response` implementation with a call to
+  `crate::json::from_slice(body)`.
+- Retain `fuzz_parse_response` for compatibility with existing fuzz targets.
+- Update [src/clients/into_exchanger.rs](src/clients/into_exchanger.rs) to guard `json+https://` scheme handling
+  under `feature = "json-client"`.
+
+#### WASM Support Implementation Checklist
+
+- [ ] **Phase 1: Feature Decoupling in Cargo.toml**
+  - [ ] Redefine `json = ["dep:serde", "dep:serde_json"]` in [Cargo.toml](Cargo.toml).
+  - [ ] Add `json-client = ["json", "http_deps"]` to [Cargo.toml](Cargo.toml).
+  - [ ] Update `clients = ["doh", "json-client", "do53", "dot", "resolver", "sync"]` in [Cargo.toml](Cargo.toml).
+  - [ ] Update `Cargo.toml` `cargo-all-features` metadata to include `json-client`.
+- [ ] **Phase 2: Core JSON Serialization & Deserialization Module**
+  - [ ] Create [src/json.rs](src/json.rs) containing `MessageJson`, `QuestionJson`, and `RecordJson`.
+  - [ ] Add support for `Authority` and `Additional` record arrays in `MessageJson`.
+  - [ ] Implement `TryFrom<MessageJson> for Message` without calling `Message::default()` or `rand::rng()`.
+  - [ ] Implement `TryFrom<&Message> for MessageJson` for serializing outbound DNS messages to JSON.
+  - [ ] Expose `from_slice`, `from_str`, and `to_string` functions in [src/json.rs](src/json.rs).
+  - [ ] Export `pub mod json;` in [src/lib.rs](src/lib.rs) gated on `feature = "json"`.
+  - [ ] Add `from_json_slice`, `from_json_str`, and `to_json_string` to `Message` in [src/dns.rs](src/dns.rs) gated on `feature = "json"`.
+  - [ ] Ensure `JsonError` and `Error::Json` remain transparent and gated on `feature = "json"` in [src/errors.rs](src/errors.rs).
+- [ ] **Phase 3: Client & Transports Integration**
+  - [ ] Update [src/clients/mod.rs](src/clients/mod.rs) to gate `pub mod json;` on `feature = "json-client"`.
+  - [ ] Update [src/clients/json/async.rs](src/clients/json/async.rs) to delegate body decoding to `crate::json::from_slice`.
+  - [ ] Update [src/clients/into_exchanger.rs](src/clients/into_exchanger.rs) to guard `json+https://` under `feature = "json-client"`.
+  - [ ] Update [src/clients/common/mod.rs](src/clients/common/mod.rs) HTTP feature guards from `feature = "json"` to `feature = "json-client"`.
+- [ ] **Phase 4: Testing, Fuzzing, & Verification**
+  - [ ] Add unit tests in [src/json.rs](src/json.rs) and [tests/dns.rs](tests/dns.rs) verifying JSON decoding of real Google and Cloudflare responses with zero network dependencies.
+  - [ ] Update [tests/clients.rs](tests/clients.rs) to run JSON client tests under `feature = "json-client"`.
+  - [ ] Update [fuzz/fuzz_targets/json.rs](fuzz/fuzz_targets/json.rs) to test `rustdns::json::from_slice`.
+  - [ ] Verify clean compilation on `wasm32-unknown-unknown`:
+        `cargo check --target wasm32-unknown-unknown --no-default-features --features json`
+  - [ ] Verify feature matrix:
+        `cargo test --no-default-features --features json`
+        `cargo test --no-default-features --features json-client`
+        `cargo test --workspace --all-features`
+  - [ ] Document changes in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`.
+
+### End-to-End Performance Benchmarking & Allocation Profiling
+
+This section outlines the plan to benchmark end-to-end DNS flows in `rustdns` and
+systematically measure string copies and heap allocations.
+
+#### 1. Motivation & Problem Statement
+
+In a typical DNS resolver or proxy flow, an application performs a sequence of
+operations:
+1. **Create Message**: instantiate a query `Message` and call `try_add_question`.
+2. **Send Request (Encode)**: serialize the message to wire-format bytes (`to_vec` / `append_to_vec`).
+3. **Transport (I/O)**: transmit over the network (e.g. UDP loopback) and receive a wire-format datagram.
+4. **Receive Request / Response (Parse)**: decode wire-format bytes into a structured `Message` (`Message::from_slice`).
+
+Currently, there are concerns that too many heap allocations and intermediate string copies occur
+across this typical flow, in particular:
+- **`try_add_question`**: calls `normalise_domain` which invokes `idna::domain_to_ascii`
+  allocating a `String`, followed by `idna::domain_to_unicode` allocating another `String`,
+  and then a second `idna::domain_to_ascii` call before storing an owned `String` in `Question`.
+- **`append_qname_to_vec`**: calls `idna::domain_to_ascii(domain)` on every domain name serialization,
+  allocating a temporary `String` per domain encoded.
+- **`read_qname` / `read_qname_at_depth`**: builds up domain names by creating temporary
+  `vec![0; len]`, validating UTF-8, calling `idna::domain_to_unicode` (allocating a decoded `String`),
+  and concatenating into a newly allocated `String` per name. No zero-copy slicing or string interning
+  is used.
+- **Missing name compression during encoding**: repeatedly serialized domain names in responses are
+  written out fully rather than using compressed wire pointers.
+
+To evaluate whether CPU or RAM is being wasted in production use cases, we need:
+1. High-level, end-to-end macro benchmarks modeling realistic client-server flows.
+2. Micro-benchmarks isolating each individual phase (`create`, `encode`, `loopback transport`, `parse`).
+3. Allocation tracking (allocation counts, cumulative bytes, peak memory) and DHAT heap profiling
+   to attribute allocations directly to call stacks.
+
+#### 2. Architecture & Design
+
+```text
++-----------------------------------------------------------------------------------------+
+|                                     Benchmark Suite                                     |
++-----------------------------------------------------------------------------------------+
+                    |                                                   |
+                    v                                                   v
++---------------------------------------+               +---------------------------------------+
+|  Criterion Harness                    |               |  Allocation Tracker & DHAT Profiler   |
+|  (benches/dns_pipeline.rs)            |               |  (benches/allocations.rs)             |
+|                                       |               |                                       |
+|  1. End-to-End Workflows:             |               |  1. Tracking Global Allocator:        |
+|     - Complete In-Memory Flow         |               |     - Tracks alloc/dealloc counts     |
+|       (create -> encode -> parse)     |               |     - Tracks cumulative bytes         |
+|     - Complete Loopback UDP Flow      |               |     - Quantifies memory per stage     |
+|       (create -> encode -> UDP send   |               |                                       |
+|        -> UDP recv -> parse)          |               |  2. Step-by-Step Breakdown:           |
+|                                       |               |     - Message creation & QNAME        |
+|  2. Phase-by-Phase Micro-benchmarks:  |               |     - Request encoding                |
+|     - Message creation                |               |     - Wire parsing                    |
+|       (ASCII, subdomains, IDNA)       |               |     - End-to-end exchange             |
+|     - Request encoding                |               |                                       |
+|       (to_vec vs append_to_vec)       |               |  3. DHAT Heap Profiler:               |
+|     - Response parsing                |               |     - Dumps dhat-heap.json            |
+|       (A, CNAME+A, MX, TXT/SOA)       |               |     - Flamegraph/stack attribution    |
++---------------------------------------+               +---------------------------------------+
+```
+
+##### 2.1 High-Level End-to-End Scenarios
+The benchmark suite models real end-to-end interactions using realistic queries and real-world response
+wire payloads (drawn from [tests/test_data.yaml](tests/test_data.yaml)):
+- **In-Memory Roundtrip**: Creates a query message (`www.google.com`, `A`), serializes it to wire
+  bytes via `to_vec`, mock-resolves by substituting a representative response payload, and decodes
+  via `Message::from_slice`. Measures the pure CPU latency and memory allocation of the library
+  without network noise.
+- **Loopback UDP Roundtrip**: Leverages `Client::exchange` from [src/clients/udp/sync.rs](src/clients/udp/sync.rs)
+  communicating with an in-process loopback UDP server on `127.0.0.1`. Compares socket syscall overhead
+  against protocol parsing and serialization overhead.
+
+##### 2.2 Micro-Benchmarking Individual Pipeline Stages
+- **Stage 1 (Create Message)**:
+  - Simple ASCII domain (`example.com.`, 1 question).
+  - Deep subdomain (`a.b.c.d.sub.example.com.`, 1 question).
+  - Internationalized domain name (IDNA, e.g. `münchen.de.` / `xn--mnchen-3ya.de.`).
+  - EDNS(0) extension creation (options: NSID, ECS, cookie, padding).
+- **Stage 2 (Encode Request)**:
+  - `to_vec()`: standard path allocating a 512-byte vector.
+  - `append_to_vec(&mut buf)`: reused preallocated buffer to measure pure serialization cost without
+    buffer reallocations.
+- **Stage 3 (Parse Response)**:
+  - Single A record response.
+  - CNAME + A record response.
+  - Multi-answer MX response with domain name compression pointers.
+  - Large TXT / SOA response with multiple string chunks.
+
+##### 2.3 Memory & String Copy Quantification
+- A custom tracking allocator (`TrackingAllocator`) wraps `std::alloc::System`, recording:
+  - Allocation calls (`alloc_count`).
+  - Deallocation calls (`dealloc_count`).
+  - Total bytes requested (`total_bytes_allocated`).
+  - Peak live bytes (`peak_memory_bytes`).
+- A dedicated runner executable prints a markdown/text summary table reporting exact numbers per
+  operation.
+- DHAT integration enables dumping heap profiling graphs (`dhat-heap.json`) to confirm exactly which
+  lines in `normalise_domain`, `append_qname_to_vec`, and `read_qname` allocate strings.
+
+#### Benchmarking & Profiling Implementation Checklist
+
+- [ ] **Phase 1: Dependencies and Cargo Configuration**
+  - [ ] Add `criterion = { version = "0.5", features = ["html_reports"] }` to `[dev-dependencies]` in [Cargo.toml](Cargo.toml).
+  - [ ] Add `dhat = "0.3"` to `[dev-dependencies]` in [Cargo.toml](Cargo.toml).
+  - [ ] Define `[[bench]]` target for `dns_pipeline` with `harness = false` in [Cargo.toml](Cargo.toml).
+  - [ ] Define `[[bench]]` target for `allocations` with `harness = false` in [Cargo.toml](Cargo.toml).
+- [ ] **Phase 2: High-Level End-to-End & Micro Criterion Benchmarks**
+  - [ ] Implement `benches/dns_pipeline.rs`:
+    - [ ] End-to-end in-memory pipeline benchmark (create query -> encode wire -> decode response).
+    - [ ] End-to-end loopback UDP benchmark using in-process UDP socket responder and `rustdns::clients::sync::udp::Client`.
+    - [ ] Micro-benchmarks for `create_message` (ASCII, subdomain, IDNA, EDNS).
+    - [ ] Micro-benchmarks for `encode_request` (`to_vec` vs `append_to_vec` buffer reuse).
+    - [ ] Micro-benchmarks for `parse_response` (A, CNAME+A, MX with compression, TXT/SOA).
+- [ ] **Phase 3: Heap Allocation & String Copy Profiler**
+  - [ ] Implement `benches/allocations.rs`:
+    - [ ] Create `TrackingAllocator` to count allocation invocations and cumulative bytes allocated per operation.
+    - [ ] Measure and report allocation counts and total bytes for message creation, encoding, parsing, and full exchange.
+    - [ ] Add DHAT support behind an opt-in CLI flag or environment variable (`DHAT=1`) to export `dhat-heap.json`.
+- [ ] **Phase 4: Execution, Baseline Analysis, & Verification**
+  - [ ] Verify compilation: `cargo check --benches --all-features`.
+  - [ ] Run benchmark smoketest: `cargo bench --bench dns_pipeline -- --test`.
+  - [ ] Run allocation breakdown: `cargo run --bench allocations`.
+  - [ ] Record baseline CPU timings and allocation numbers in project notes to guide zero-copy optimizations.
+
 ### Rust Platform Migration
 
 - [ ] Move lint policy into workspace configuration where supported.

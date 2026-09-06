@@ -59,6 +59,17 @@ All notable changes to rustdns are documented here.
 - Added `SOA::email` to convert `SOA.rname` into an email address per RFC 1035 §8.
 - Added a dedicated `rname` fuzz target testing `SOA::rname_to_email` and
   `SOA::email_to_rname` conversion and safety.
+- Added `ChannelSecurity` classification (`Insecure`, `Loopback`, `Encrypted`) and
+  `channel_security()` / `is_secure_channel()` methods on `AsyncExchanger` and
+  `Exchanger`.
+- Added `EDNS_SAFE_UDP_PAYLOAD_SIZE` (1232 bytes) limit per RFC 8900 and DNS Flag Day 2020
+  to prevent IP fragmentation over IPv6 links.
+- Added `DnssecMode`, `UpstreamTrustPolicy`, `SecurityStatus`, and `DnssecError` for
+  DNSSEC validation policies and error reporting.
+- Added transport-guarded upstream DNSSEC validation in `Resolver::query` and
+  `Resolver::lookup`, with configurable `payload_size` defaulting to 1232 bytes.
+- Separated `Resolver::exchange` (low-level, sends messages verbatim without mutation) from
+  `Resolver::query` and `Resolver::lookup` (which manage EDNS options and enforce DNSSEC policy).
 
 ### Changed
 
