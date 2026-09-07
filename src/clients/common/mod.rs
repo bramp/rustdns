@@ -7,6 +7,12 @@ pub(crate) mod http;
 #[cfg(any(feature = "doh", feature = "doh-json"))]
 pub(crate) mod mime;
 
+#[cfg(any(
+    feature = "do53",
+    feature = "dot",
+    feature = "doh",
+    feature = "doh-json"
+))]
 pub(crate) mod stats;
 
 #[cfg(any(

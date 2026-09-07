@@ -17,13 +17,13 @@
 use crate::Message;
 use std::sync::Arc;
 
-#[cfg(feature = "doh")]
+#[cfg(any(feature = "doh", feature = "exchanger"))]
 pub mod doh;
 
 #[cfg(feature = "dot")]
 pub mod dot;
 
-#[cfg(feature = "doh-json")]
+#[cfg(any(feature = "doh-json", feature = "exchanger"))]
 pub mod json;
 
 #[cfg(feature = "do53")]

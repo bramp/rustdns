@@ -236,7 +236,7 @@ pub struct Extension {
 impl Default for Extension {
     fn default() -> Self {
         Extension {
-            payload_size: 4096,
+            payload_size: crate::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE,
             extend_rcode: 0,
             version: 0,
             dnssec_ok: false,

@@ -6,6 +6,13 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- Added `web-dig`, an in-browser WebAssembly DNS query tool supporting DoH
+  (RFC 8484) and JSON DoH APIs with authentic dig output formatting.
+- Added `exchanger` feature to `rustdns` providing the `AsyncExchanger` trait,
+  `Exchanger`, `WireResponse`, and protocol content-type constants on WebAssembly
+  without Tokio or native HTTP dependencies.
+- Added `EDNS_DOH_PAYLOAD_SIZE` (4096 bytes) constant per RFC 8484 §4.2.1 and
+  RFC 6891 §6.2.3 in `rustdns::limits`.
 - Added WebAssembly (`wasm32-unknown-unknown`, `wasm32-wasip1`) support for core
   DNS wire parsing and encoding (`--no-default-features`), zone file parsing
   (`zones`), and pure JSON serialization (`json`).

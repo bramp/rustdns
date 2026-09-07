@@ -1,0 +1,33 @@
+[package]
+name = "web-dig"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "WebAssembly DNS dig tool using rustdns"
+authors = ["Andrew Brampton <me@bramp.net>"]
+license = "Apache-2.0"
+repository = "https://github.com/bramp/rustdns"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rustdns = { path = "../", default-features = false, features = ["exchanger", "json"] }
+async-trait = "0.1.92"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = [
+    "Headers",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Window",
+    "Performance",
+] }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"

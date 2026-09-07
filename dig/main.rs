@@ -610,7 +610,7 @@ async fn main() -> Result<(), DigError> {
         query.try_add_question(domain, args.r#type, Class::Internet)?;
     }
     let mut extension = Extension {
-        payload_size: 4096,
+        payload_size: rustdns::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE,
 
         ..Default::default()
     };

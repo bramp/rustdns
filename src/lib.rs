@@ -255,7 +255,8 @@ mod cfg;
     feature = "do53",
     feature = "dot",
     feature = "sync",
-    feature = "resolver"
+    feature = "resolver",
+    feature = "exchanger"
 ))]
 pub mod clients;
 

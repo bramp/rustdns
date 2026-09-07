@@ -17,16 +17,9 @@ use std::io;
 use std::time::Duration;
 use url::Url;
 
+use super::{CONTENT_TYPE_APPLICATION_DNS_JSON, CONTENT_TYPE_APPLICATION_JSON, GOOGLE};
+
 const MAX_JSON_BODY_SIZE: usize = 1024 * 1024;
-
-pub const GOOGLE: &str = "https://dns.google/resolve";
-pub const CLOUDFLARE: &str = "https://cloudflare-dns.com/dns-query";
-
-// For use in Content-type and Accept headers
-// Google actually uses "application/json", but Cloud Flare requires "application/dns-json".
-// Since Google's API seems to accept either, we default to dns-json.
-const CONTENT_TYPE_APPLICATION_DNS_JSON: &str = "application/dns-json";
-const CONTENT_TYPE_APPLICATION_JSON: &str = "application/json";
 
 pub use crate::json::{
     MessageJson, QuestionJson, RecordJson, from_slice, from_str, to_string, to_string_pretty,

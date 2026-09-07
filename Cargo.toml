@@ -18,13 +18,17 @@ members = [
     "generate_tests",   # Used to generate test data (by querying real servers)
     "dig",              # Example dig client
     "nslookup",         # Example nslookup client
+    "web-dig",          # WebAssembly dig client
 ]
 
 [features]
 default = ["clients", "zones"]
 
 # Enable the DNS clients (asynchronous, plus the blocking variants).
-clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync"]
+clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync", "exchanger"]
+
+# Generic Exchanger trait and WireResponse types (WASM compatible, no Tokio or HTTP dependencies).
+exchanger = []
 
 # Classic DNS (Do53): asynchronous UDP and TCP clients, plus a combined client
 # that retries over TCP when a UDP response is truncated.

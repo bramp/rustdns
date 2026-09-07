@@ -51,6 +51,12 @@ use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Media type for DNS-over-HTTPS JSON API requests and responses (used by Cloudflare and other DoH providers).
+pub const CONTENT_TYPE_APPLICATION_DNS_JSON: &str = "application/dns-json";
+
+/// Media type for standard JSON responses (used by Google Public DNS).
+pub const CONTENT_TYPE_APPLICATION_JSON: &str = "application/json";
+
 /// An intermediate representation of a DNS message serialized as JSON.
 ///
 /// See the specifications and documentation provided by:

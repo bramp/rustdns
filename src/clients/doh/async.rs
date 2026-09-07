@@ -16,15 +16,9 @@ use std::io;
 use std::time::Duration;
 use url::Url;
 
+use super::{CONTENT_TYPE_APPLICATION_DNS_MESSAGE, DNS_QUERY_PARAM, GOOGLE};
+
 const MAX_DOH_BODY_SIZE: usize = MAX_DNS_MESSAGE_LEN;
-
-pub const GOOGLE: &str = "https://dns.google/dns-query";
-
-// For use in Content-type and Accept headers
-const CONTENT_TYPE_APPLICATION_DNS_MESSAGE: &str = "application/dns-message";
-
-// The param name that contains the DNS request.
-const DNS_QUERY_PARAM: &str = "dns";
 
 /// A DNS over HTTPS (DoH) Client (rfc8484).
 ///

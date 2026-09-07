@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Dig - In-Browser DNS Query Tool</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Web Dig <span class="badge">WASM</span></h1>
+            <p>In-browser DNS query tool powered by <a href="https://github.com/bramp/rustdns" target="_blank" rel="noopener"><code>rustdns</code></a> compiled to WebAssembly.</p>
+        </header>
+
+        <main>
+            <div class="card">
+                <form id="dig-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="domain-input">Domain Name</label>
+                            <input id="domain-input" type="text" placeholder="e.g. example.com" value="example.com" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="type-select">Record Type</label>
+                            <select id="type-select">
+                                <option value="A" selected>A (IPv4)</option>
+                                <option value="AAAA">AAAA (IPv6)</option>
+                                <option value="CAA">CAA</option>
+                                <option value="CNAME">CNAME</option>
+                                <option value="DNSKEY">DNSKEY</option>
+                                <option value="DS">DS</option>
+                                <option value="MX">MX</option>
+                                <option value="NS">NS</option>
+                                <option value="PTR">PTR</option>
+                                <option value="SOA">SOA</option>
+                                <option value="SRV">SRV</option>
+                                <option value="TXT">TXT</option>
+                                <option value="ANY">ANY</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="endpoint-select">Protocol &amp; Server</label>
+                            <select id="endpoint-select">
+                                <optgroup label="DNS-over-HTTPS (RFC 8484)">
+                                    <option value="cloudflare-doh" selected>Cloudflare (1.1.1.1)</option>
+                                    <option value="google-doh" disabled>Google (8.8.8.8) (CORS error)</option>
+                                    <option value="custom-doh">Custom URL...</option>
+                                </optgroup>
+                                <optgroup label="DNS-over-HTTPS (Unofficial JSON API)">
+                                    <option value="cloudflare-json">Cloudflare (1.1.1.1)</option>
+                                    <option value="google-json">Google (8.8.8.8)</option>
+                                    <option value="custom-json">Custom URL...</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="custom-server-row" class="custom-server-row">
+                        <label for="custom-server-input" id="custom-server-label">Custom Endpoint URL</label>
+                        <input id="custom-server-input" type="text" placeholder="https://my-dns-server.example/dns-query">
+                    </div>
+
+                    <div class="submit-row">
+                        <div class="examples-group">
+                            <span>Quick try:</span>
+                            <button type="button" class="chip-btn" data-domain="example.com" data-type="A">example.com A</button>
+                            <button type="button" class="chip-btn" data-domain="bramp.net" data-type="AAAA">bramp.net AAAA</button>
+                            <button type="button" class="chip-btn" data-domain="google.com" data-type="TXT">google.com TXT</button>
+                            <button type="button" class="chip-btn" data-domain="cloudflare.com" data-type="MX">cloudflare.com MX</button>
+                        </div>
+
+                        <button id="dig-btn" type="submit" class="btn-primary">
+                            <span id="btn-text">Dig</span>
+                        </button>
+                    </div>
+
+                    <div class="specs-row">
+                        <span>Specs:</span>
+                        <a href="https://datatracker.ietf.org/doc/html/rfc8484" target="_blank" rel="noopener" title="RFC 8484: DNS Queries over HTTPS (DoH)">RFC 8484</a>
+                        <span>·</span>
+                        <a href="https://developers.cloudflare.com/1.1.1.1/encrypted-dns/dns-over-https/make-api-requests/dns-json/" target="_blank" rel="noopener" title="Cloudflare DNS over HTTPS JSON API">Cloudflare API</a>
+                        <span>·</span>
+                        <a href="https://developers.google.com/speed/public-dns/docs/doh/json" target="_blank" rel="noopener" title="Google Public DNS DoH JSON API">Google API</a>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <div class="output-header">
+                    <div class="output-header-title">
+                        <span>Query Output</span>
+                        <span id="status-badge" class="status-badge" style="display: none;"></span>
+                    </div>
+                    <div class="output-actions">
+                        <button id="copy-btn" class="btn-secondary" type="button">Copy Output</button>
+                    </div>
+                </div>
+
+                <pre id="output-box" class="output-box empty">Enter a domain name and click "Dig" to perform a query.</pre>
+            </div>
+        </main>
+
+        <footer>
+            <p>Built with <a href="https://github.com/bramp/rustdns" target="_blank" rel="noopener">rustdns</a> and WebAssembly. No server-side proxy required.</p>
+        </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
