@@ -13,7 +13,7 @@ rustdns = { path = "../", default-features = false, features = [
     "do53",
     "dot",
     "doh",
-    "json",
+    "doh-json",
 ] }
 
 encoding8 = "0.3.2"    # Used for pretty-printing

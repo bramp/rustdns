@@ -199,7 +199,7 @@ fn parse_async_exchanger_str(
                 ))
             }
             "json+https" => {
-                #[cfg(feature = "json")]
+                #[cfg(feature = "doh-json")]
                 {
                     // json+https:// is an unofficial URI scheme to distinguish JSON DoH from binary DoH (RFC 8484).
                     let https_str = format!("https://{rest}");
@@ -209,9 +209,9 @@ fn parse_async_exchanger_str(
                     let client = crate::clients::json::Client::try_new(url)?;
                     Ok(Box::new(client))
                 }
-                #[cfg(not(feature = "json"))]
+                #[cfg(not(feature = "doh-json"))]
                 Err(crate::Error::InvalidArgument(
-                    "feature 'json' is required for json+https:// exchangers".to_string(),
+                    "feature 'doh-json' is required for json+https:// exchangers".to_string(),
                 ))
             }
             "http" => Err(crate::Error::InvalidArgument(
@@ -248,7 +248,7 @@ mod tests {
             "tls://dns.google:853",
             #[cfg(feature = "doh")]
             "https://dns.google/dns-query",
-            #[cfg(feature = "json")]
+            #[cfg(feature = "doh-json")]
             "json+https://dns.google/resolve",
         ];
 

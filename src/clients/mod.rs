@@ -23,7 +23,7 @@ pub mod doh;
 #[cfg(feature = "dot")]
 pub mod dot;
 
-#[cfg(feature = "json")]
+#[cfg(feature = "doh-json")]
 pub mod json;
 
 #[cfg(feature = "do53")]
@@ -128,7 +128,7 @@ mod tests {
         #[cfg(feature = "doh")]
         assert!(super::doh::Client::try_new(plaintext.clone(), http::Method::GET).is_err());
 
-        #[cfg(feature = "json")]
+        #[cfg(feature = "doh-json")]
         assert!(super::json::Client::try_new(plaintext).is_err());
     }
 }

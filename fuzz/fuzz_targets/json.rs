@@ -4,7 +4,7 @@ extern crate libfuzzer_sys;
 extern crate rustdns;
 
 fuzz_target!(|data: &[u8]| {
-    if let Ok(msg) = rustdns::clients::json::fuzz_parse_response(data) {
+    if let Ok(msg) = rustdns::json::from_slice(data) {
         let _ = format!("{msg}");
         let _ = format!("{msg:?}");
 

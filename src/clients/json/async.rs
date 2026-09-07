@@ -1,9 +1,5 @@
-use crate::Class;
 use crate::Error;
 use crate::Message;
-use crate::Question;
-use crate::Record;
-use crate::Resource;
 use crate::clients::common::http as client_http;
 use crate::clients::common::http::{BoxError, HttpClient};
 use crate::clients::common::mime::content_type_equal;
@@ -11,16 +7,12 @@ use crate::clients::common::stats::WireResponseBuilder;
 use crate::clients::{AsyncExchanger, WireResponse};
 use crate::errors::JsonError;
 use async_trait::async_trait;
-use core::convert::TryInto;
 use http::Method;
 use http::Request;
 use http::header::*;
 use http_body_util::{BodyExt, Empty, Limited};
 use hyper::body::Bytes;
 use hyper_util::client::legacy::connect::HttpInfo;
-use num_traits::FromPrimitive;
-use serde::{Deserialize, Serialize};
-use serde_json;
 use std::io;
 use std::time::Duration;
 use url::Url;
@@ -36,123 +28,9 @@ pub const CLOUDFLARE: &str = "https://cloudflare-dns.com/dns-query";
 const CONTENT_TYPE_APPLICATION_DNS_JSON: &str = "application/dns-json";
 const CONTENT_TYPE_APPLICATION_JSON: &str = "application/json";
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct MessageJson {
-    pub status: u32, // NOERROR - Standard DNS response code (32 bit integer).
-
-    #[serde(rename = "TC")]
-    pub tc: bool, // Whether the response is truncated
-
-    #[serde(rename = "RD")]
-    pub rd: bool, // Always true for Google Public DNS
-
-    #[serde(rename = "RA")]
-    pub ra: bool, // Always true for Google Public DNS
-
-    #[serde(rename = "AD")]
-    pub ad: bool, // Whether all response data was validated with DNSSEC
-
-    #[serde(rename = "CD")]
-    pub cd: bool, // Whether the client asked to disable DNSSEC
-
-    pub question: Vec<QuestionJson>,
-
-    #[serde(default)] // Prefer empty Vec, over Optional
-    pub answer: Vec<RecordJson>,
-
-    pub comment: Option<String>,
-
-    #[serde(rename = "edns_client_subnet")]
-    pub edns_client_subnet: Option<String>, // IP address / scope prefix-length
-}
-
-impl TryInto<Message> for MessageJson {
-    type Error = JsonError;
-
-    fn try_into(self) -> Result<Message, Self::Error> {
-        let rcode =
-            FromPrimitive::from_u32(self.status).ok_or(JsonError::InvalidStatus(self.r#status))?;
-
-        let mut m = Message {
-            rcode,
-            tc: self.tc,
-            rd: self.rd,
-            ra: self.ra,
-            ad: self.ad,
-            cd: self.cd,
-
-            ..Default::default()
-        };
-
-        // TODO Do something with edns_client_subnet
-        // TODO Do something with comment
-
-        for question in self.question {
-            m.questions.push(question.try_into()?)
-        }
-
-        for answer in self.answer {
-            m.answers.push(answer.try_into()?)
-        }
-
-        Ok(m)
-    }
-}
-
-// Basically a Question
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-struct QuestionJson {
-    pub name: String, // FQDN with trailing dot
-    pub r#type: u16,  // A - Standard DNS RR type
-}
-
-impl TryInto<Question> for QuestionJson {
-    type Error = JsonError;
-
-    fn try_into(self) -> Result<Question, Self::Error> {
-        let r#type =
-            FromPrimitive::from_u16(self.r#type).ok_or(JsonError::InvalidType(self.r#type))?;
-
-        Ok(Question {
-            name: self.name, // TODO Do I need to remove the trailing dot?
-            r#type,
-            class: Class::Internet,
-        })
-    }
-}
-
-// Basically a Record + Resource
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-struct RecordJson {
-    pub name: String,
-    pub r#type: u16, // A - Standard DNS RR type
-
-    #[serde(rename = "TTL")]
-    pub ttl: u32,
-    pub data: String,
-}
-
-impl TryInto<Record> for RecordJson {
-    type Error = JsonError;
-
-    fn try_into(self) -> Result<Record, Self::Error> {
-        let r#type =
-            FromPrimitive::from_u16(self.r#type).ok_or(JsonError::InvalidType(self.r#type))?;
-
-        let resource = Resource::parse_text(r#type, &self.data)
-            .map_err(|x| JsonError::InvalidResource(r#type, x))?;
-
-        Ok(Record {
-            name: self.name, // TODO Do I need to remove the trailing dot?
-            class: Class::Internet,
-            ttl: Duration::from_secs(self.ttl.into()),
-            resource,
-        })
-    }
-}
+pub use crate::json::{
+    MessageJson, QuestionJson, RecordJson, from_slice, from_str, to_string, to_string_pretty,
+};
 
 /// A DNS over HTTPS client using the Google JSON API.
 ///
@@ -402,8 +280,7 @@ impl AsyncExchanger for Client {
 }
 
 fn parse_response(body: &[u8]) -> Result<Message, JsonError> {
-    let m: MessageJson = serde_json::from_slice(body).map_err(JsonError::Serde)?;
-    m.try_into()
+    crate::json::from_slice(body)
 }
 
 /// Parses a DNS-over-HTTPS JSON response body into a [`Message`].

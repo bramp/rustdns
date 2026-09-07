@@ -238,7 +238,7 @@ mod cfg;
 
 #[cfg(any(
     feature = "doh",
-    feature = "json",
+    feature = "doh-json",
     feature = "do53",
     feature = "dot",
     feature = "sync",
@@ -264,6 +264,12 @@ cfg_feature! {
     extern crate pest_derive;
 
     pub mod zones;
+}
+
+cfg_feature! {
+    #![feature = "json"]
+
+    pub mod json;
 }
 
 #[macro_use]

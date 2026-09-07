@@ -1,4 +1,9 @@
-#[cfg(any(feature = "doh", feature = "dot", feature = "json", feature = "sync"))]
+#[cfg(any(
+    feature = "doh",
+    feature = "dot",
+    feature = "doh-json",
+    feature = "sync"
+))]
 mod tests {
     #[cfg(feature = "doh")]
     use http::Method;
@@ -86,7 +91,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "json")]
+    #[cfg(feature = "doh-json")]
     #[test]
     fn json_client_rejects_plaintext_servers() {
         assert!(rustdns::clients::json::Client::new("http://example.com/dns-query").is_err());

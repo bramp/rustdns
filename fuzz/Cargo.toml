@@ -15,7 +15,7 @@ libfuzzer-sys = "0.4.13"
 
 [dependencies.rustdns]
 path = ".."
-features = ["arbitrary"]
+features = ["arbitrary", "json"]
 
 # Prevent this from interfering with workspaces
 [workspace]
