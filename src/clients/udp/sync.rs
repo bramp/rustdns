@@ -1,6 +1,6 @@
 use crate::Message;
-use crate::clients::Exchanger;
-use crate::clients::common::stats::StatsBuilder;
+use crate::clients::common::stats::WireResponseBuilder;
+use crate::clients::{Exchanger, WireResponse};
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::net::UdpSocket;
@@ -104,7 +104,7 @@ impl Exchanger for Client {
     /// # Errors
     ///
     /// Returns an error if the socket, network exchange, or response parsing fails.
-    fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         // TODO Implement retries, backoffs, and cycling of servers.
         // per https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
 
@@ -123,8 +123,8 @@ impl Exchanger for Client {
         );
 
         let req = query.to_vec()?;
+        let builder = WireResponseBuilder::start(req.len());
 
-        let stats = StatsBuilder::start(req.len());
         log::trace!("UDP sending {} bytes to {}", req.len(), socket.peer_addr()?);
         socket.send(&req)?;
 
@@ -132,11 +132,9 @@ impl Exchanger for Client {
         let mut buf = [0; 4096];
         let len = socket.recv(&mut buf)?;
         log::trace!("UDP received {len} bytes from {}", socket.peer_addr()?);
-        let mut resp = Message::from_slice(&buf[0..len])?;
+        let message = Message::from_slice(&buf[0..len])?;
 
-        resp.stats = Some(stats.end(socket.peer_addr()?, len));
-
-        Ok(resp)
+        Ok(builder.finish(message, Some(server), len, self.channel_security(), None))
     }
 
     fn endpoint(&self) -> Arc<str> {

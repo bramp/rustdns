@@ -6,12 +6,10 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
-use crate::Stats;
 use crate::resource::MX;
 use crate::resource::SOA;
 use crate::resource::SRV;
 use crate::resource::TXT;
-use chrono::prelude::*;
 use std::fmt;
 
 /// Displays this message in a format resembling `dig` output.
@@ -68,10 +66,6 @@ impl fmt::Display for Message {
             writeln!(f)?;
         }
 
-        if let Some(stats) = &self.stats {
-            stats.fmt(f)?;
-        }
-
         writeln!(f)
     }
 }
@@ -123,22 +117,6 @@ impl Message {
         )?;
 
         writeln!(f)
-    }
-}
-
-impl fmt::Display for Stats {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, ";; Query time: {} msec", self.duration.as_millis())?; // TODO Support usec as well
-        writeln!(f, ";; SERVER: {}", self.server)?;
-
-        let start: chrono::DateTime<Local> = self.start.into();
-        // ;; WHEN: Sat Jun 12 12:14:21 PDT 2021
-        writeln!(f, ";; WHEN: {}", start.format("%a %b %-d %H:%M:%S %z %-Y"))?;
-        writeln!(
-            f,
-            ";; MSG SIZE sent: {} rcvd: {}",
-            self.request_size, self.response_size
-        )
     }
 }
 

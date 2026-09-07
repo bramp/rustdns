@@ -3,10 +3,7 @@ pub use crate::edns::{
     EDNS_OPTION_TCP_KEEPALIVE, EdnsClientSubnet, EdnsCookie, EdnsOption,
 };
 use crate::resource::*;
-use educe::Educe;
-use std::net::SocketAddr;
 use std::time::Duration;
-use std::time::SystemTime;
 use strum_macros::{Display, EnumString};
 
 /// DNS Message that serves as the root of all DNS requests and responses.
@@ -52,8 +49,7 @@ use strum_macros::{Display, EnumString};
 /// Ok(())
 /// }
 /// ```
-#[derive(Clone, Debug, Educe)]
-#[educe(Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
     /// 16-bit identifier assigned by the program that generates any kind of
@@ -115,12 +111,6 @@ pub struct Message {
 
     /// Optional EDNS(0) record.
     pub extension: Option<Extension>,
-
-    /// Optional stats about this request, populated by the DNS client.
-    /// TODO Maybe this field should be elsewhere, as it's metadata about a request
-    #[educe(PartialEq(ignore))]
-    #[educe(Hash(ignore))]
-    pub stats: Option<Stats>,
 }
 
 /// Question struct containing a domain name, question [`Type`] and question [`Class`].
@@ -298,6 +288,23 @@ impl ChannelSecurity {
     }
 }
 
+/// Transport-layer TLS connection information.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct TlsInfo {
+    /// Negotiated TLS protocol version (e.g. `"TLSv1.3"` or `"TLSv1.2"`).
+    pub version: String,
+
+    /// Negotiated cipher suite name (e.g. `"TLS_AES_256_GCM_SHA384"`).
+    pub cipher_suite: Option<String>,
+
+    /// TLS Server Name Indication (SNI) or peer hostname.
+    pub server_name: Option<String>,
+
+    /// Negotiated ALPN protocol (e.g. `"dot"`, `"h2"`, `"http/1.1"`), if any.
+    pub alpn: Option<String>,
+}
+
 /// The DNSSEC security status of a response.
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -353,45 +360,6 @@ pub enum UpstreamTrustPolicy {
     ///
     /// Intended for trusted private networks, lab environments, or testing.
     AlwaysTrust,
-}
-
-/// Stats related to the specific query, optionally filed in by the client
-/// and does not change the query behaviour.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Stats {
-    /// The time the query was sent to the server.
-    pub start: SystemTime,
-
-    /// The duration of the request.
-    pub duration: Duration,
-
-    /// The server used to service this query.
-    pub server: SocketAddr,
-
-    // TODO Add another field for the requested server, vs the SocketAddr we actually used.
-    /// The size of the request sent to the server.
-    // TODO Should this include other overheads?
-    pub request_size: usize,
-
-    /// The size of the response from the server.
-    pub response_size: usize,
-}
-
-#[cfg(feature = "arbitrary")]
-impl<'a> arbitrary::Arbitrary<'a> for Stats {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        let duration = u.arbitrary()?;
-        let server = u.arbitrary()?;
-        let request_size = u.arbitrary()?;
-        let response_size = u.arbitrary()?;
-        Ok(Stats {
-            start: SystemTime::now(),
-            duration,
-            server,
-            request_size,
-            response_size,
-        })
-    }
 }
 
 /// Query or Response bit.

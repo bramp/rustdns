@@ -155,8 +155,6 @@ impl Default for Message {
             authoritys: Vec::default(),
             additionals: Vec::default(),
             extension: None,
-
-            stats: None,
         }
     }
 }

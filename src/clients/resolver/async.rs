@@ -1,12 +1,14 @@
 use crate::Extension;
 use crate::Message;
-use crate::clients::AsyncExchanger;
 use crate::clients::resolver::ResolverBuilder;
+use crate::clients::{AsyncExchanger, WireResponse, WireResponseMeta};
 use crate::types::*;
 use std::net::IpAddr;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use std::time::SystemTime;
 
 use super::Backoff;
 
@@ -29,17 +31,71 @@ pub struct ResponseMeta {
     /// The endpoint or identifier of the upstream that produced this response.
     pub upstream: Arc<str>,
 
-    /// Number of attempts made against that upstream before this response was returned.
+    /// Number of attempts made across upstreams before this response was returned.
     pub attempts: u32,
 
     /// Total time spent resolving, including any retries against earlier upstreams.
     pub elapsed: Duration,
+
+    /// Timestamp when resolution started.
+    pub when: SystemTime,
 
     /// DNSSEC security status evaluated for this response.
     pub security_status: SecurityStatus,
 
     /// Transport security classification of the channel that serviced this response.
     pub channel_security: ChannelSecurity,
+
+    /// Low-level transport metadata and metrics from each attempt that produced a wire response,
+    /// in chronological order. The last entry corresponds to the winning response.
+    pub wire: Vec<WireResponseMeta>,
+}
+
+impl ResponseMeta {
+    /// Returns the transport metadata of the winning attempt, if any wire response was received.
+    pub fn winning_wire(&self) -> Option<&WireResponseMeta> {
+        self.wire.last()
+    }
+}
+
+impl std::fmt::Display for ResponseMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, ";; Query time: {} msec", self.elapsed.as_millis())?;
+        writeln!(f, ";; UPSTREAM: {}", self.upstream)?;
+        if let Some(winning) = self.wire.last() {
+            if let Some(server) = winning.server {
+                writeln!(f, ";; SERVER: {server}")?;
+            }
+        }
+        let when: chrono::DateTime<chrono::Local> = self.when.into();
+        writeln!(f, ";; WHEN: {}", when.format("%a %b %d %H:%M:%S %Z %Y"))?;
+
+        if self.attempts > 1 {
+            writeln!(f, ";; ATTEMPTS: {}", self.attempts)?;
+        }
+        if let Some(winning) = self.wire.last() {
+            writeln!(
+                f,
+                ";; MSG SIZE sent: {} rcvd: {}",
+                winning.bytes_sent, winning.bytes_received
+            )?;
+        }
+        writeln!(f, ";; SECURITY: {}", self.security_status)?;
+        writeln!(f, ";; CHANNEL: {}", self.channel_security)?;
+        if let Some(winning) = self.wire.last() {
+            if let Some(tls) = &winning.tls_info {
+                write!(f, ";; TLS: {}", tls.version)?;
+                if let Some(cs) = &tls.cipher_suite {
+                    write!(f, ", {cs}")?;
+                }
+                if let Some(alpn) = &tls.alpn {
+                    write!(f, ", alpn: {alpn}")?;
+                }
+                writeln!(f)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A decoded DNS [`Message`] together with resolver execution metadata.
@@ -50,6 +106,27 @@ pub struct Response {
 
     /// Metadata describing how this response was obtained.
     pub meta: ResponseMeta,
+}
+
+impl Deref for Response {
+    type Target = Message;
+
+    fn deref(&self) -> &Self::Target {
+        &self.message
+    }
+}
+
+impl DerefMut for Response {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.message
+    }
+}
+
+impl std::fmt::Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)?;
+        write!(f, "{}", self.meta)
+    }
 }
 
 /// The orchestration layer above single-target transports.
@@ -231,9 +308,12 @@ impl Resolver {
         }
 
         let start = Instant::now();
+        let when = SystemTime::now();
         tokio::time::timeout_at(deadline.into(), async {
             let mut tried = Vec::new();
             let mut last_err = None;
+            let mut total_attempts = 0;
+            let mut all_wire = Vec::new();
 
             match self.strategy {
                 Strategy::Failover => {
@@ -246,24 +326,32 @@ impl Resolver {
                         let channel_security = upstream.channel_security();
                         tried.push(id.clone());
                         match self.attempt_upstream(upstream.as_ref(), query, deadline).await {
-                            Ok((message, attempts)) => {
+                            Ok((wire_response, attempts, mut wires)) => {
+                                total_attempts += attempts;
+                                all_wire.append(&mut wires);
                                 let security_status = evaluate_security_status(
-                                    &message,
+                                    &wire_response.message,
                                     channel_security,
                                     self.upstream_trust_policy,
                                 );
                                 return Ok(Response {
-                                    message,
+                                    message: wire_response.message,
                                     meta: ResponseMeta {
                                         upstream: id,
-                                        attempts,
+                                        attempts: total_attempts,
                                         elapsed: start.elapsed(),
+                                        when,
                                         security_status,
                                         channel_security,
+                                        wire: all_wire,
                                     },
                                 });
                             }
-                            Err(error) => last_err = Some(error),
+                            Err((error, attempts, mut wires)) => {
+                                total_attempts += attempts;
+                                all_wire.append(&mut wires);
+                                last_err = Some(error);
+                            }
                         }
                     }
                 }
@@ -434,9 +522,14 @@ impl Resolver {
         upstream: &(dyn AsyncExchanger + Send + Sync),
         query: &Message,
         deadline: Instant,
-    ) -> Result<(Message, u32), crate::Error> {
+    ) -> Result<
+        (WireResponse, u32, Vec<WireResponseMeta>),
+        (crate::Error, u32, Vec<WireResponseMeta>),
+    > {
         let mut last_err = None;
         let mut previous_delay = Duration::ZERO;
+        let mut attempts = 0;
+        let mut wires = Vec::new();
         let id = upstream.endpoint();
 
         for attempt in 0..=self.retries {
@@ -454,17 +547,25 @@ impl Resolver {
                 break;
             }
 
+            attempts += 1;
             match upstream.exchange(query).await {
-                Ok(response) if correlates(query, &response) => match classify(&response) {
-                    Outcome::Definitive => return Ok((response, attempt + 1)),
-                    Outcome::Retryable => {
-                        last_err = Some(crate::Error::InvalidArgument(format!(
-                            "upstream '{id}' returned rcode {}",
-                            response.rcode
-                        )));
+                Ok(response) if correlates(query, &response.message) => {
+                    match classify(&response.message) {
+                        Outcome::Definitive => {
+                            wires.push(response.meta.clone());
+                            return Ok((response, attempts, wires));
+                        }
+                        Outcome::Retryable => {
+                            wires.push(response.meta.clone());
+                            last_err = Some(crate::Error::InvalidArgument(format!(
+                                "upstream '{id}' returned rcode {}",
+                                response.rcode
+                            )));
+                        }
                     }
-                },
-                Ok(_uncorrelated) => {
+                }
+                Ok(uncorrelated) => {
+                    wires.push(uncorrelated.meta);
                     last_err = Some(crate::Error::InvalidArgument(format!(
                         "upstream '{id}' returned a response that did not match the query"
                     )));
@@ -473,9 +574,10 @@ impl Resolver {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| {
+        let err = last_err.unwrap_or_else(|| {
             crate::Error::InvalidArgument(format!("upstream '{id}' exhausted all attempts"))
-        }))
+        });
+        Err((err, attempts, wires))
     }
 }
 
@@ -567,7 +669,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AsyncExchanger for DnssecMockExchanger {
-        async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
             let has_do = query.extension.as_ref().is_some_and(|e| e.dnssec_ok);
             self.received_do
                 .store(has_do, std::sync::atomic::Ordering::SeqCst);
@@ -576,7 +678,7 @@ mod tests {
             response.ad = self.ad;
             response.rcode = self.rcode;
             response.answers = self.answers.clone();
-            Ok(response)
+            Ok(WireResponse::test(response, self.channel_security()))
         }
 
         fn endpoint(&self) -> Arc<str> {
@@ -797,5 +899,136 @@ mod tests {
             .unwrap();
         let query = query_with_id(1);
         assert!(resolver_bogus.exchange(&query).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn response_display_includes_message_and_metadata() {
+        let tracker = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mock = DnssecMockExchanger {
+            secure: true,
+            ad: true,
+            rcode: Rcode::NoError,
+            answers: vec![Record::new(
+                "bramp.net",
+                Class::Internet,
+                Duration::from_secs(60),
+                Resource::A("127.0.0.1".parse().unwrap()),
+            )],
+            received_do: tracker,
+        };
+
+        let resolver = Resolver::builder()
+            .dnssec_mode(DnssecMode::TrustUpstream {
+                require_secure: false,
+            })
+            .upstream(mock)
+            .build()
+            .unwrap();
+
+        let resp = resolver.query("bramp.net", Type::A).await.unwrap();
+        let formatted = format!("{resp}");
+        assert!(formatted.contains(";; ->>HEADER<<-"));
+        assert!(formatted.contains("bramp.net."));
+        assert!(formatted.contains(";; Query time:"));
+        assert!(formatted.contains(";; UPSTREAM: dnssec-mock"));
+        assert!(formatted.contains(";; WHEN:"));
+        assert!(formatted.contains(";; SECURITY: Secure"));
+        assert!(formatted.contains(";; CHANNEL: Encrypted"));
+    }
+
+    struct FlakyMockExchanger {
+        call_count: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncExchanger for FlakyMockExchanger {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
+            let attempt = self
+                .call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut response = response_to(query);
+            if attempt == 0 {
+                response.rcode = Rcode::ServFail;
+            } else {
+                response.rcode = Rcode::NoError;
+                response.answers.push(Record::new(
+                    "bramp.net",
+                    Class::Internet,
+                    Duration::from_secs(60),
+                    Resource::A("127.0.0.1".parse().unwrap()),
+                ));
+            }
+            Ok(WireResponse::test(response, ChannelSecurity::Loopback))
+        }
+
+        fn endpoint(&self) -> Arc<str> {
+            "flaky-mock".into()
+        }
+
+        fn channel_security(&self) -> ChannelSecurity {
+            ChannelSecurity::Loopback
+        }
+    }
+
+    #[tokio::test]
+    async fn multiple_attempts_collect_wire_responses_in_meta() {
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mock = FlakyMockExchanger {
+            call_count: calls.clone(),
+        };
+
+        let resolver = Resolver::builder()
+            .dnssec_mode(DnssecMode::Off)
+            .retries(1)
+            .upstream(mock)
+            .build()
+            .unwrap();
+
+        let resp = resolver.query("bramp.net", Type::A).await.unwrap();
+        assert_eq!(resp.meta.attempts, 2);
+        assert_eq!(resp.meta.wire.len(), 2);
+        assert_eq!(resp.meta.winning_wire().unwrap().channel_security, ChannelSecurity::Loopback);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let formatted = format!("{resp}");
+        assert!(formatted.contains(";; ATTEMPTS: 2"));
+    }
+
+    #[tokio::test]
+    async fn failover_collects_wire_responses_across_upstreams() {
+        let mock1 = DnssecMockExchanger {
+            secure: true,
+            ad: false,
+            rcode: Rcode::ServFail,
+            answers: vec![],
+            received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let mock2 = DnssecMockExchanger {
+            secure: true,
+            ad: true,
+            rcode: Rcode::NoError,
+            answers: vec![Record::new(
+                "bramp.net",
+                Class::Internet,
+                Duration::from_secs(60),
+                Resource::A("127.0.0.1".parse().unwrap()),
+            )],
+            received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+
+        let resolver = Resolver::builder()
+            .dnssec_mode(DnssecMode::TrustUpstream {
+                require_secure: false,
+            })
+            .retries(0)
+            .upstream(mock1)
+            .upstream(mock2)
+            .build()
+            .unwrap();
+
+        let resp = resolver.query("bramp.net", Type::A).await.unwrap();
+        assert_eq!(resp.meta.attempts, 2);
+        assert_eq!(resp.meta.wire.len(), 2);
+        assert_eq!(resp.meta.upstream.as_ref(), "dnssec-mock");
     }
 }

@@ -56,11 +56,14 @@ cfg_feature! {
     };
 }
 
+mod wire_response;
+pub use wire_response::{WireResponse, WireResponseMeta};
+
 use crate::types::ChannelSecurity;
 
-/// Exchanger takes a query and returns a response.
+/// Exchanger takes a query and returns a low-level [`WireResponse`].
 pub trait Exchanger {
-    fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
+    fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
     fn endpoint(&self) -> Arc<str>;
@@ -90,7 +93,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait AsyncExchanger {
-    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error>;
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
     fn endpoint(&self) -> Arc<str>;

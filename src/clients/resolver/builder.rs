@@ -141,7 +141,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AsyncExchanger for Noop {
-        async fn exchange(&self, _query: &Message) -> Result<Message, crate::Error> {
+        async fn exchange(&self, _query: &Message) -> Result<crate::clients::WireResponse, crate::Error> {
             unreachable!("not called by this test")
         }
 

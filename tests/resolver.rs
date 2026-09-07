@@ -6,8 +6,7 @@ mod tests {
     use rustdns::Message;
     use rustdns::Record;
     use rustdns::Resource;
-    use rustdns::clients::AsyncExchanger;
-    use rustdns::clients::Resolver;
+    use rustdns::clients::{AsyncExchanger, Resolver, WireResponse};
     use rustdns::types::*;
     use std::net::IpAddr;
     use std::time::Duration;
@@ -45,7 +44,7 @@ mod tests {
         }
 
         /// Returns mock DNS answers for test records.
-        async fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
             let question = &query.questions[0];
             let answer = match (question.name.trim_end_matches('.'), question.r#type) {
                 ("a.bramp.net", Type::A) => Some(Resource::A("127.0.0.1".parse().unwrap())),
@@ -56,7 +55,10 @@ mod tests {
                 _ => None,
             };
 
-            Ok(respond(query, answer))
+            Ok(WireResponse::test(
+                respond(query, answer),
+                ChannelSecurity::Loopback,
+            ))
         }
     }
 
@@ -116,7 +118,7 @@ mod tests {
             "failing".into()
         }
 
-        async fn exchange(&self, _query: &Message) -> Result<Message, rustdns::Error> {
+        async fn exchange(&self, _query: &Message) -> Result<WireResponse, rustdns::Error> {
             Err(std::io::Error::other("simulated transport failure").into())
         }
     }
@@ -130,10 +132,10 @@ mod tests {
             "rcode".into()
         }
 
-        async fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
             let mut resp = respond(query, None);
             resp.rcode = self.0;
-            Ok(resp)
+            Ok(WireResponse::test(resp, ChannelSecurity::Loopback))
         }
     }
 
@@ -212,7 +214,7 @@ mod tests {
             "timeout".into()
         }
 
-        async fn exchange(&self, _query: &Message) -> Result<Message, rustdns::Error> {
+        async fn exchange(&self, _query: &Message) -> Result<WireResponse, rustdns::Error> {
             tokio::time::sleep(self.0).await;
             Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
@@ -248,11 +250,11 @@ mod tests {
             "slow".into()
         }
 
-        async fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
             tokio::time::sleep(self.0).await;
-            Ok(respond(
-                query,
-                Some(Resource::A("127.0.0.1".parse().unwrap())),
+            Ok(WireResponse::test(
+                respond(query, Some(Resource::A("127.0.0.1".parse().unwrap()))),
+                ChannelSecurity::Loopback,
             ))
         }
     }
@@ -309,10 +311,10 @@ mod tests {
             }
         }
 
-        async fn exchange(&self, query: &Message) -> Result<Message, rustdns::Error> {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
             let mut resp = respond(query, Some(Resource::A("127.0.0.1".parse().unwrap())));
             resp.ad = self.ad;
-            Ok(resp)
+            Ok(WireResponse::test(resp, self.channel_security()))
         }
     }
 

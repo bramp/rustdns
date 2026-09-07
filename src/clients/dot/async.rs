@@ -1,7 +1,8 @@
 use crate::Message;
-use crate::clients::AsyncExchanger;
 use crate::clients::common::framing::encode_tcp_frame;
+use crate::clients::common::stats::WireResponseBuilder;
 use crate::clients::common::timeouts::with_timeout;
+use crate::clients::{AsyncExchanger, WireResponse};
 use async_trait::async_trait;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
@@ -193,7 +194,7 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error if the connection, TLS handshake, exchange, or response
     /// parsing fails.
-    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         let mut connection = self.connection.lock().await;
         if connection.is_none() {
             *connection = Some(self.connect().await?);
@@ -201,13 +202,19 @@ impl AsyncExchanger for Client {
 
         let read_timeout = self.read_timeout;
         let write_timeout = self.write_timeout;
-        let result: io::Result<Message> = async {
+        let server = self.server;
+        let channel_security = self.channel_security();
+        let server_name = self.server_name.clone();
+
+        let result: io::Result<WireResponse> = async {
             let stream = connection.as_mut().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotConnected, "DoT connection unavailable")
             })?;
 
             let message = query.to_vec()?;
             let frame = encode_tcp_frame(&message)?;
+            let builder = WireResponseBuilder::start(frame.len());
+
             log::trace!("DoT sending {} bytes to {}", frame.len(), self.server);
             with_timeout(write_timeout, "DoT write timed out", async {
                 stream.write_all(&frame).await?;
@@ -229,7 +236,17 @@ impl AsyncExchanger for Client {
                 self.server
             );
 
-            Ok(Message::from_slice(&response)?)
+            let message = Message::from_slice(&response)?;
+            let (_, conn) = stream.get_ref();
+            let tls_info = super::tls_info_from_connection(conn, Some(&server_name));
+
+            Ok(builder.finish(
+                message,
+                Some(server),
+                response.len() + 2,
+                channel_security,
+                tls_info,
+            ))
         }
         .await;
 

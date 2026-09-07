@@ -4,11 +4,11 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
-use crate::clients::AsyncExchanger;
 use crate::clients::common::http as client_http;
 use crate::clients::common::http::{BoxError, HttpClient};
 use crate::clients::common::mime::content_type_equal;
-use crate::clients::common::stats::StatsBuilder;
+use crate::clients::common::stats::WireResponseBuilder;
+use crate::clients::{AsyncExchanger, WireResponse};
 use crate::errors::JsonError;
 use async_trait::async_trait;
 use core::convert::TryInto;
@@ -22,9 +22,6 @@ use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::io;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
 
@@ -294,7 +291,7 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error for request construction failures, unsuccessful HTTP
     /// responses, invalid content types, oversized bodies, or invalid JSON/DNS data.
-    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         if query.questions.len() != 1 {
             return Err(Error::InvalidArgument(
                 "expected exactly one question must be provided".to_string(),
@@ -333,7 +330,7 @@ impl AsyncExchanger for Client {
             .header(ACCEPT, CONTENT_TYPE_APPLICATION_DNS_JSON)
             .body(Empty::<Bytes>::new().map_err(BoxError::from).boxed())?;
 
-        let stats = StatsBuilder::start(0);
+        let builder = WireResponseBuilder::start(0);
         log::trace!("DoH JSON sending GET request to {request_target}");
         let resp = match tokio::time::timeout(self.write_timeout, client.request(req)).await {
             Ok(result) => result?,
@@ -345,13 +342,11 @@ impl AsyncExchanger for Client {
         };
 
         // Get connection information (if available)
-        let remote_addr = match resp.extensions().get::<HttpInfo>() {
-            Some(http_info) => http_info.remote_addr(),
-
-            // TODO Maybe remote_addr should be optional?
-            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
-        };
-        log::trace!("DoH JSON remote address: {remote_addr}");
+        let remote_addr = resp
+            .extensions()
+            .get::<HttpInfo>()
+            .map(|http_info| http_info.remote_addr());
+        log::trace!("DoH JSON remote address: {remote_addr:?}");
         log::trace!("DoH JSON HTTP status: {}", resp.status());
 
         let content_type = resp
@@ -370,6 +365,7 @@ impl AsyncExchanger for Client {
 
         client_http::validate_status(resp.status())?;
         client_http::validate_content_length(resp.headers(), MAX_JSON_BODY_SIZE)?;
+        let tls_info = Some(client_http::tls_info_from_response(&self.server, &resp));
 
         // Read the full body
         let body = match tokio::time::timeout(
@@ -390,14 +386,18 @@ impl AsyncExchanger for Client {
             }
         };
         log::trace!(
-            "DoH JSON received {} response body bytes from {remote_addr}",
+            "DoH JSON received {} response body bytes from {remote_addr:?}",
             body.len()
         );
 
-        let mut m = parse_response(&body)?;
-        m.stats = Some(stats.end(remote_addr, body.len()));
-
-        return Ok(m);
+        let m = parse_response(&body)?;
+        Ok(builder.finish(
+            m,
+            remote_addr,
+            body.len(),
+            self.channel_security(),
+            tls_info,
+        ))
     }
 }
 

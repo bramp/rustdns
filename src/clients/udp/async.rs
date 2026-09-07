@@ -1,6 +1,7 @@
 use crate::Message;
-use crate::clients::AsyncExchanger;
+use crate::clients::common::stats::WireResponseBuilder;
 use crate::clients::common::timeouts::with_timeout;
+use crate::clients::{AsyncExchanger, WireResponse};
 use crate::limits::MAX_DNS_MESSAGE_LEN;
 use async_trait::async_trait;
 use std::net::SocketAddr;
@@ -84,7 +85,7 @@ impl Client {
 #[async_trait]
 impl AsyncExchanger for Client {
     /// Sends one DNS query and returns its response.
-    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         let mut guard = self.socket.lock().await;
         if guard.is_none() {
             log::trace!("async UDP target={}", self.server);
@@ -101,11 +102,15 @@ impl AsyncExchanger for Client {
         }
 
         let read_timeout = self.read_timeout;
-        let result: std::io::Result<Message> = async {
+        let channel_security = self.channel_security();
+        let server = self.server;
+
+        let result: std::io::Result<WireResponse> = async {
             let socket = guard.as_mut().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::NotConnected, "UDP socket unavailable")
             })?;
             let request = query.to_vec()?;
+            let builder = WireResponseBuilder::start(request.len());
             log::trace!(
                 "async UDP sending {} bytes to {}",
                 request.len(),
@@ -120,7 +125,8 @@ impl AsyncExchanger for Client {
             )
             .await?;
             log::trace!("async UDP received {length} bytes from {}", self.server);
-            Ok(Message::from_slice(&response[..length])?)
+            let message = Message::from_slice(&response[..length])?;
+            Ok(builder.finish(message, Some(server), length, channel_security, None))
         }
         .await;
 

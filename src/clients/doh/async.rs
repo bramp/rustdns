@@ -1,9 +1,9 @@
 use crate::Message;
-use crate::clients::AsyncExchanger;
 use crate::clients::common::http as client_http;
 use crate::clients::common::http::{BoxError, HttpClient};
 use crate::clients::common::mime::content_type_equal;
-use crate::clients::common::stats::StatsBuilder;
+use crate::clients::common::stats::WireResponseBuilder;
+use crate::clients::{AsyncExchanger, WireResponse};
 use crate::limits::MAX_DNS_MESSAGE_LEN;
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -13,9 +13,6 @@ use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Bytes;
 use hyper_util::client::legacy::connect::HttpInfo;
 use std::io;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
 use std::time::Duration;
 use url::Url;
 
@@ -173,7 +170,7 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error for request construction failures, unsuccessful HTTP
     /// responses, invalid content types, oversized bodies, or invalid DNS data.
-    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         let mut query = query.clone();
         query.id = 0;
 
@@ -209,7 +206,7 @@ impl AsyncExchanger for Client {
             _ => unreachable!("only GET and POST allowed"),
         };
 
-        let stats = StatsBuilder::start(0);
+        let builder = WireResponseBuilder::start(dns_request_len);
 
         log::trace!(
             "DoH sending {} request to {request_target} with {dns_request_len} DNS bytes",
@@ -226,13 +223,11 @@ impl AsyncExchanger for Client {
         // TODO This media type restricts the maximum size of the DNS message to 65535 bytes
 
         // Get connection information (if available)
-        let remote_addr = match resp.extensions().get::<HttpInfo>() {
-            Some(http_info) => http_info.remote_addr(),
-
-            // TODO Maybe remote_addr should be optional?
-            None => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0), // Dummy address
-        };
-        log::trace!("DoH remote address: {remote_addr}");
+        let remote_addr = resp
+            .extensions()
+            .get::<HttpInfo>()
+            .map(|http_info| http_info.remote_addr());
+        log::trace!("DoH remote address: {remote_addr:?}");
         log::trace!("DoH HTTP status: {}", resp.status());
 
         let content_type = resp
@@ -249,6 +244,7 @@ impl AsyncExchanger for Client {
 
         client_http::validate_status(resp.status())?;
         client_http::validate_content_length(resp.headers(), MAX_DOH_BODY_SIZE)?;
+        let tls_info = Some(client_http::tls_info_from_response(&self.server, &resp));
 
         // Read the full body
         let body = match tokio::time::timeout(
@@ -267,14 +263,18 @@ impl AsyncExchanger for Client {
             }
         };
         log::trace!(
-            "DoH received {} DNS body bytes from {remote_addr}",
+            "DoH received {} DNS body bytes from {remote_addr:?}",
             body.len()
         );
 
-        let mut m = Message::from_slice(&body)?;
-        m.stats = Some(stats.end(remote_addr, body.len()));
-
-        return Ok(m);
+        let m = Message::from_slice(&body)?;
+        Ok(builder.finish(
+            m,
+            remote_addr,
+            body.len(),
+            self.channel_security(),
+            tls_info,
+        ))
     }
 }
 

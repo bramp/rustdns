@@ -1,8 +1,8 @@
 use crate::Message;
-use crate::clients::Exchanger;
 use crate::clients::common::framing::encode_tcp_frame;
-use crate::clients::common::stats::StatsBuilder;
+use crate::clients::common::stats::WireResponseBuilder;
 use crate::clients::dot::{new_tls_config, server_name_from_addr, validate_server_name};
+use crate::clients::{Exchanger, WireResponse};
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 use socket2::{Socket, TcpKeepalive};
@@ -191,13 +191,15 @@ impl Exchanger for Client {
     ///
     /// Returns an error if the TCP connection, TLS handshake, DNS framing, or
     /// response parsing fails.
-    fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         let mut stream = self.get_stream(&self.server)?;
+        let channel_security = self.channel_security();
+        let server_name = self.server_name.clone();
 
-        let result: io::Result<Message> = (|| {
+        let result: io::Result<WireResponse> = (|| {
             let message = query.to_vec()?;
             let frame = encode_tcp_frame(&message)?;
-            let stats = StatsBuilder::start(frame.len());
+            let builder = WireResponseBuilder::start(frame.len());
 
             log::trace!(
                 "DoT sending {} bytes to {} inside TLS",
@@ -209,19 +211,30 @@ impl Exchanger for Client {
 
             let mut length = [0; 2];
             stream.read_exact(&mut length)?;
+
             let length = u16::from_be_bytes(length);
             log::trace!("DoT response length prefix={length}");
+
             let mut response = vec![0; length.into()];
             stream.read_exact(&mut response)?;
+
+            let peer_addr = stream.sock.peer_addr()?;
             log::trace!(
                 "DoT received {} bytes from {} inside TLS",
                 response.len() + 2,
-                stream.sock.peer_addr()?
+                peer_addr
             );
 
-            let mut response = Message::from_slice(&response)?;
-            response.stats = Some(stats.end(stream.sock.peer_addr()?, usize::from(length) + 2));
-            Ok(response)
+            let message = Message::from_slice(&response)?;
+            let tls_info = super::tls_info_from_connection(&stream.conn, Some(&server_name));
+
+            Ok(builder.finish(
+                message,
+                Some(peer_addr),
+                response.len() + 2,
+                channel_security,
+                tls_info,
+            ))
         })();
 
         match result {

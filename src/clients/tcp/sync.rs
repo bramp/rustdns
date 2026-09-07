@@ -1,6 +1,6 @@
 use crate::Message;
-use crate::clients::Exchanger;
-use crate::clients::common::stats::StatsBuilder;
+use crate::clients::common::stats::WireResponseBuilder;
+use crate::clients::{Exchanger, WireResponse};
 use socket2::{Socket, TcpKeepalive};
 use std::io;
 use std::io::Read;
@@ -171,12 +171,12 @@ impl Exchanger for Client {
     /// # Errors
     ///
     /// Returns an error if the connection, DNS framing, or response parsing fails.
-    fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         let mut stream = self.get_stream(&self.server)?;
+        let channel_security = self.channel_security();
 
         let message = query.to_vec()?;
-
-        let stats = StatsBuilder::start(message.len() + 2);
+        let builder = WireResponseBuilder::start(message.len() + 2);
 
         // Two byte length prefix followed by the message.
         // TODO Move this into a single message!
@@ -198,14 +198,10 @@ impl Exchanger for Client {
         let mut buf = vec![0; len.into()];
 
         stream.read_exact(&mut buf)?;
-        log::trace!(
-            "TCP received {} bytes from {}",
-            buf.len() + 2,
-            stream.peer_addr()?
-        );
+        let peer_addr = stream.peer_addr()?;
+        log::trace!("TCP received {} bytes from {}", buf.len() + 2, peer_addr);
 
-        let mut resp = Message::from_slice(&buf)?;
-        resp.stats = Some(stats.end(stream.peer_addr()?, (len + 2).into()));
+        let resp = Message::from_slice(&buf)?;
 
         *self
             .connection
@@ -213,7 +209,7 @@ impl Exchanger for Client {
             .map_err(|_| io::Error::other("TCP connection lock poisoned"))? =
             Some((stream, Instant::now()));
 
-        Ok(resp)
+        Ok(builder.finish(resp, Some(peer_addr), buf.len() + 2, channel_security, None))
     }
 
     fn endpoint(&self) -> Arc<str> {

@@ -1,7 +1,7 @@
 use crate::Message;
-use crate::clients::AsyncExchanger;
 use crate::clients::tcp::Client as TcpClient;
 use crate::clients::udp::Client as UdpClient;
+use crate::clients::{AsyncExchanger, WireResponse};
 use crate::types::ChannelSecurity;
 use async_trait::async_trait;
 use std::net::SocketAddr;
@@ -85,7 +85,7 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error if the UDP exchange fails, or if a truncated response
     /// could not be re-fetched over TCP.
-    async fn exchange(&self, query: &Message) -> Result<Message, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
         let response = self.udp.exchange(query).await?;
         if !response.tc {
             return Ok(response);
