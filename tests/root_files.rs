@@ -146,5 +146,66 @@ fn test_parse_root_zone() {
         metadata.len() > 100_000,
         "root.zone fixture must be larger than 100KB"
     );
-    // Full zone parsing validation will run here once DNSSEC types are supported.
+
+    let content = fs::read_to_string(&zone_path).expect("read root.zone");
+    let zone_file = rustdns::zones::File::from_str(&content)
+        .expect("File::from_str should parse entire root zone file");
+    let records = zone_file
+        .try_into_records()
+        .expect("try_into_records should resolve zone records");
+
+    let count = records.len();
+    let mut type_counts = std::collections::BTreeMap::new();
+    let mut found_root_soa = false;
+    let mut found_com_ds = false;
+    let mut found_com_ns = false;
+    let mut dnskeys = Vec::new();
+
+    for record in &records {
+        *type_counts.entry(record.resource.r#type()).or_insert(0) += 1;
+
+        if record.name == "." || record.name.is_empty() {
+            if let rustdns::Resource::SOA(ref soa) = record.resource {
+                assert!(
+                    soa.mname.contains("root-servers.net"),
+                    "unexpected root SOA mname: {}",
+                    soa.mname
+                );
+                found_root_soa = true;
+            }
+            if let rustdns::Resource::DNSKEY(ref key) = record.resource {
+                dnskeys.push(key.clone());
+            }
+        }
+        if record.name == "com." || record.name == "com" {
+            if let rustdns::Resource::DS(_) = record.resource {
+                found_com_ds = true;
+            }
+            if let rustdns::Resource::NS(_) = record.resource {
+                found_com_ns = true;
+            }
+        }
+    }
+
+    assert!(
+        count > 20_000,
+        "expected over 20,000 records, got {}",
+        count
+    );
+    assert!(found_root_soa, "must find root SOA record");
+    assert!(found_com_ds, "must find com. DS record");
+    assert!(found_com_ns, "must find com. NS record");
+    assert!(dnskeys.len() >= 2, "must find root DNSKEYs (KSK + ZSK)");
+    assert!(
+        type_counts.contains_key(&rustdns::Type::RRSIG),
+        "must contain RRSIG records"
+    );
+    assert!(
+        type_counts.contains_key(&rustdns::Type::NSEC),
+        "must contain NSEC records"
+    );
+    assert!(
+        type_counts.contains_key(&rustdns::Type::ZONEMD),
+        "must contain ZONEMD records"
+    );
 }
