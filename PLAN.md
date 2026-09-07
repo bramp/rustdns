@@ -22,35 +22,21 @@ backward-compatible.
 
 ### Public API Cleanup
 
-- [x] Replace `Resolver::new`'s hardcoded Google resolvers with system DNS
-  configuration, or rename the constructor to make the Google default explicit.
-- [x] Validate DNS response correlation in a shared helper: transaction ID,
-  response bit, question name/type/class, and response suitability.
-- [ ] Propagate zone preprocessing errors instead of using an input-dependent
-  `unwrap` in `File::from_str`.
 - [ ] Enforce `MAX_DNS_MESSAGE_LEN` in `Message::to_vec` and document the
   behavior consistently across all transports.
-- [x] Remove unsolicited stdout output from `Resolver::lookup`; use tracing or
-  return diagnostics through an explicit API.
 - [ ] Tighten text resource parsing so domain names, SOA rnames, TXT escapes,
   and trailing input are either validated or exposed through an explicit raw
   parsing API.
+- [ ] Deprecate `src/from_str.rs` and unify text RDATA parsing with the zone parser:
+  refactor `zones.pest` into standalone `rdata_*` rules, enable `zones` from the
+  `json` feature (or make `zones` standard), and replace regex-based text parsing
+  with the canonical PEG parser for DoH JSON and presentation round-tripping.
 - [ ] Add validated constructors/builders for public DNS and EDNS structs while
   documenting that direct public-field mutation is unchecked.
 - [ ] Replace broad `Error::InvalidArgument(String)` uses with typed errors for
   invalid names, invalid responses, missing servers, and DNS response rcodes.
-- [x] Add explicit server-selection and failover policy APIs, or restrict the
-  1.0 low-level client constructors to one endpoint.
-- [x] Add regression tests for response correlation, malformed zone input,
-  oversized messages, strict text parsing, and resolver output behavior.
 - [ ] Audit all public methods against the method naming style guide in
   `DEVELOPERS.md` before the `1.0.0` API freeze.
-- [x] Replace multi-server low-level clients with single-server client types or
-  constructors, with migration guidance for existing callers.
-- [x] Add a higher-level resolver/orchestration client for server pools, retries,
-  failover, concurrent queries, and Happy Eyeballs-style address selection.
-- [x] Keep UDP-to-TCP fallback in the higher-level DNS orchestration layer rather
-  than embedding it in the low-level UDP client.
 - [ ] Replace the stateless DNS encoding helpers with a message encoder that can
   own compression state, message-size limits, EDNS-aware sizing, and canonical
   DNSSEC-style encoding options.
@@ -214,119 +200,57 @@ should not add protocol-specific branches throughout the resolver. New policy
 features should be expressed as strategy, selection, retry, cache, or health
 components so they can be composed and tested independently.
 
-#### Layer Boundaries
+#### Remaining Resolver Tasks
 
-- [x] Keep wire-format models and parsing independent of transport and resolver
-  policy.
-- [x] Define a transport abstraction for one endpoint that exchanges DNS
-  messages, handles protocol-specific framing, and supports explicit shutdown.
-- [x] Make UDP, TCP, DoT, DoH, and future DoQ implementations single-target
-  transports. Do not expose server pools from low-level transport constructors.
-- [x] Keep transport-local concerns in transports: UDP socket behavior, TCP
-  framing and connection pooling, HTTP stream handling, TLS, and QUIC streams.
-- [x] Keep resolver concerns in the orchestration layer: retries, backoff,
-  SRTT, failover, circuit breaking, response validation, and cache policy.
-- [x] Keep UDP truncation fallback to TCP in the resolver or a transport policy
-  wrapper, rather than making the UDP transport select another protocol itself.
+- **Transport Interface**:
+  - [ ] Require transports to report protocol, endpoint, and transport errors with
+    typed context, without deciding whether an error is retryable.
+  - [ ] Specify connection lifecycle semantics, including `close`, idle pooling,
+    concurrent exchanges, and whether transaction IDs may be multiplexed.
+  - [ ] Document transport capabilities and limitations for UDP, TCP, DoT, DoH,
+    and DoQ, including HTTP/2, HTTP/3, and QUIC support as they are implemented.
 
-#### Transport Interface
+- **Upstreams And Resolver Configuration**:
+  - [ ] Add an upstream definition containing a stable ID, transport protocol,
+    endpoint, optional bootstrap addresses, TLS settings, weight, and per-upstream
+    limits or preferences.
+  - [ ] Separate bootstrap resolution for DoH/DoT hostnames from DNS resolution
+    performed by the resolver itself, preventing bootstrap dependency loops.
+  - [ ] Add opt-in circuit-breaker settings: failure threshold, cooldown period,
+    half-open probing, and optional canary probe scheduling.
 
-- [x] Design a Rust transport trait with an explicit cancellation/timeout
-  mechanism compatible with both blocking and async clients.
-- [x] Define whether the trait exchanges `Message` values or a response wrapper;
-  preserve access to raw DNS fields while allowing resolver metadata to be added.
-- [ ] Require transports to report protocol, endpoint, and transport errors with
-  typed context, without deciding whether an error is retryable.
-- [ ] Specify connection lifecycle semantics, including `close`, idle pooling,
-  concurrent exchanges, and whether transaction IDs may be multiplexed.
-- [x] Add configurable request and response timeouts to the HTTP clients, with
-  blocking and async behavior documented consistently.
-- [ ] Document transport capabilities and limitations for UDP, TCP, DoT, DoH,
-  and DoQ, including HTTP/2, HTTP/3, and QUIC support as they are implemented.
+- **Resolution Strategies**:
+  - [ ] Support fastest-upstream selection using decayed SRTT and recent health,
+    while retaining deterministic tie-breaking.
+  - [ ] Support racing multiple eligible upstreams and returning the first suitable
+    response, cancelling losing attempts.
+  - [ ] Support staggered racing: start with the best candidate and launch backups
+    after a configurable delay when no response arrives.
+  - [ ] Record success, latency, timeout, protocol failure, and DNS response status
+    in per-upstream health state used by SRTT and circuit breaking.
 
-#### Upstreams And Resolver Configuration
+- **Public Resolver API**:
+  - [ ] Add a low-level `query` operation for name, type, and class, and an
+    `exchange` operation for caller-constructed messages with custom flags, EDNS,
+    or DNSSEC settings.
+  - [ ] Add convenience getters and inspection methods for messages and records.
 
-- [ ] Add an upstream definition containing a stable ID, transport protocol,
-  endpoint, optional bootstrap addresses, TLS settings, weight, and per-upstream
-  limits or preferences.
-- [x] Represent endpoint forms with typed Rust values where practical instead of
-  requiring every caller to pass an unvalidated string.
-- [ ] Separate bootstrap resolution for DoH/DoT hostnames from DNS resolution
-  performed by the resolver itself, preventing bootstrap dependency loops.
-- [x] Add resolver configuration for upstreams, strategy, overall resolution
-  timeout, per-attempt timeout, retry count, exponential backoff, and jitter.
-- [ ] Add opt-in circuit-breaker settings: failure threshold, cooldown period,
-  half-open probing, and optional canary probe scheduling.
-- [x] Make defaults conservative and document which settings apply to blocking,
-  async, and pooled transports.
+- **Cache And Extended DNS Errors**:
+  - [ ] Define a pluggable cache interface suitable for in-memory and external
+    implementations, with cache keys covering question name, type, class, and
+    relevant query options.
+  - [ ] Specify positive TTL handling, minimum/maximum TTL clamps, expiration, and
+    negative caching using SOA-derived TTLs from RFC 2308.
+  - [ ] Ensure cached responses preserve enough message and metadata information
+    for callers while marking cache hits explicitly.
+  - [ ] Parse and expose RFC 8914 Extended DNS Error (EDE) options through EDNS
+    types, preserving unknown EDE information for forward compatibility.
+  - [ ] Use EDE and RCODE together in resolver policy: for example, EDE 22
+    (`No Reachable Authority`) can justify failover, while EDE 18 (`Prohibited`)
+    should be surfaced as a policy signal rather than blindly retried.
 
-#### Resolution Strategies
-
-- [x] Support prioritized failover: try eligible upstreams in configured order
-  and move on immediately for retryable failures.
-- [ ] Support fastest-upstream selection using decayed SRTT and recent health,
-  while retaining deterministic tie-breaking.
-- [ ] Support racing multiple eligible upstreams and returning the first suitable
-  response, cancelling losing attempts.
-- [ ] Support staggered racing: start with the best candidate and launch backups
-  after a configurable delay when no response arrives.
-- [x] Ensure all strategies share one end-to-end query budget and never allow
-  retries or races to exceed the caller's deadline.
-- [x] Define retryability explicitly: dropped packets, timeouts, connection
-  failures, and selected transport errors may retry; malformed responses and
-  definitive DNS policy responses generally should not.
-- [x] Preserve the original query ID across retries and TCP fallback, while
-  validating response ID, `QR`, question name/type/class, and suitability.
-- [x] Treat `TC=1` as a transport escalation signal and retry over TCP without
-  consuming the user-level retry budget.
-- [ ] Record success, latency, timeout, protocol failure, and DNS response status
-  in per-upstream health state used by SRTT and circuit breaking.
-
-#### Public Resolver API
-
-- [x] Add a configurable resolver constructor or builder with unexported state
-  for upstream pools, transport instances, health metrics, and cache integration.
-- [x] Add ergonomic high-level helpers for A/AAAA lookup, TXT, MX, SRV, CNAME,
-  and reverse lookups, with explicit context/deadline support in async APIs.
-- [ ] Add a low-level `query` operation for name, type, and class, and an
-  `exchange` operation for caller-constructed messages with custom flags, EDNS,
-  or DNSSEC settings.
-- [x] Return a response type that contains the decoded `Message` plus metadata:
-  upstream ID, protocol, server address, round-trip time, retry count,
-  truncation/fallback state, and cache status.
-- [x] Keep high-level helpers ergonomic while allowing low-level callers to
-  inspect RCODEs, TTLs, authority/additional records, EDNS options, and metadata.
-- [ ] Add convenience getters and inspection methods for messages and records.
-- [x] Replace resolver stdout diagnostics with logging or structured response
-  metadata.
-
-#### Cache And Extended DNS Errors
-
-- [ ] Define a pluggable cache interface suitable for in-memory and external
-  implementations, with cache keys covering question name, type, class, and
-  relevant query options.
-- [ ] Specify positive TTL handling, minimum/maximum TTL clamps, expiration, and
-  negative caching using SOA-derived TTLs from RFC 2308.
-- [ ] Ensure cached responses preserve enough message and metadata information
-  for callers while marking cache hits explicitly.
-- [ ] Parse and expose RFC 8914 Extended DNS Error (EDE) options through EDNS
-  types, preserving unknown EDE information for forward compatibility.
-- [ ] Use EDE and RCODE together in resolver policy: for example, EDE 22
-  (`No Reachable Authority`) can justify failover, while EDE 18 (`Prohibited`)
-  should be surfaced as a policy signal rather than blindly retried.
-
-#### Testing And Migration
-
-- [x] Provide injectable transport implementations or mocks so resolver tests do
-  not require real network sockets.
-- [x] Test retry budgets, exponential backoff and jitter bounds, failover,
-  circuit transitions, SRTT ordering, racing cancellation, and deadline expiry.
-- [x] Test transaction/question validation and UDP-to-TCP fallback with mocked
-  upstreams, including malformed, truncated, stale, and mismatched responses.
-- [ ] Test cache TTL expiry, negative caching, EDE-aware decisions, and metadata.
-- [x] Add integration tests for each transport independently from resolver policy.
-- [x] Migrate existing multi-server low-level constructors toward single-target
-  transports with deprecation guidance before the 1.0 API freeze.
+- **Testing And Migration**:
+  - [ ] Test cache TTL expiry, negative caching, EDE-aware decisions, and metadata.
 
 ### DNSSEC Support & Upstream Trust Architecture
 
@@ -457,30 +381,15 @@ In `Resolver`:
    - `Type::NSEC3PARAM (51)`
    Structured types in `src/resource.rs` implementing RFC 4034 and RFC 5155 wire serialization and deserialization.
 
-#### DNSSEC Implementation Checklist
+#### Remaining DNSSEC Tasks
 
-- [x] **Phase 1: Transport-Guarded Upstream Trust**
-  - [x] Add `fn is_secure_channel(&self) -> bool` to `AsyncExchanger` and `Exchanger` in `src/clients/mod.rs`.
-  - [x] Implement `is_secure_channel` for `doh`, `dot`, and `json` (returns `true`).
-  - [x] Implement `is_secure_channel` for `udp`, `tcp`, and `do53` (checks `ip().is_loopback()`).
-       - TODO I wonder if is_secure_channel is sufficent. I wonder if we should inspect "What is your security" and it can return say the algorithm, or something like that. If DoH depends on HTTPS, but then the server fallbacks to a weak algorithm, is that still secure?
-  - [x] Update mock exchangers in `tests/resolver.rs` and `src/clients/resolver/mod.rs`.
-  - [x] Define `SecurityStatus`, `DnssecMode`, and `UpstreamTrustPolicy` in `src/types.rs`.
-  - [x] Add typed DNSSEC errors in `src/errors.rs`.
-  - [x] Add `dnssec_mode`, `upstream_trust_policy`, and `payload_size` to `ResolverBuilder` and `Resolver`.
-  - [x] In `Resolver::exchange`, preserve verbatim caller messages, evaluate `is_secure_channel()`, assess `AD` bit / `Rcode`, and populate `ResponseMeta::security_status`.
-  - [x] In `Resolver::query`, construct queries with configured `payload_size` (default 1232 bytes per RFC 8900) and `DO=1` when DNSSEC is enabled.
-  - [x] In `Resolver::lookup`, enforce fail-closed semantics based on `DnssecMode`.
-- [ ] **Phase 2: DNSSEC Wire Parsing & Safe Record Fallback**
-  - [ ] Add `Resource::Raw` fallback in `src/types.rs` and update `src/resource.rs` / `src/dns.rs` so unhandled type codes decode into raw bytes without failing.
-  - [ ] Add DNSSEC variants to `Type` (`DS=43`, `RRSIG=46`, `NSEC=47`, `DNSKEY=48`, `NSEC3=50`, `NSEC3PARAM=51`).
-  - [ ] Implement wire decoding and encoding for `RRSIG`, `DNSKEY`, `DS`, `NSEC`, and `NSEC3` per RFC 4034/5155 in `src/resource.rs`.
-  - [ ] Add CLI flags to `dig/main.rs` (`+dnssec`, `+ad`, `+noad`, `+cd`) and display `SecurityStatus` in output.
-- [ ] **Verification & Validation**
-  - [ ] Add unit tests for `is_secure_channel` across all clients.
-  - [ ] Add mock resolver tests for `DO=1`, `AD=1` secure vs plaintext, unsigned `AD=0` (standard vs strict), and `SERVFAIL` (bogus).
-  - [ ] Add round-trip wire encoding/decoding tests for DNSSEC records and raw fallback.
-  - [ ] Verify `cargo test --workspace --all-features`, `cargo clippy`, and `cargo fmt`.
+- [ ] Add `Resource::Raw` fallback in `src/types.rs` and update `src/resource.rs` / `src/dns.rs` so unhandled type codes decode into raw bytes without failing.
+- [ ] Add remaining DNSSEC variants to `Type` (`NSEC3=50`, `NSEC3PARAM=51`).
+- [ ] Implement wire decoding and encoding for `NSEC3` and `NSEC3PARAM` per RFC 5155 in `src/resource.rs`.
+- [ ] Add CLI flags to `dig/main.rs` (`+dnssec`, `+ad`, `+noad`, `+cd`) and display `SecurityStatus` in output.
+- [ ] Add unit tests for `is_secure_channel` across all clients.
+- [ ] Add mock resolver tests for `DO=1`, `AD=1` secure vs plaintext, unsigned `AD=0` (standard vs strict), and `SERVFAIL` (bogus).
+- [ ] Add round-trip wire encoding/decoding tests for `NSEC3`, `NSEC3PARAM`, and raw fallback.
 
 ### WebAssembly (WASM) Support & DNS-over-JSON Decoupling
 
@@ -746,191 +655,66 @@ wire payloads (drawn from [tests/test_data.yaml](tests/test_data.yaml)):
   - [ ] Run allocation breakdown: `cargo run --bench allocations`.
   - [ ] Record baseline CPU timings and allocation numbers in project notes to guide zero-copy optimizations.
 
-### IANA Root Hints and Root Zone File Validation & DNSSEC Parser Support
+### Zone File Parser Enhancements & RFC Conformance
 
-This section specifies testing the `rustdns` zone file parser against canonical
-root files published by IANA / InterNIC:
-- **Root Hints** (`named.root`): Bootstrap authoritative root name servers (A–M),
-  ~3.3 KB, containing `NS`, `A`, and `AAAA` records.
-- **Root Zone** (`root.zone`): The authoritative root zone, ~24.8k lines, ~2.2 MB,
-  containing `SOA`, `NS`, `A`, `AAAA`, `ZONEMD`, and DNSSEC records (`DS`, `DNSKEY`,
-  `RRSIG`, `NSEC`).
+With root hints (`named.root`) and authoritative root zone (`root.zone`) parsing implemented
+and validated in CI, this section specifies the remaining work to make the zone parser fully
+feature-complete and standards-compliant for arbitrary zone files.
 
-#### 1. Motivation & Design Goals
+#### Remaining Tasks & Technical Scope
 
-1. **Real-World Standards Conformance**: While existing unit tests validate synthetic
-   and RFC 1035 snippet examples, testing against canonical root files guarantees
-   interoperability with actual zone files deployed across global DNS infrastructure.
-2. **Prevent Git Repository Bloat**: At ~2.2 MB per version, committing `root.zone`
-   directly into git history inflates clone sizes over time.
-3. **Deterministic, Offline-Friendly Local Testing**: Running `cargo test` locally must
-   never fail due to missing internet access or third-party server downtime. If fixture
-   files are not present locally, integration tests skip gracefully with a clear instruction
-   pointing to the download script.
-4. **CI Workflow Caching**: In GitHub Actions, fixture files are downloaded once using
-   [scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh) and cached via `actions/cache@v4` across runs,
-   providing fast and reliable CI runs without repeated external network requests.
-5. **Specification Compliance (RFC 1035 §5.1)**: Support optional `<class>` fields by
-   defaulting to `Class::IN` when unspecified, enabling root hints parsing.
-6. **Full DNSSEC Record Support**: Add AST definitions, grammar rules, and resource
-   variants for `DS`, `DNSKEY`, `RRSIG`, and `NSEC` records present in `root.zone`.
+1. **`$INCLUDE` Directive Support (RFC 1035 §5)**:
+   - Grammar: support `$INCLUDE <path> [<domain>]` in `zones.pest`.
+   - Preprocessor / Parser: recursively read and splice included files into the entry stream.
+   - Include Depth Guard: track path recursion stack to detect and reject cyclic includes.
 
-#### 2. Architecture & Design Details
+2. **Quoted Strings and Character Escape Sequences (RFC 1035 §5.1)**:
+   - Grammar: extend string and domain rules in `zones.pest` to accept double quotes (`"..."`)
+     and escape sequences (`\` followed by any character, or `\DDD` decimal byte octets).
+   - Unescaping: unescape characters during token transformation in `zones/parser.rs`.
 
-```text
-+------------------------------------------------------------------------+
-|                    scripts/fetch_root_fixtures.sh                      |
-|  - Idempotent download helper for local dev and CI                     |
-|  - Downloads named.root (3.3 KB) and root.zone.gz (988 KB -> 2.2 MB)   |
-|  - Verifies file integrity and outputs to tests/fixtures/              |
-+------------------------------------------------------------------------+
-                     |                                  |
-           (run manually or via CI)           (cached in GitHub Actions)
-                     v                                  v
-+------------------------------------------------------------------------+
-|                      tests/fixtures/ (Git-Ignored)                     |
-|  - named.root (~3.3 KB)                                                |
-|  - root.zone   (~2.2 MB, 24,876 lines)                                 |
-+------------------------------------------------------------------------+
-                     |
-                     v
-+------------------------------------------------------------------------+
-|                      tests/root_files.rs (Integration)                 |
-|  1. Locates fixtures via env vars (ROOT_HINTS_PATH / ROOT_ZONE_PATH)   |
-|     or fallback path tests/fixtures/                                   |
-|  2. If missing -> skips test gracefully with informative message       |
-|  3. If present -> parses file, validates all records and invariants   |
-+------------------------------------------------------------------------+
-        |                                                |
-        v                                                v
-+----------------------------------+   +----------------------------------+
-|    Root Hints Verification       |   |      Root Zone Verification      |
-|  - Tests RFC 1035 class default  |   |  - Parses SOA, NS, A, AAAA       |
-|  - Extracts 13 root name servers |   |  - Parses DS, DNSKEY, RRSIG,     |
-|    (a.root-servers.net to m)     |   |    NSEC, and ZONEMD records      |
-|  - Asserts NS + A + AAAA glue    |   |  - Validates TLD delegations     |
-+----------------------------------+   +----------------------------------+
-```
+3. **Duration Suffixes in TTL Fields**:
+   - Support standard BIND duration abbreviations in `$TTL` and record TTL fields:
+     `w` (weeks = 604,800s), `d` (days = 86,400s), `h` (hours = 3,600s), `m` (minutes = 60s),
+     and `s` (seconds), including composite forms (e.g. `1d12h`).
 
-##### 2.1 Unified Fixture Fetch Script ([scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh))
-- Download destinations:
-  - `named.root`: `https://www.internic.net/domain/named.root`
-  - `root.zone`: `https://www.internic.net/domain/root.zone.gz` (decompressed via `gzip -dc` to save bandwidth; falls back to uncompressed `root.zone` if needed)
-- Script flags:
-  - `--hints-only`: Only download `named.root` (~3.3 KB)
-  - `--zone-only`: Only download `root.zone` (~1 MB compressed)
-  - `--force`, `-f`: Re-download even if files already exist
-  - `DEST_DIR`: Optional target directory (defaults to `tests/fixtures`)
-- Idempotency: Checks for file existence and content sanity (e.g. `ROOT-SERVERS.NET` in hints, `a.root-servers.net.` in root zone) before skipping redundant downloads.
-- Git configuration: Ignore `/tests/fixtures/` in [.gitignore](.gitignore).
+4. **Additional Record Types in Grammar**:
+   - Add grammar and AST handlers for:
+     - `TXT`: Quoted strings and multi-string arrays.
+     - `SPF`: Text-based SPF records.
+     - `SRV`: `priority weight port target`.
+     - `NSEC3` / `NSEC3PARAM`: Hashed denial-of-existence records (RFC 5155).
 
-##### 2.2 GitHub Actions CI Integration
-In [.github/workflows/rust.yml](.github/workflows/rust.yml):
-- Add a cache step before running tests with weekly cadence (%Y-week%V) and no OS coupling:
-  ```yaml
-  - name: Compute root fixture cache key
-    id: root-fixture-cache
-    run: echo "key=root-fixtures-$(date -u +'%Y-week%V')" >> "$GITHUB_OUTPUT"
+5. **RFC 2181 §5.2 TTL Consistency Verification**:
+   - In `File::try_into_records`, verify that all records within the same RRset (matching
+     name, class, and type) declare identical TTL values. Return a typed error on mismatch.
 
-  - name: Cache IANA root zone fixtures
-    uses: actions/cache@v4
-    with:
-      path: tests/fixtures
-      key: ${{ steps.root-fixture-cache.outputs.key }}
+6. **Unified RDATA Parsing & Deprecation of `src/from_str.rs`**:
+   - Decompose `zones.pest` resource rules into standalone `rdata_*` rules without leading
+     type keywords.
+   - Expose `zones::parse_rdata(r#type: Type, text: &str) -> Result<Resource, ...>`.
+   - Migrate `src/json.rs` and `Resource::parse_text` to call `zones::parse_rdata`, deprecating
+     and removing the duplicate regexes in `src/from_str.rs`.
 
-  - name: Fetch IANA root zone fixtures
-    run: ./scripts/fetch_root_fixtures.sh
-  ```
-- This ensures test jobs across matrix platforms in CI run against cached root fixtures, refetching on a weekly cadence without coupling to `runner.os`.
+7. **Domain Name Syntax & Label Length Validation**:
+   - Validate that domain labels do not exceed 63 octets and total name length does not exceed
+     255 octets during zone resolution in `src/zones/process.rs`.
 
-##### 2.3 RFC 1035 §5.1 Class Defaulting ([src/zones/process.rs](src/zones/process.rs))
-In standard zone files, the class field is optional:
-```text
-.    3600000    NS    A.ROOT-SERVERS.NET.
-```
-RFC 1035 §5.1 states:
-> "The <class> and <ttl> fields are optional... If <class> is omitted, the default is IN."
+8. **Streaming Record Iterator**:
+   - Provide `File::from_reader<R: BufRead>(reader: R) -> impl Iterator<Item = Result<Record, ProcessError>>`
+     or an incremental entry parser so arbitrary multi-gigabyte zone files (e.g. `.com` TLD)
+     can be streamed record-by-record with constant memory overhead.
 
-Currently, `File::into_records_impl` in [src/zones/process.rs](src/zones/process.rs) requires an explicit class or inherits from the previous record, returning `ProcessError::MissingClass` if neither is present.
-Fix:
-```rust
-let class = record
-    .class
-    .as_ref()
-    .or(last_class)
-    .copied()
-    .unwrap_or(Class::IN);
-```
-Records without an explicit class will cleanly default to `Class::IN`.
+#### Zone Parser Checklist
 
-##### 2.4 DNSSEC Record Types & Grammar
-Canonical `root.zone` contains 9 unique record types:
-`A`, `AAAA`, `DNSKEY`, `DS`, `NS`, `NSEC`, `RRSIG`, `SOA`, `ZONEMD`.
-
-To parse `root.zone`, the following types and syntax must be supported:
-1. **Type Enum Variants ([src/types.rs](src/types.rs))**:
-   - `DS = 43` (RFC 4034 §5)
-   - `RRSIG = 46` (RFC 4034 §3)
-   - `NSEC = 47` (RFC 4034 §4)
-   - `DNSKEY = 48` (RFC 4034 §2)
-   - `ZONEMD = 63` (RFC 8976)
-2. **Resource Data Structures ([src/resource.rs](src/resource.rs))**:
-   - `DS { key_tag: u16, algorithm: u8, digest_type: u8, digest: Vec<u8> }`
-   - `DNSKEY { flags: u16, protocol: u8, algorithm: u8, public_key: Vec<u8> }`
-   - `RRSIG { type_covered: Type, algorithm: u8, labels: u8, original_ttl: u32, expiration: u32, inception: u32, key_tag: u16, signer_name: String, signature: Vec<u8> }`
-   - `NSEC { next_domain: String, types: Vec<Type> }`
-   - `ZONEMD { serial: u32, scheme: u8, algorithm: u8, digest: Vec<u8> }`
-3. **Zone Grammar Additions ([src/zones/zones.pest](src/zones/zones.pest))**:
-   - Add rules for base64 strings and hex strings.
-   - Add `resource_ds`, `resource_dnskey`, `resource_rrsig`, `resource_nsec`, `resource_zonemd`.
-   - Update `resource` choice rule to include these variants.
-4. **AST Parser Handlers ([src/zones/parser.rs](src/zones/parser.rs))**:
-   - Implement `pest_consume` transformation functions converting AST strings to structured data types.
-
-##### 2.5 Integration Test Suite ([tests/root_files.rs](tests/root_files.rs))
-- Helper function `get_fixture_path(filename: &str, env_var: &str) -> Option<PathBuf>`
-- Test cases:
-  - `test_parse_root_hints`:
-    - Reads `tests/fixtures/named.root`.
-    - Parses via `File::from_str` and resolves via `try_into_records()`.
-    - Asserts that all 13 root name servers (`a.root-servers.net` to `m.root-servers.net`) are present.
-    - Asserts that each root server has matching `A` (IPv4) and `AAAA` (IPv6) glue addresses.
-    - Verifies TTL is 3600000 and Class defaults to `IN`.
-  - `test_parse_root_zone`:
-    - Reads `tests/fixtures/root.zone`.
-    - Parses records and verifies:
-      - Apex SOA record (mname `a.root-servers.net.`, rname `nstld.verisign-grs.com.`).
-      - Root DNSKEY records (KSK 257 and ZSK 256).
-      - TLD delegations (e.g. `com.`, `org.`, `net.`, `arpa.`) with valid `NS` and `DS` records.
-      - DNSSEC signatures (`RRSIG`) and denial of existence (`NSEC`) records parse without syntax errors.
-
-#### Root Hints and Root Zone Implementation Checklist
-
-- [ ] **Phase 1: Fixture Fetch Script & CI Cache Integration**
-  - [x] Create executable script [scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh) supporting `--hints-only`, `--zone-only`, and `--force`.
-  - [x] Add `/tests/fixtures/` to [.gitignore](.gitignore).
-  - [x] Create [tests/root_files.rs](tests/root_files.rs) with graceful skip logic when fixtures are absent.
-  - [ ] Update [.github/workflows/rust.yml](.github/workflows/rust.yml) test job to cache `tests/fixtures` and execute [scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh).
-  - [x] Verify script idempotency and graceful skip when files already exist.
-- [ ] **Phase 2: RFC 1035 Class Defaulting & Root Hints Verification**
-  - [ ] In [src/zones/process.rs](src/zones/process.rs), default missing record class to `Class::IN` per RFC 1035 §5.1 instead of returning `MissingClass`.
-  - [ ] Add unit test in [src/zones/process.rs](src/zones/process.rs) confirming records with unspecified class default to `Class::IN`.
-  - [ ] Complete `test_parse_root_hints` in [tests/root_files.rs](tests/root_files.rs) to parse `named.root` into records and assert all 13 root servers and glue records.
-  - [ ] Verify `cargo test --test root_files test_parse_root_hints` passes when hints are present and skips cleanly when absent.
-- [ ] **Phase 3: DNSSEC Types, Wire Serialization, & Zone Grammar**
-  - [ ] Add DNSSEC variants to `Type` in [src/types.rs](src/types.rs) (`DS=43`, `RRSIG=46`, `NSEC=47`, `DNSKEY=48`, `ZONEMD=63`).
-  - [ ] Add structured record structs (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `ZONEMD`) and `Resource` enum variants in [src/resource.rs](src/resource.rs).
-  - [ ] Implement `append_rdata_to_vec` and wire parsing in `Record::parse` for new types.
-  - [ ] Update [src/zones/zones.pest](src/zones/zones.pest) with rules for hex/base64 rdata and DNSSEC resource records.
-  - [ ] Implement AST handlers in [src/zones/parser.rs](src/zones/parser.rs) and unit tests in [src/zones/parser_tests.rs](src/zones/parser_tests.rs).
-- [ ] **Phase 4: Root Zone Integration & End-to-End Validation**
-  - [ ] Implement `test_parse_root_zone` in [tests/root_files.rs](tests/root_files.rs) verifying root zone SOA, DNSKEY, DS, NSEC, and TLD delegations.
-  - [ ] Verify clean, bounded memory and CPU performance when parsing the full ~25k line `root.zone`.
-  - [ ] Verify full test suite and quality gates:
-        `cargo fmt --check`
-        `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-        `cargo test --workspace`
-        `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`
+- [ ] Support `$INCLUDE <filename> [<domain>]` directive in zone files (RFC 1035 §5).
+- [ ] Add quoted string parsing and character escape sequences (`\`, `\DDD`) in `zones.pest`.
+- [ ] Support standard duration abbreviations (`1w`, `2d`, `3h`, `4m`) in `$TTL` and record TTLs.
+- [ ] Add `TXT`, `SPF`, `SRV`, `NSEC3`, and `NSEC3PARAM` record grammar to `zones.pest` and parser.
+- [ ] Enforce RFC 2181 §5.2 TTL consistency across RRsets in `src/zones/process.rs`.
+- [ ] Unify `src/from_str.rs` with `zones::parse_rdata` and remove duplicate regexes.
+- [ ] Validate domain label (<= 63) and name (<= 255) lengths during zone processing.
+- [ ] Add streaming `File::from_reader` iterator for memory-efficient large zone parsing.
 
 ### Rust Platform Migration
 
