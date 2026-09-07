@@ -165,6 +165,9 @@ impl File {
             | Resource::AAAA(_)
             | Resource::TXT(_)
             | Resource::SPF(_)
+            | Resource::DS(_)
+            | Resource::DNSKEY(_)
+            | Resource::ZONEMD(_)
             | Resource::OPT
             | Resource::ANY => Ok(resource.clone()),
 
@@ -201,6 +204,24 @@ impl File {
                 weight: srv.weight,
                 port: srv.port,
                 name: Self::resolve_name(&srv.name, origin, entry_index, record_name)?,
+            })),
+            Resource::RRSIG(rrsig) => Ok(Resource::RRSIG(RRSIG {
+                signer_name: Self::resolve_name(
+                    &rrsig.signer_name,
+                    origin,
+                    entry_index,
+                    record_name,
+                )?,
+                ..rrsig.clone()
+            })),
+            Resource::NSEC(nsec) => Ok(Resource::NSEC(NSEC {
+                next_domain: Self::resolve_name(
+                    &nsec.next_domain,
+                    origin,
+                    entry_index,
+                    record_name,
+                )?,
+                types: nsec.types.clone(),
             })),
         }
     }

@@ -4,8 +4,14 @@ use crate::zones::Entry;
 use crate::zones::Record;
 use crate::zones::Resource;
 use crate::Class;
+use crate::DNSKEY;
+use crate::DS;
 use crate::MX;
+use crate::NSEC;
+use crate::RRSIG;
 use crate::SOA;
+use crate::Type;
+use crate::ZONEMD;
 use pest_consume::match_nodes;
 use pest_consume::Error;
 use pest_consume::Parser;
@@ -90,6 +96,47 @@ impl ZoneParser {
         }
     }
 
+    fn type_name(input: Node) -> Result<Type> {
+        assert_eq!(input.as_rule(), Rule::type_name);
+        match Type::from_str(input.as_str()) {
+            Ok(t) => Ok(t),
+            Err(e) => Err(input.error(e)),
+        }
+    }
+
+    fn base64_string(input: Node) -> Result<Vec<u8>> {
+        assert_eq!(input.as_rule(), Rule::base64_string);
+        match crate::util::base64_decode(input.as_str()) {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => Err(input.error(e)),
+        }
+    }
+
+    fn hex_string(input: Node) -> Result<Vec<u8>> {
+        assert_eq!(input.as_rule(), Rule::hex_string);
+        match crate::util::hex_decode(input.as_str()) {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => Err(input.error(e)),
+        }
+    }
+
+    fn rrsig_time(input: Node) -> Result<u32> {
+        assert_eq!(input.as_rule(), Rule::rrsig_time);
+        let s = input.as_str();
+        if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S") {
+                let ts = dt.and_utc().timestamp();
+                if let Ok(ts_u32) = u32::try_from(ts) {
+                    return Ok(ts_u32);
+                }
+            }
+        }
+        match s.parse::<u32>() {
+            Ok(val) => Ok(val),
+            Err(e) => Err(input.error(e)),
+        }
+    }
+
     #[alias(resource)]
     fn resource_a(input: Node) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_a);
@@ -156,6 +203,79 @@ impl ZoneParser {
                 mname: mname.to_string(),
                 rname: rname.to_string(), // TODO Should this actually be a domain?
                 serial, refresh, retry, expire, minimum
+            }),
+        ))
+    }
+
+    #[alias(resource)]
+    fn resource_ds(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_ds);
+
+        Ok(match_nodes!(input.into_children();
+            [number(key_tag), number(algorithm), number(digest_type), hex_string(digest)] => Resource::DS(DS {
+                key_tag,
+                algorithm,
+                digest_type,
+                digest,
+            }),
+        ))
+    }
+
+    #[alias(resource)]
+    fn resource_dnskey(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_dnskey);
+
+        Ok(match_nodes!(input.into_children();
+            [number(flags), number(protocol), number(algorithm), base64_string(public_key)] => Resource::DNSKEY(DNSKEY {
+                flags,
+                protocol,
+                algorithm,
+                public_key,
+            }),
+        ))
+    }
+
+    #[alias(resource)]
+    fn resource_rrsig(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_rrsig);
+
+        Ok(match_nodes!(input.into_children();
+            [type_name(type_covered), number(algorithm), number(labels), duration(original_ttl), rrsig_time(expiration), rrsig_time(inception), number(key_tag), domain(signer_name), base64_string(signature)] => Resource::RRSIG(RRSIG {
+                type_covered,
+                algorithm,
+                labels,
+                original_ttl: original_ttl.as_secs() as u32,
+                expiration,
+                inception,
+                key_tag,
+                signer_name: signer_name.to_string(),
+                signature,
+            }),
+        ))
+    }
+
+    #[alias(resource)]
+    fn resource_nsec(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_nsec);
+
+        Ok(match_nodes!(input.into_children();
+            [domain(next_domain), type_name(types)..] => Resource::NSEC(NSEC {
+                next_domain: next_domain.to_string(),
+                types: types.collect(),
+            }),
+        ))
+    }
+
+    #[alias(resource)]
+    fn resource_zonemd(input: Node) -> Result<Resource> {
+        assert_eq!(input.as_rule(), Rule::resource_zonemd);
+
+        Ok(match_nodes!(input.into_children();
+            [number(serial), number(scheme), number(algorithm), hex_string(digest)] => Resource::ZONEMD(ZONEMD {
+                serial,
+                scheme,
+                algorithm,
+                digest,
             }),
         ))
     }

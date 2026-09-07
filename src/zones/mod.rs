@@ -88,7 +88,21 @@ impl FromStr for File {
     /// }
     /// ```
     fn from_str(input_str: &str) -> Result<Self, Self::Err> {
-        let input_str = preprocess(input_str).unwrap(); // TODO
+        // TODO Why do we preprocess the input - should our parse handle this automatically?
+        let input_str = preprocess(input_str).map_err(|err| {
+            let start = match err.location {
+                pest::error::InputLocation::Pos(pos) => pos,
+                pest::error::InputLocation::Span((start, _end)) => start,
+            };
+            let pos = pest::Position::new(input_str, start)
+                .unwrap_or_else(|| pest::Position::from_start(input_str));
+            pest_consume::Error::new_from_pos(
+                pest::error::ErrorVariant::CustomError {
+                    message: format!("preprocessor error: {err}"),
+                },
+                pos,
+            )
+        })?;
 
         let inputs = ZoneParser::parse(Rule::file, &input_str)?;
         let input = inputs.single()?;

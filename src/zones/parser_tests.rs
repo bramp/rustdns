@@ -251,6 +251,87 @@ mod tests {
                     resource: Resource::A("10.1.0.52".parse().unwrap()),
                 },
             ),
+            // DNSSEC records
+            (
+                "aaa. 86400 IN DS 31852 8 2 89F7670AFC091B199B47900E4CE4135B9463B7F74D3D19A1C732E78C345D4DE6",
+                Record {
+                    name: Some("aaa.".to_string()),
+                    ttl: Some(Duration::from_secs(86400)),
+                    class: Some(Class::Internet),
+                    resource: Resource::DS(DS {
+                        key_tag: 31852,
+                        algorithm: 8,
+                        digest_type: 2,
+                        digest: crate::util::hex_decode("89F7670AFC091B199B47900E4CE4135B9463B7F74D3D19A1C732E78C345D4DE6").unwrap(),
+                    }),
+                },
+            ),
+            (
+                ". 172800 IN DNSKEY 256 3 8 AwEAAeCYD6Z7",
+                Record {
+                    name: Some(".".to_string()),
+                    ttl: Some(Duration::from_secs(172800)),
+                    class: Some(Class::Internet),
+                    resource: Resource::DNSKEY(DNSKEY {
+                        flags: 256,
+                        protocol: 3,
+                        algorithm: 8,
+                        public_key: crate::util::base64_decode("AwEAAeCYD6Z7").unwrap(),
+                    }),
+                },
+            ),
+            (
+                ". 86400 IN RRSIG SOA 8 0 86400 20260920050000 20260907040000 57780 . XfzAJ3WNy9rp+A==",
+                Record {
+                    name: Some(".".to_string()),
+                    ttl: Some(Duration::from_secs(86400)),
+                    class: Some(Class::Internet),
+                    resource: Resource::RRSIG(RRSIG {
+                        type_covered: crate::Type::SOA,
+                        algorithm: 8,
+                        labels: 0,
+                        original_ttl: 86400,
+                        expiration: 1789880400, // 2026-09-20 05:00:00 UTC
+                        inception: 1788753600,  // 2026-09-07 04:00:00 UTC
+                        key_tag: 57780,
+                        signer_name: ".".to_string(),
+                        signature: crate::util::base64_decode("XfzAJ3WNy9rp+A==").unwrap(),
+                    }),
+                },
+            ),
+            (
+                ". 86400 IN NSEC aaa. NS SOA RRSIG NSEC DNSKEY ZONEMD",
+                Record {
+                    name: Some(".".to_string()),
+                    ttl: Some(Duration::from_secs(86400)),
+                    class: Some(Class::Internet),
+                    resource: Resource::NSEC(NSEC {
+                        next_domain: "aaa.".to_string(),
+                        types: vec![
+                            crate::Type::NS,
+                            crate::Type::SOA,
+                            crate::Type::RRSIG,
+                            crate::Type::NSEC,
+                            crate::Type::DNSKEY,
+                            crate::Type::ZONEMD,
+                        ],
+                    }),
+                },
+            ),
+            (
+                ". 86400 IN ZONEMD 2026090700 1 1 465D6F58F8298D0227",
+                Record {
+                    name: Some(".".to_string()),
+                    ttl: Some(Duration::from_secs(86400)),
+                    class: Some(Class::Internet),
+                    resource: Resource::ZONEMD(ZONEMD {
+                        serial: 2026090700,
+                        scheme: 1,
+                        algorithm: 1,
+                        digest: crate::util::hex_decode("465D6F58F8298D0227").unwrap(),
+                    }),
+                },
+            ),
         ];
 
         for (input, want) in tests {
@@ -276,6 +357,25 @@ mod tests {
                 Ok(_got) => panic!("'{}' incorrectly parsed correctly", input),
                 Err(_err) => (), // Expect a error. TODO Maybe check the error message,
             }
+        }
+    }
+
+    #[test]
+    fn test_parse_file_errors() {
+        let tests = vec![
+            "invalid record syntax that cannot parse",
+            "$ORIGIN",
+            "$ORIGIN relative_domain",
+            "$TTL",
+            "$TTL not_a_number",
+        ];
+
+        for input in tests {
+            assert!(
+                File::from_str(input).is_err(),
+                "expected error for '{}'",
+                input
+            );
         }
     }
 

@@ -41,24 +41,39 @@ ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
 number = @{ ASCII_DIGIT+ }
 duration = @{ ASCII_DIGIT+ }
+rrsig_time = @{ ASCII_DIGIT+ }
 class = @{ ^"IN" | ^"CS" | ^"CH" | ^"HS" }
+type_name = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-")* }
+base64_string = @{ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+ ~ (ws ~ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+)* }
+hex_string = @{ ASCII_HEX_DIGIT+ ~ (ws ~ ASCII_HEX_DIGIT+)* }
+
 resource = _{
 	  resource_a
 	| resource_aaaa
 	| resource_cname
+	| resource_nsec
 	| resource_ns
 	| resource_mx
 	| resource_ptr
 	| resource_soa
+	| resource_ds
+	| resource_dnskey
+	| resource_rrsig
+	| resource_zonemd
 }
 
-resource_a     = {^"A"     ~ ws ~ ip4}
-resource_aaaa  = {^"AAAA"  ~ ws ~ ip6}
-resource_cname = {^"CNAME" ~ ws ~ domain}
-resource_ns    = {^"NS"    ~ ws ~ domain}
-resource_mx    = {^"MX"    ~ ws ~ number ~ ws ~ domain}
-resource_ptr   = {^"PTR"   ~ ws ~ domain}
-resource_soa   = {^"SOA"   ~ ws ~ domain ~ ws ~ string ~ ws ~ number ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration}
+resource_a      = {^"A"      ~ ws ~ ip4}
+resource_aaaa   = {^"AAAA"   ~ ws ~ ip6}
+resource_cname  = {^"CNAME"  ~ ws ~ domain}
+resource_nsec   = {^"NSEC"   ~ ws ~ domain ~ (ws ~ type_name)*}
+resource_ns     = {^"NS"     ~ ws ~ domain}
+resource_mx     = {^"MX"     ~ ws ~ number ~ ws ~ domain}
+resource_ptr    = {^"PTR"    ~ ws ~ domain}
+resource_soa    = {^"SOA"    ~ ws ~ domain ~ ws ~ string ~ ws ~ number ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration ~ ws ~ duration}
+resource_ds     = {^"DS"     ~ ws ~ number ~ ws ~ number ~ ws ~ number ~ ws ~ hex_string}
+resource_dnskey = {^"DNSKEY" ~ ws ~ number ~ ws ~ number ~ ws ~ number ~ ws ~ base64_string}
+resource_rrsig  = {^"RRSIG"  ~ ws ~ type_name ~ ws ~ number ~ ws ~ number ~ ws ~ duration ~ ws ~ rrsig_time ~ ws ~ rrsig_time ~ ws ~ number ~ ws ~ domain ~ ws ~ base64_string}
+resource_zonemd = {^"ZONEMD" ~ ws ~ number ~ ws ~ number ~ ws ~ number ~ ws ~ hex_string}
 
 // Entry for full file.
 file = {
