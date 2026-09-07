@@ -2,6 +2,8 @@
 
 An in-browser DNS lookup tool powered by [rustdns](https://github.com/bramp/rustdns) compiled to WebAssembly.
 
+Live demo: <https://dig.bramp.net>
+
 ## Features
 
 - **Direct In-Browser Resolution**: Queries DNS-over-HTTPS (DoH, RFC 8484) and DNS-over-HTTPS JSON endpoints directly from the browser without needing a backend server or proxy.
