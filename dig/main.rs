@@ -703,12 +703,7 @@ async fn main() -> Result<(), DigError> {
     let response = resolver.exchange(&query).await?;
 
     println!("response:");
-    println!("{}", response.message);
-    if args.verbose {
-        eprintln!(";; Query time: {} msec", response.meta.elapsed.as_millis());
-        eprintln!(";; SERVER: {}", response.meta.upstream);
-        eprintln!(";; ATTEMPTS: {}", response.meta.attempts);
-    }
+    println!("{response}");
 
     Ok(())
 }
