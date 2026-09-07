@@ -41,7 +41,7 @@ pub mod sync;
 pub(crate) mod common;
 
 cfg_feature! {
-    #![feature = "clients"]
+    #![any(feature = "clients", feature = "resolver")]
 
     mod into_exchanger;
     pub use self::into_exchanger::IntoAsyncExchanger;

@@ -1,0 +1,25 @@
+# nslookup/Cargo.toml
+
+[package]
+name = "nslookup"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+rustdns = { path = "../", default-features = false, features = [
+    "resolver",
+    "do53",
+] }
+
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
+env_logger = "0.11.11"
+log = "0.4.34"
+thiserror = "2.0.20"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+
+[[bin]]
+name = "nslookup"
+path = "main.rs"

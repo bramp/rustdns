@@ -23,7 +23,7 @@ with domain name services at a high or low level.
   * SRV
 * Extension Mechanisms for DNS ([EDNS(0)]).
 * Support [International Domain Names (IDNA)](https://en.wikipedia.org/wiki/Internationalized_domain_name) - Different scripts, alphabets, anhd even emojis!
-* Sample `dig` style [command line](#usage-cli).
+* Sample `dig` and `nslookup` style [command line tools](#usage-cli).
 * Fully [tested](#testing), and [fuzzed](#fuzzing).
 
 ## Usage (low-level library)
@@ -127,6 +127,19 @@ $ cargo run -p dig -- SRV _ldap._tcp.google.com
 $ cargo run -p dig -- TXT google.com
 $ cargo run -p dig -- +dot @dns.google google.com A
 $ cargo run -p dig -- +verbose +dot @dns.google google.com A
+```
+
+To use the `nslookup` CLI:
+
+```shell
+$ cargo run -p nslookup -- www.google.com
+Server:         8.8.8.8:53
+Address:        8.8.8.8:53
+
+Non-authoritative answer:
+Name:   www.google.com
+Address: 142.250.72.196
+Address: 2607:f8b0:4005:809::2004
 ```
 ## Testing
 

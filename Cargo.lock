@@ -815,6 +815,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nslookup"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "pretty_assertions",
+ "rustdns",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "num-derive"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

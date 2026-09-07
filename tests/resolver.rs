@@ -384,4 +384,92 @@ mod tests {
             ))
         ));
     }
+
+    /// An upstream that verifies A and AAAA queries are in-flight concurrently
+    /// using a barrier that requires 2 waiters to proceed.
+    struct ConcurrentBarrierClient {
+        barrier: std::sync::Arc<tokio::sync::Barrier>,
+    }
+
+    #[async_trait]
+    impl AsyncExchanger for ConcurrentBarrierClient {
+        fn endpoint(&self) -> std::sync::Arc<str> {
+            "concurrent_barrier".into()
+        }
+
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
+            self.barrier.wait().await;
+            let question = &query.questions[0];
+            let answer = match question.r#type {
+                Type::A => Some(Resource::A("127.0.0.1".parse().unwrap())),
+                Type::AAAA => Some(Resource::AAAA("::1".parse().unwrap())),
+                _ => None,
+            };
+            Ok(WireResponse::test(
+                respond(query, answer),
+                ChannelSecurity::Loopback,
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn lookup_dispatches_a_and_aaaa_concurrently() {
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let resolver = Resolver::builder()
+            .upstream(ConcurrentBarrierClient {
+                barrier: barrier.clone(),
+            })
+            .retries(0)
+            .timeout(Duration::from_secs(2))
+            .build()
+            .expect("valid resolver");
+
+        let mut ips = resolver
+            .lookup("example.com")
+            .await
+            .expect("lookup should succeed via concurrent dispatch");
+        ips.sort();
+
+        let mut want: Vec<IpAddr> = vec!["127.0.0.1".parse().unwrap(), "::1".parse().unwrap()];
+        want.sort();
+
+        assert_eq!(ips, want);
+    }
+
+    struct TypeFailingClient {
+        fail_type: Type,
+    }
+
+    #[async_trait]
+    impl AsyncExchanger for TypeFailingClient {
+        fn endpoint(&self) -> std::sync::Arc<str> {
+            "type_failing".into()
+        }
+
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
+            let question = &query.questions[0];
+            if question.r#type == self.fail_type {
+                Err(std::io::Error::other("simulated query type failure").into())
+            } else {
+                Ok(WireResponse::test(
+                    respond(query, Some(Resource::A("127.0.0.1".parse().unwrap()))),
+                    ChannelSecurity::Loopback,
+                ))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn lookup_fails_if_either_concurrent_query_fails() {
+        for fail_type in [Type::A, Type::AAAA] {
+            let resolver = Resolver::builder()
+                .upstream(TypeFailingClient { fail_type })
+                .retries(0)
+                .timeout(Duration::from_secs(1))
+                .build()
+                .expect("valid resolver");
+
+            assert!(resolver.lookup("example.com").await.is_err());
+        }
+    }
 }

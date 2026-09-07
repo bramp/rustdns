@@ -41,6 +41,8 @@ All notable changes to rustdns are documented here.
   DNS resolution can share a caller's own remaining budget when it is one
   step inside a larger, already deadline-bound operation. `exchange` returns
   a `Response` containing the decoded `Message` plus `ResponseMeta`.
+- Added an `nslookup` CLI tool in the workspace for high-level host address
+  resolution using `Resolver::lookup`.
 - Added `WireResponse` and `WireResponseMeta` for transport-level message exchanges.
   Captures transport execution metadata for a single attempt (server address,
   elapsed duration, bytes sent/received, channel security classification, and
@@ -104,6 +106,8 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- Dispatched `A` and `AAAA` queries concurrently in `Resolver::lookup_with_deadline`
+  instead of sequentially.
 - Decoupled `json` Cargo feature into pure serde parsing and serialization (`serde`,
   `serde_json`), while `doh-json` guards the Tokio and Hyper-based client transport.
   `clients` continues to include `doh-json` by default.

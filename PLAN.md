@@ -68,10 +68,9 @@ The core resolver architecture, deadline propagation, response correlation, fail
 
 ### 2.6 Concurrency & Ergonomics Enhancements
 
-- [ ] Dispatch `A` and `AAAA` queries concurrently in `Resolver::lookup_with_deadline`.
+- [x] Dispatch `A` and `AAAA` queries concurrently in `Resolver::lookup_with_deadline`.
 - [ ] Add convenience getters on `Message` and `Response` (e.g. filtered records, IPs, CNAME chains).
 - [ ] Introduce typed `TransportError` context reporting endpoint, protocol, and I/O cause.
-- [ ] Provide synchronous `Resolver` counterpart in [src/clients/sync/](src/clients/sync/).
 
 ---
 

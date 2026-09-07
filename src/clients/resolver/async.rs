@@ -476,11 +476,14 @@ impl Resolver {
         name: &str,
         deadline: Instant,
     ) -> Result<Vec<IpAddr>, crate::Error> {
+        let (a_response, aaaa_response) = tokio::try_join!(
+            self.query_with_deadline(name, Type::A, deadline),
+            self.query_with_deadline(name, Type::AAAA, deadline),
+        )?;
+
         let mut results = std::collections::HashSet::new();
 
-        // TODO Send the A and AAAA queries concurrently.
-        for r#type in [Type::A, Type::AAAA] {
-            let response = self.query_with_deadline(name, r#type, deadline).await?;
+        for (r#type, response) in [(Type::A, a_response), (Type::AAAA, aaaa_response)] {
             log::debug!(
                 "{name}: {type} query via upstream '{:?}' returned {} answer(s)",
                 response.meta.upstream,

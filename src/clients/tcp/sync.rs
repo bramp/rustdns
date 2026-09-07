@@ -16,18 +16,6 @@ use std::time::Instant;
 const TCP_KEEPALIVE_TIME: Duration = Duration::from_secs(30);
 const TCP_CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub const GOOGLE_IPV4_PRIMARY: &str = "8.8.8.8:53";
-pub const GOOGLE_IPV4_SECONDARY: &str = "8.8.4.4:53";
-pub const GOOGLE_IPV6_PRIMARY: &str = "2001:4860:4860::8888:53";
-pub const GOOGLE_IPV6_SECONDARY: &str = "2001:4860:4860::8844:53";
-
-pub const GOOGLE: [&str; 4] = [
-    GOOGLE_IPV4_PRIMARY,
-    GOOGLE_IPV4_SECONDARY,
-    GOOGLE_IPV6_PRIMARY,
-    GOOGLE_IPV6_SECONDARY,
-];
-
 /// A DNS-over-TCP client.
 ///
 /// This is a low-level, synchronous client: it sends one query to one server
