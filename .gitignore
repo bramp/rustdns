@@ -1,3 +1,4 @@
 /target
 *.pcapng
 fuzz-*.log
+/tests/fixtures/

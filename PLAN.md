@@ -746,6 +746,192 @@ wire payloads (drawn from [tests/test_data.yaml](tests/test_data.yaml)):
   - [ ] Run allocation breakdown: `cargo run --bench allocations`.
   - [ ] Record baseline CPU timings and allocation numbers in project notes to guide zero-copy optimizations.
 
+### IANA Root Hints and Root Zone File Validation & DNSSEC Parser Support
+
+This section specifies testing the `rustdns` zone file parser against canonical
+root files published by IANA / InterNIC:
+- **Root Hints** (`named.root`): Bootstrap authoritative root name servers (A–M),
+  ~3.3 KB, containing `NS`, `A`, and `AAAA` records.
+- **Root Zone** (`root.zone`): The authoritative root zone, ~24.8k lines, ~2.2 MB,
+  containing `SOA`, `NS`, `A`, `AAAA`, `ZONEMD`, and DNSSEC records (`DS`, `DNSKEY`,
+  `RRSIG`, `NSEC`).
+
+#### 1. Motivation & Design Goals
+
+1. **Real-World Standards Conformance**: While existing unit tests validate synthetic
+   and RFC 1035 snippet examples, testing against canonical root files guarantees
+   interoperability with actual zone files deployed across global DNS infrastructure.
+2. **Prevent Git Repository Bloat**: At ~2.2 MB per version, committing `root.zone`
+   directly into git history inflates clone sizes over time.
+3. **Deterministic, Offline-Friendly Local Testing**: Running `cargo test` locally must
+   never fail due to missing internet access or third-party server downtime. If fixture
+   files are not present locally, integration tests skip gracefully with a clear instruction
+   pointing to the download script.
+4. **CI Workflow Caching**: In GitHub Actions, fixture files are downloaded once using
+   [scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh) and cached via `actions/cache@v4` across runs,
+   providing fast and reliable CI runs without repeated external network requests.
+5. **Specification Compliance (RFC 1035 §5.1)**: Support optional `<class>` fields by
+   defaulting to `Class::IN` when unspecified, enabling root hints parsing.
+6. **Full DNSSEC Record Support**: Add AST definitions, grammar rules, and resource
+   variants for `DS`, `DNSKEY`, `RRSIG`, and `NSEC` records present in `root.zone`.
+
+#### 2. Architecture & Design Details
+
+```text
++------------------------------------------------------------------------+
+|                    scripts/fetch_root_fixtures.sh                      |
+|  - Idempotent download helper for local dev and CI                     |
+|  - Downloads named.root (3.3 KB) and root.zone.gz (988 KB -> 2.2 MB)   |
+|  - Verifies file integrity and outputs to tests/fixtures/              |
++------------------------------------------------------------------------+
+                     |                                  |
+           (run manually or via CI)           (cached in GitHub Actions)
+                     v                                  v
++------------------------------------------------------------------------+
+|                      tests/fixtures/ (Git-Ignored)                     |
+|  - named.root (~3.3 KB)                                                |
+|  - root.zone   (~2.2 MB, 24,876 lines)                                 |
++------------------------------------------------------------------------+
+                     |
+                     v
++------------------------------------------------------------------------+
+|                      tests/root_files.rs (Integration)                 |
+|  1. Locates fixtures via env vars (ROOT_HINTS_PATH / ROOT_ZONE_PATH)   |
+|     or fallback path tests/fixtures/                                   |
+|  2. If missing -> skips test gracefully with informative message       |
+|  3. If present -> parses file, validates all records and invariants   |
++------------------------------------------------------------------------+
+        |                                                |
+        v                                                v
++----------------------------------+   +----------------------------------+
+|    Root Hints Verification       |   |      Root Zone Verification      |
+|  - Tests RFC 1035 class default  |   |  - Parses SOA, NS, A, AAAA       |
+|  - Extracts 13 root name servers |   |  - Parses DS, DNSKEY, RRSIG,     |
+|    (a.root-servers.net to m)     |   |    NSEC, and ZONEMD records      |
+|  - Asserts NS + A + AAAA glue    |   |  - Validates TLD delegations     |
++----------------------------------+   +----------------------------------+
+```
+
+##### 2.1 Unified Fixture Fetch Script ([scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh))
+- Download destinations:
+  - `named.root`: `https://www.internic.net/domain/named.root`
+  - `root.zone`: `https://www.internic.net/domain/root.zone.gz` (decompressed via `gzip -dc` to save bandwidth; falls back to uncompressed `root.zone` if needed)
+- Script flags:
+  - `--hints-only`: Only download `named.root` (~3.3 KB)
+  - `--zone-only`: Only download `root.zone` (~1 MB compressed)
+  - `--force`, `-f`: Re-download even if files already exist
+  - `DEST_DIR`: Optional target directory (defaults to `tests/fixtures`)
+- Idempotency: Checks for file existence and content sanity (e.g. `ROOT-SERVERS.NET` in hints, `a.root-servers.net.` in root zone) before skipping redundant downloads.
+- Git configuration: Ignore `/tests/fixtures/` in [.gitignore](.gitignore).
+
+##### 2.2 GitHub Actions CI Integration
+In [.github/workflows/rust.yml](.github/workflows/rust.yml):
+- Add a cache step before running tests with weekly cadence (%Y-week%V) and no OS coupling:
+  ```yaml
+  - name: Compute root fixture cache key
+    id: root-fixture-cache
+    run: echo "key=root-fixtures-$(date -u +'%Y-week%V')" >> "$GITHUB_OUTPUT"
+
+  - name: Cache IANA root zone fixtures
+    uses: actions/cache@v4
+    with:
+      path: tests/fixtures
+      key: ${{ steps.root-fixture-cache.outputs.key }}
+
+  - name: Fetch IANA root zone fixtures
+    run: ./scripts/fetch_root_fixtures.sh
+  ```
+- This ensures test jobs across matrix platforms in CI run against cached root fixtures, refetching on a weekly cadence without coupling to `runner.os`.
+
+##### 2.3 RFC 1035 §5.1 Class Defaulting ([src/zones/process.rs](src/zones/process.rs))
+In standard zone files, the class field is optional:
+```text
+.    3600000    NS    A.ROOT-SERVERS.NET.
+```
+RFC 1035 §5.1 states:
+> "The <class> and <ttl> fields are optional... If <class> is omitted, the default is IN."
+
+Currently, `File::into_records_impl` in [src/zones/process.rs](src/zones/process.rs) requires an explicit class or inherits from the previous record, returning `ProcessError::MissingClass` if neither is present.
+Fix:
+```rust
+let class = record
+    .class
+    .as_ref()
+    .or(last_class)
+    .copied()
+    .unwrap_or(Class::IN);
+```
+Records without an explicit class will cleanly default to `Class::IN`.
+
+##### 2.4 DNSSEC Record Types & Grammar
+Canonical `root.zone` contains 9 unique record types:
+`A`, `AAAA`, `DNSKEY`, `DS`, `NS`, `NSEC`, `RRSIG`, `SOA`, `ZONEMD`.
+
+To parse `root.zone`, the following types and syntax must be supported:
+1. **Type Enum Variants ([src/types.rs](src/types.rs))**:
+   - `DS = 43` (RFC 4034 §5)
+   - `RRSIG = 46` (RFC 4034 §3)
+   - `NSEC = 47` (RFC 4034 §4)
+   - `DNSKEY = 48` (RFC 4034 §2)
+   - `ZONEMD = 63` (RFC 8976)
+2. **Resource Data Structures ([src/resource.rs](src/resource.rs))**:
+   - `DS { key_tag: u16, algorithm: u8, digest_type: u8, digest: Vec<u8> }`
+   - `DNSKEY { flags: u16, protocol: u8, algorithm: u8, public_key: Vec<u8> }`
+   - `RRSIG { type_covered: Type, algorithm: u8, labels: u8, original_ttl: u32, expiration: u32, inception: u32, key_tag: u16, signer_name: String, signature: Vec<u8> }`
+   - `NSEC { next_domain: String, types: Vec<Type> }`
+   - `ZONEMD { serial: u32, scheme: u8, algorithm: u8, digest: Vec<u8> }`
+3. **Zone Grammar Additions ([src/zones/zones.pest](src/zones/zones.pest))**:
+   - Add rules for base64 strings and hex strings.
+   - Add `resource_ds`, `resource_dnskey`, `resource_rrsig`, `resource_nsec`, `resource_zonemd`.
+   - Update `resource` choice rule to include these variants.
+4. **AST Parser Handlers ([src/zones/parser.rs](src/zones/parser.rs))**:
+   - Implement `pest_consume` transformation functions converting AST strings to structured data types.
+
+##### 2.5 Integration Test Suite ([tests/root_files.rs](tests/root_files.rs))
+- Helper function `get_fixture_path(filename: &str, env_var: &str) -> Option<PathBuf>`
+- Test cases:
+  - `test_parse_root_hints`:
+    - Reads `tests/fixtures/named.root`.
+    - Parses via `File::from_str` and resolves via `try_into_records()`.
+    - Asserts that all 13 root name servers (`a.root-servers.net` to `m.root-servers.net`) are present.
+    - Asserts that each root server has matching `A` (IPv4) and `AAAA` (IPv6) glue addresses.
+    - Verifies TTL is 3600000 and Class defaults to `IN`.
+  - `test_parse_root_zone`:
+    - Reads `tests/fixtures/root.zone`.
+    - Parses records and verifies:
+      - Apex SOA record (mname `a.root-servers.net.`, rname `nstld.verisign-grs.com.`).
+      - Root DNSKEY records (KSK 257 and ZSK 256).
+      - TLD delegations (e.g. `com.`, `org.`, `net.`, `arpa.`) with valid `NS` and `DS` records.
+      - DNSSEC signatures (`RRSIG`) and denial of existence (`NSEC`) records parse without syntax errors.
+
+#### Root Hints and Root Zone Implementation Checklist
+
+- [ ] **Phase 1: Fixture Fetch Script & CI Cache Integration**
+  - [x] Create executable script [scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh) supporting `--hints-only`, `--zone-only`, and `--force`.
+  - [x] Add `/tests/fixtures/` to [.gitignore](.gitignore).
+  - [x] Create [tests/root_files.rs](tests/root_files.rs) with graceful skip logic when fixtures are absent.
+  - [ ] Update [.github/workflows/rust.yml](.github/workflows/rust.yml) test job to cache `tests/fixtures` and execute [scripts/fetch_root_fixtures.sh](scripts/fetch_root_fixtures.sh).
+  - [x] Verify script idempotency and graceful skip when files already exist.
+- [ ] **Phase 2: RFC 1035 Class Defaulting & Root Hints Verification**
+  - [ ] In [src/zones/process.rs](src/zones/process.rs), default missing record class to `Class::IN` per RFC 1035 §5.1 instead of returning `MissingClass`.
+  - [ ] Add unit test in [src/zones/process.rs](src/zones/process.rs) confirming records with unspecified class default to `Class::IN`.
+  - [ ] Complete `test_parse_root_hints` in [tests/root_files.rs](tests/root_files.rs) to parse `named.root` into records and assert all 13 root servers and glue records.
+  - [ ] Verify `cargo test --test root_files test_parse_root_hints` passes when hints are present and skips cleanly when absent.
+- [ ] **Phase 3: DNSSEC Types, Wire Serialization, & Zone Grammar**
+  - [ ] Add DNSSEC variants to `Type` in [src/types.rs](src/types.rs) (`DS=43`, `RRSIG=46`, `NSEC=47`, `DNSKEY=48`, `ZONEMD=63`).
+  - [ ] Add structured record structs (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `ZONEMD`) and `Resource` enum variants in [src/resource.rs](src/resource.rs).
+  - [ ] Implement `append_rdata_to_vec` and wire parsing in `Record::parse` for new types.
+  - [ ] Update [src/zones/zones.pest](src/zones/zones.pest) with rules for hex/base64 rdata and DNSSEC resource records.
+  - [ ] Implement AST handlers in [src/zones/parser.rs](src/zones/parser.rs) and unit tests in [src/zones/parser_tests.rs](src/zones/parser_tests.rs).
+- [ ] **Phase 4: Root Zone Integration & End-to-End Validation**
+  - [ ] Implement `test_parse_root_zone` in [tests/root_files.rs](tests/root_files.rs) verifying root zone SOA, DNSKEY, DS, NSEC, and TLD delegations.
+  - [ ] Verify clean, bounded memory and CPU performance when parsing the full ~25k line `root.zone`.
+  - [ ] Verify full test suite and quality gates:
+        `cargo fmt --check`
+        `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+        `cargo test --workspace`
+        `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`
+
 ### Rust Platform Migration
 
 - [ ] Move lint policy into workspace configuration where supported.

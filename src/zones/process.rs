@@ -36,10 +36,15 @@ pub enum ProcessError {
 impl File {
     /// Resolves this zone file into records, returning details for invalid state.
     ///
+    /// If `<class>` is omitted from a record and cannot be inherited from a previous
+    /// record, it defaults to [`Class::Internet`] per [RFC 1035 §5.1].
+    ///
     /// # Errors
     ///
     /// Returns a [`ProcessError`] with the entry index and record context when
     /// required inherited zone state is missing or a relative resource name is invalid.
+    ///
+    /// [RFC 1035 §5.1]: https://datatracker.ietf.org/doc/html/rfc1035#section-5.1
     pub fn try_into_records(self) -> Result<Vec<Record>, ProcessError> {
         self.into_records_impl()
     }
@@ -60,7 +65,7 @@ impl File {
         let mut default_ttl: Option<&Duration> = None;
 
         let mut last_name: Option<String> = None;
-        let mut last_class: Option<&Class> = None;
+        let mut last_class: Option<Class> = None;
 
         for (entry_index, entry) in self.entries.iter().enumerate() {
             match entry {
@@ -95,20 +100,18 @@ impl File {
                             record_name: record_name.clone(),
                         })?;
 
+                    // Per RFC 1035 §5.1: "The <class> and <ttl> fields are optional...
+                    // If the class is omitted, the default is IN."
                     let class = record
                         .class
-                        .as_ref()
                         .or(last_class)
-                        .ok_or_else(|| ProcessError::MissingClass {
-                            entry_index,
-                            record_name: record_name.clone(),
-                        })?;
+                        .unwrap_or(Class::Internet);
 
                     last_class = Some(class);
 
                     results.push(crate::Record {
                         name: full_name,
-                        class: *class,
+                        class,
                         ttl: *ttl,
                         resource: Self::resolve_resource(
                             &record.resource,
@@ -339,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn process_errors_include_entry_and_record_context() {
+    fn try_into_records_defaults_class_to_in() {
         let file = File {
             origin: Some("example.com".to_string()),
             entries: vec![
@@ -353,8 +356,28 @@ mod tests {
             ],
         };
 
-        let error = file.try_into_records().expect_err("missing class accepted");
-        assert_eq!(error.to_string(), "entry 1 (www.example.com): record is missing a class and has no previous class");
+        let records = file.try_into_records().expect("missing class should default to IN");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].class, Class::Internet);
+    }
+
+    #[test]
+    fn process_errors_include_entry_and_record_context() {
+        let file = File {
+            origin: Some("example.com".to_string()),
+            entries: vec![Entry::Record(ZoneRecord {
+                name: Some("www".to_string()),
+                ttl: None,
+                class: None,
+                resource: Resource::A("192.0.2.1".parse().unwrap()),
+            })],
+        };
+
+        let error = file.try_into_records().expect_err("missing TTL accepted");
+        assert_eq!(
+            error.to_string(),
+            "entry 0 (www.example.com): record is missing a TTL and no default TTL is set"
+        );
     }
 
     #[test]

@@ -83,9 +83,15 @@ All notable changes to rustdns are documented here.
   `Resolver::lookup`, with configurable `payload_size` defaulting to 1232 bytes.
 - Separated `Resolver::exchange` (low-level, sends messages verbatim without mutation) from
   `Resolver::query` and `Resolver::lookup` (which manage EDNS options and enforce DNSSEC policy).
+- Added `scripts/fetch_root_fixtures.sh` to download and cache IANA root hints (`named.root`) and
+  authoritative root zone (`root.zone`) fixtures for offline-friendly testing and CI caching.
+- Added root hints integration tests in `tests/root_files.rs`, verifying parsing of canonical
+  `named.root` and extraction of all 13 root name servers and glue records.
 
 ### Changed
 
+- `File::try_into_records` now defaults an unspecified `<class>` field to `Class::Internet`
+  (`IN`) per RFC 1035 §5.1 when no previous record class exists to inherit.
 - `Exchanger::exchange` and `AsyncExchanger::exchange` now return
   `Result<WireResponse, Error>` rather than `Result<Message, Error>`, separating
   transport execution metadata (`WireResponseMeta`) from the DNS wire message.
