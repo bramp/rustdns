@@ -68,16 +68,21 @@ done
 
 mkdir -p "${FIXTURES_DIR}"
 
+DOWNLOADED=false
+
 is_file_fresh() {
     local file="$1"
     local max_days="$2"
-    if [[ ! -f "${file}" ]]; then
+    if [[ ! -f "${file}" ]] || [[ ! -s "${file}" ]]; then
         return 1
     fi
     if [[ "${max_days}" -le 0 ]]; then
         return 0
     fi
-    if [[ -n "$(find "${file}" -mtime +"${max_days}" 2>/dev/null)" ]]; then
+    # In POSIX find, -mtime +N matches files modified more than (N+1) * 24h ago.
+    # To consider files older than max_days stale, test with (max_days - 1).
+    local threshold=$((max_days - 1))
+    if [[ -n "$(find "${file}" -mtime +"${threshold}" 2>/dev/null)" ]]; then
         return 1
     fi
     return 0
@@ -112,6 +117,7 @@ fetch_named_root() {
     fi
 
     mv "${target}.tmp" "${target}"
+    DOWNLOADED=true
     echo "Saved root hints to ${target} ($(wc -c < "${target}" | tr -d ' ') bytes)."
 }
 
@@ -165,6 +171,7 @@ fetch_root_zone() {
     fi
 
     mv "${target}.tmp" "${target}"
+    DOWNLOADED=true
     echo "Saved root zone to ${target} ($(wc -c < "${target}" | tr -d ' ') bytes, $(wc -l < "${target}" | tr -d ' ') lines)."
 }
 
@@ -174,6 +181,10 @@ fi
 
 if [[ "${HINTS_ONLY}" != "true" ]]; then
     fetch_root_zone
+fi
+
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "updated=${DOWNLOADED}" >> "${GITHUB_OUTPUT}"
 fi
 
 echo "Fixture download complete."

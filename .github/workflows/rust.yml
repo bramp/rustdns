@@ -80,19 +80,24 @@ jobs:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
 
-      - name: Compute root fixture cache key
-        id: root-fixture-cache
-        # Refetch on a weekly cadence (ISO week) across all runners without OS coupling
-        run: echo "key=root-fixtures-$(date -u +'%Y-week%V')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache IANA root zone fixtures
-        uses: actions/cache@v4
+      - name: Restore IANA root zone fixtures
+        uses: actions/cache/restore@v4
         with:
           path: tests/fixtures
-          key: ${{ steps.root-fixture-cache.outputs.key }}
+          key: root-fixtures-${{ github.run_id }}
+          restore-keys: |
+            root-fixtures-
 
       - name: Fetch IANA root zone fixtures
+        id: fetch-fixtures
         run: ./scripts/fetch_root_fixtures.sh
+
+      - name: Save IANA root zone fixtures
+        if: steps.fetch-fixtures.outputs.updated == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tests/fixtures
+          key: root-fixtures-${{ github.run_id }}
 
       - name: Run tests (default features)
         run: cargo test --workspace --verbose
