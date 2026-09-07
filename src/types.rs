@@ -196,7 +196,7 @@ pub struct Extension {
     /// can receive over UDP. Larger values allow servers to return responses
     /// bigger than the original 512-byte DNS UDP limit, but callers should still
     /// choose a value that fits their transport and path MTU assumptions. The
-    /// default is 4096 bytes.
+    /// default is 1232 bytes ([`crate::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE`]).
     pub payload_size: u16,
 
     /// Extended response code.

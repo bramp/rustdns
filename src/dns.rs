@@ -575,7 +575,7 @@ mod tests {
                 0x00, 0x01, // additionals
                 0x00, // root name
                 0x00, 0x29, // OPT
-                0x10, 0x00, // payload size
+                0x04, 0xd0, // payload size (1232, EDNS_SAFE_UDP_PAYLOAD_SIZE)
                 0x00, // extended rcode
                 0x00, // version
                 0x00, 0x00, // flags
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(&encoded[10..12], &[0x00, 0x01]);
         assert_eq!(
             &encoded[12..],
-            &[0, 0, 41, 0x10, 0, 0, 0, 0, 0, 0, 4, 0, 3, 0, 0]
+            &[0, 0, 41, 0x04, 0xd0, 0, 0, 0, 0, 0, 4, 0, 3, 0, 0]
         );
     }
 
