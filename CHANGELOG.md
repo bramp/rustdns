@@ -30,8 +30,21 @@ All notable changes to rustdns are documented here.
   `Resolver::lookup_with_deadline` accept an explicit `Instant` deadline, so
   DNS resolution can share a caller's own remaining budget when it is one
   step inside a larger, already deadline-bound operation. `exchange` returns
-  a `Response` containing the decoded `Message` plus `ResponseMeta` (upstream
-  endpoint, attempt count, elapsed time).
+  a `Response` containing the decoded `Message` plus `ResponseMeta`.
+- Added `WireResponse` and `WireResponseMeta` for transport-level message exchanges.
+  Captures transport execution metadata for a single attempt (server address,
+  elapsed duration, bytes sent/received, channel security classification, and
+  TLS details).
+- Added `Response` and `ResponseMeta` for multi-attempt resolver resolutions.
+  `ResponseMeta` captures resolution-level metrics (upstream endpoint, total
+  attempts across all upstreams, `when` timestamp, total elapsed duration, evaluated DNSSEC
+  security status, channel security) and retains transport-level metrics from
+  every attempt in `wire: Vec<WireResponseMeta>` (with `winning_wire()`
+  convenience accessor for the winning attempt). Display formatting includes the
+  standard `dig`-style `;; WHEN: ...` timestamp line.
+- Added `Deref<Target = Message>` and `DerefMut` implementations to both
+  `WireResponse` and `Response`, allowing direct access to `Message` fields
+  (`answers`, `rcode`, `questions`, etc.).
 - Added the `IntoAsyncExchanger` trait for converting transports, `SocketAddr`,
   `IpAddr`, `Url`, or URI strings (`dns://`, `udp://`, `tcp://`, `tls://`,
   `https://`, and `json+https://`) directly into an `AsyncExchanger`, used by
@@ -73,6 +86,11 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- `Exchanger::exchange` and `AsyncExchanger::exchange` now return
+  `Result<WireResponse, Error>` rather than `Result<Message, Error>`, separating
+  transport execution metadata (`WireResponseMeta`) from the DNS wire message.
+- `Resolver::exchange` now returns `Result<Response, Error>`, separating
+  resolver execution metadata (`ResponseMeta`) from the DNS wire message.
 - `SOA.rname` is now stored as a domain name (`<domain-name>`) per RFC 1035 §3.3.13
   rather than an email address containing `@`, ensuring wire-format decoding and
   encoding are lossless and idempotent.
@@ -158,6 +176,11 @@ All notable changes to rustdns are documented here.
 - Removed the blocking, single-client `Resolver` (`Resolver::new`,
   `Resolver::new_with_client`, and the synchronous `Exchanger`-based
   `Resolver::lookup`). Use the new async `Resolver::builder()` API.
+- Removed `Message.stats` and the `Stats` struct. Transport and connection
+  metadata are no longer stored on `Message`, restoring `Message` as a pure DNS
+  wire-format struct and eliminating custom equality/hashing workarounds.
+  Single-attempt transport metadata is now accessed via `WireResponse.meta`, and
+  multi-attempt resolver metadata via `Response.meta.wire`.
 
 ## [0.7.0] - 2026-09-03
 
