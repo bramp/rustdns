@@ -532,7 +532,10 @@ pub enum ExtendedRcode {
 
 /// Resource Record Type, for example, A, CNAME or SOA.
 ///
-#[derive(Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, Ord, PartialEq, PartialOrd,
+)]
+#[strum(ascii_case_insensitive)]
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)]
@@ -568,6 +571,31 @@ pub enum Type {
     /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
     OPT = 41,
 
+    /// Delegation Signer. See [rfc4034].
+    ///
+    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    DS = 43,
+
+    /// Signature for an RRset. See [rfc4034].
+    ///
+    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    RRSIG = 46,
+
+    /// Next Secure name. See [rfc4034].
+    ///
+    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    NSEC = 47,
+
+    /// DNS Key. See [rfc4034].
+    ///
+    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    DNSKEY = 48,
+
+    /// Message Digest for DNS Zones. See [rfc8976].
+    ///
+    /// [rfc8976]: https://datatracker.ietf.org/doc/html/rfc8976
+    ZONEMD = 63,
+
     /// Sender Policy Framework. See [rfc4408]
     /// Discontinued in [rfc7208] due to widespread lack of support.
     ///
@@ -588,7 +616,9 @@ impl Default for Type {
 }
 
 /// Resource Record Class, for example Internet.
-#[derive(Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, PartialEq)]
+#[derive(
+    Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, Ord, PartialEq, PartialOrd,
+)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)]
 pub enum Class {
@@ -659,6 +689,12 @@ pub enum Resource {
     SOA(SOA),
     SRV(SRV),
 
+    DS(DS),
+    DNSKEY(DNSKEY),
+    RRSIG(RRSIG),
+    NSEC(NSEC),
+    ZONEMD(ZONEMD),
+
     OPT,
 
     ANY, // Not a valid Record Type, but is a Type
@@ -679,6 +715,11 @@ impl Resource {
             Resource::SOA(_) => Type::SOA,
             Resource::SRV(_) => Type::SRV,
             Resource::SPF(_) => Type::SPF,
+            Resource::DS(_) => Type::DS,
+            Resource::DNSKEY(_) => Type::DNSKEY,
+            Resource::RRSIG(_) => Type::RRSIG,
+            Resource::NSEC(_) => Type::NSEC,
+            Resource::ZONEMD(_) => Type::ZONEMD,
             Resource::OPT => Type::OPT,
             Resource::ANY => Type::ANY,
         }

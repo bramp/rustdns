@@ -6,10 +6,15 @@ use crate::Message;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
+use crate::resource::DNSKEY;
+use crate::resource::DS;
 use crate::resource::MX;
+use crate::resource::NSEC;
+use crate::resource::RRSIG;
 use crate::resource::SOA;
 use crate::resource::SRV;
 use crate::resource::TXT;
+use crate::resource::ZONEMD;
 use std::fmt;
 
 /// Displays this message in a format resembling `dig` output.
@@ -160,6 +165,11 @@ impl fmt::Display for Resource {
             Resource::TXT(txts) | Resource::SPF(txts) => txts.fmt(f),
             Resource::MX(mx) => mx.fmt(f),
             Resource::SRV(srv) => srv.fmt(f),
+            Resource::DS(ds) => ds.fmt(f),
+            Resource::DNSKEY(dnskey) => dnskey.fmt(f),
+            Resource::RRSIG(rrsig) => rrsig.fmt(f),
+            Resource::NSEC(nsec) => nsec.fmt(f),
+            Resource::ZONEMD(zonemd) => zonemd.fmt(f),
 
             Resource::OPT => write!(f, "OPT (TODO)"),
             Resource::ANY => write!(f, "*"),
@@ -212,6 +222,73 @@ impl fmt::Display for SRV {
     }
 }
 
+impl fmt::Display for DS {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{key_tag} {algorithm} {digest_type} {digest}",
+            key_tag = self.key_tag,
+            algorithm = self.algorithm,
+            digest_type = self.digest_type,
+            digest = crate::util::hex_encode(&self.digest),
+        )
+    }
+}
+
+impl fmt::Display for DNSKEY {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{flags} {protocol} {algorithm} {key}",
+            flags = self.flags,
+            protocol = self.protocol,
+            algorithm = self.algorithm,
+            key = crate::util::base64_encode(&self.public_key),
+        )
+    }
+}
+
+impl fmt::Display for RRSIG {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{type_covered} {algorithm} {labels} {original_ttl} {expiration} {inception} {key_tag} {signer_name} {signature}",
+            type_covered = self.type_covered,
+            algorithm = self.algorithm,
+            labels = self.labels,
+            original_ttl = self.original_ttl,
+            expiration = self.expiration,
+            inception = self.inception,
+            key_tag = self.key_tag,
+            signer_name = self.signer_name,
+            signature = crate::util::base64_encode(&self.signature),
+        )
+    }
+}
+
+impl fmt::Display for NSEC {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{next_domain}", next_domain = self.next_domain)?;
+        for t in &self.types {
+            write!(f, " {t}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for ZONEMD {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{serial} {scheme} {algorithm} {digest}",
+            serial = self.serial,
+            scheme = self.scheme,
+            algorithm = self.algorithm,
+            digest = crate::util::hex_encode(&self.digest),
+        )
+    }
+}
+
 impl fmt::Display for TXT {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let output = self
@@ -236,14 +313,20 @@ impl fmt::Display for TXT {
 
 #[cfg(test)]
 mod tests {
+    use crate::DNSKEY;
+    use crate::DS;
     use crate::EdnsOption;
     use crate::Extension;
     use crate::MX;
     use crate::Message;
+    use crate::NSEC;
+    use crate::RRSIG;
     use crate::Resource;
     use crate::SOA;
     use crate::SRV;
     use crate::TXT;
+    use crate::Type;
+    use crate::ZONEMD;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
 
@@ -308,6 +391,54 @@ mod tests {
                         "JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;"
                     ][..])),
                     "\"k=rsa;  p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDrEee0Ri4Juz+QfiWYui/E9UGSXau/2P8LjnTD8V4Unn+2FAZVGE3kL23bzeoULYv4PeleB3gfm\" \"JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;\"",
+                ),
+                (
+                    Resource::DS(DS {
+                        key_tag: 31852,
+                        algorithm: 8,
+                        digest_type: 2,
+                        digest: vec![0x89, 0xF7, 0x67, 0x0A],
+                    }),
+                    "31852 8 2 89F7670A",
+                ),
+                (
+                    Resource::DNSKEY(DNSKEY {
+                        flags: 256,
+                        protocol: 3,
+                        algorithm: 8,
+                        public_key: vec![1, 2, 3, 4],
+                    }),
+                    "256 3 8 AQIDBA==",
+                ),
+                (
+                    Resource::RRSIG(RRSIG {
+                        type_covered: Type::A,
+                        algorithm: 8,
+                        labels: 2,
+                        original_ttl: 3600,
+                        expiration: 1789880400,
+                        inception: 1788753600,
+                        key_tag: 12345,
+                        signer_name: "example.com.".to_string(),
+                        signature: vec![10, 20, 30, 40],
+                    }),
+                    "A 8 2 3600 1789880400 1788753600 12345 example.com. ChQeKA==",
+                ),
+                (
+                    Resource::NSEC(NSEC {
+                        next_domain: "next.example.com.".to_string(),
+                        types: vec![Type::A, Type::NS, Type::SOA],
+                    }),
+                    "next.example.com. A NS SOA",
+                ),
+                (
+                    Resource::ZONEMD(ZONEMD {
+                        serial: 2026090700,
+                        scheme: 1,
+                        algorithm: 1,
+                        digest: vec![0x46, 0x5D, 0x6F, 0x58],
+                    }),
+                    "2026090700 1 1 465D6F58",
                 ),
             ]
         };

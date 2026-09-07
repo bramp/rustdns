@@ -513,7 +513,8 @@ impl Extension {
 mod tests {
     use super::Message;
     use crate::{
-        Class, EdnsOption, Extension, MX, Question, Record, Resource, SOA, SRV, TXT, Type,
+        Class, DNSKEY, DS, EdnsOption, Extension, MX, NSEC, Question, RRSIG, Record, Resource, SOA,
+        SRV, TXT, Type, ZONEMD,
     };
     use std::convert::TryFrom;
 
@@ -769,6 +770,39 @@ mod tests {
                 weight: 2,
                 port: 443,
                 name: "service.example.com.".to_string(),
+            }),
+            Resource::DS(DS {
+                key_tag: 31852,
+                algorithm: 8,
+                digest_type: 2,
+                digest: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            }),
+            Resource::DNSKEY(DNSKEY {
+                flags: 256,
+                protocol: 3,
+                algorithm: 8,
+                public_key: vec![10, 20, 30, 40],
+            }),
+            Resource::RRSIG(RRSIG {
+                type_covered: Type::A,
+                algorithm: 8,
+                labels: 2,
+                original_ttl: 3600,
+                expiration: 1789880400,
+                inception: 1788753600,
+                key_tag: 12345,
+                signer_name: "example.com.".to_string(),
+                signature: vec![99, 100, 101, 102],
+            }),
+            Resource::NSEC(NSEC {
+                next_domain: "next.example.com.".to_string(),
+                types: vec![Type::A, Type::AAAA, Type::RRSIG, Type::NSEC],
+            }),
+            Resource::ZONEMD(ZONEMD {
+                serial: 2026090700,
+                scheme: 1,
+                algorithm: 1,
+                digest: vec![0xAB, 0xCD, 0xEF],
             }),
         ];
 

@@ -1,12 +1,17 @@
 //! Implements the FromStr trait for the various types, to be able to parse in `dig` style.
 // Refer to https://github.com/tigeli/bind-utils/blob/master/bin/dig/dig.c for reference.
 
+use crate::DNSKEY;
+use crate::DS;
 use crate::MX;
+use crate::NSEC;
+use crate::RRSIG;
 use crate::Resource;
 use crate::SOA;
 use crate::SRV;
 use crate::TXT;
 use crate::Type;
+use crate::ZONEMD;
 use core::num::ParseIntError;
 use core::str::FromStr;
 use regex::Regex;
@@ -57,6 +62,11 @@ impl Resource {
             Type::SOA => Resource::SOA(s.parse()?),
             Type::SPF => Resource::SPF(s.parse()?),
             Type::TXT => Resource::TXT(s.parse()?),
+            Type::DS => Resource::DS(s.parse()?),
+            Type::DNSKEY => Resource::DNSKEY(s.parse()?),
+            Type::RRSIG => Resource::RRSIG(s.parse()?),
+            Type::NSEC => Resource::NSEC(s.parse()?),
+            Type::ZONEMD => Resource::ZONEMD(s.parse()?),
 
             // This should never appear in a answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => return Err(FromStrError::UnsupportedType),
@@ -145,6 +155,136 @@ impl FromStr for SRV {
         } else {
             Err(FromStrError::InvalidFormat)
         }
+    }
+}
+
+impl FromStr for DS {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if parts.len() < 4 {
+            return Err(FromStrError::InvalidFormat);
+        }
+        let key_tag = parts[0].parse()?;
+        let algorithm = parts[1].parse()?;
+        let digest_type = parts[2].parse()?;
+        let digest_hex = parts[3..].join("");
+        let digest =
+            crate::util::hex_decode(&digest_hex).map_err(|_| FromStrError::InvalidFormat)?;
+        Ok(DS {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        })
+    }
+}
+
+impl FromStr for DNSKEY {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if parts.len() < 4 {
+            return Err(FromStrError::InvalidFormat);
+        }
+        let flags = parts[0].parse()?;
+        let protocol = parts[1].parse()?;
+        let algorithm = parts[2].parse()?;
+        let key_b64 = parts[3..].join("");
+        let public_key =
+            crate::util::base64_decode(&key_b64).map_err(|_| FromStrError::InvalidFormat)?;
+        Ok(DNSKEY {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        })
+    }
+}
+
+fn parse_rrsig_time(s: &str) -> Result<u32, FromStrError> {
+    if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S") {
+            let ts = dt.and_utc().timestamp();
+            if let Ok(ts_u32) = u32::try_from(ts) {
+                return Ok(ts_u32);
+            }
+        }
+    }
+    s.parse::<u32>().map_err(FromStrError::from)
+}
+
+impl FromStr for RRSIG {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if parts.len() < 9 {
+            return Err(FromStrError::InvalidFormat);
+        }
+        let type_covered = Type::from_str(parts[0]).map_err(|_| FromStrError::InvalidFormat)?;
+        let algorithm = parts[1].parse()?;
+        let labels = parts[2].parse()?;
+        let original_ttl = parts[3].parse()?;
+        let expiration = parse_rrsig_time(parts[4])?;
+        let inception = parse_rrsig_time(parts[5])?;
+        let key_tag = parts[6].parse()?;
+        let signer_name = parts[7].to_string();
+        let sig_b64 = parts[8..].join("");
+        let signature =
+            crate::util::base64_decode(&sig_b64).map_err(|_| FromStrError::InvalidFormat)?;
+        Ok(RRSIG {
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+            signature,
+        })
+    }
+}
+
+impl FromStr for NSEC {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split_whitespace();
+        let next_domain = parts.next().ok_or(FromStrError::InvalidFormat)?.to_string();
+        let mut types = Vec::new();
+        for type_str in parts {
+            if let Ok(t) = Type::from_str(type_str) {
+                types.push(t);
+            }
+        }
+        Ok(NSEC { next_domain, types })
+    }
+}
+
+impl FromStr for ZONEMD {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if parts.len() < 4 {
+            return Err(FromStrError::InvalidFormat);
+        }
+        let serial = parts[0].parse()?;
+        let scheme = parts[1].parse()?;
+        let algorithm = parts[2].parse()?;
+        let digest_hex = parts[3..].join("");
+        let digest =
+            crate::util::hex_decode(&digest_hex).map_err(|_| FromStrError::InvalidFormat)?;
+        Ok(ZONEMD {
+            serial,
+            scheme,
+            algorithm,
+            digest,
+        })
     }
 }
 

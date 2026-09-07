@@ -48,6 +48,11 @@ impl Resource {
             Resource::MX(mx) => mx.append_rdata_to_vec(buf)?,
             Resource::SOA(soa) => soa.append_rdata_to_vec(buf)?,
             Resource::SRV(srv) => srv.append_rdata_to_vec(buf)?,
+            Resource::DS(ds) => ds.append_rdata_to_vec(buf)?,
+            Resource::DNSKEY(dnskey) => dnskey.append_rdata_to_vec(buf)?,
+            Resource::RRSIG(rrsig) => rrsig.append_rdata_to_vec(buf)?,
+            Resource::NSEC(nsec) => nsec.append_rdata_to_vec(buf)?,
+            Resource::ZONEMD(zonemd) => zonemd.append_rdata_to_vec(buf)?,
             Resource::OPT | Resource::ANY => {
                 return Err(EncodeError::UnsupportedType(self.r#type()));
             }
@@ -134,6 +139,11 @@ impl Record {
             Type::TXT => Resource::TXT(TXT::parse(&mut record)?),
             Type::SPF => Resource::SPF(TXT::parse(&mut record)?),
             Type::SRV => Resource::SRV(SRV::parse(&mut record)?),
+            Type::DS => Resource::DS(DS::parse(&mut record)?),
+            Type::DNSKEY => Resource::DNSKEY(DNSKEY::parse(&mut record)?),
+            Type::RRSIG => Resource::RRSIG(RRSIG::parse(&mut record)?),
+            Type::NSEC => Resource::NSEC(NSEC::parse(&mut record)?),
+            Type::ZONEMD => Resource::ZONEMD(ZONEMD::parse(&mut record)?),
 
             // This should never appear in a answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => {
@@ -208,6 +218,336 @@ pub struct SRV {
     pub weight: u16,
     pub port: u16,
     pub name: String,
+}
+
+/// Delegation Signer (DS) record. See [RFC 4034 §5].
+///
+/// [RFC 4034 §5]: https://datatracker.ietf.org/doc/html/rfc4034#section-5
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct DS {
+    /// The Key Tag of the DNSKEY RR referred to by the DS RR.
+    pub key_tag: u16,
+
+    /// The algorithm number of the DNSKEY RR referred to by the DS RR.
+    pub algorithm: u8,
+
+    /// The digest type used to calculate the digest.
+    pub digest_type: u8,
+
+    /// The cryptographic digest of the DNSKEY RR.
+    pub digest: Vec<u8>,
+}
+
+impl DS {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        buf.extend_from_slice(&self.key_tag.to_be_bytes());
+        buf.push(self.algorithm);
+        buf.push(self.digest_type);
+        buf.extend_from_slice(&self.digest);
+        Ok(())
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<DS, DecodeError> {
+        let key_tag = cur.read_u16::<BE>()?;
+        let algorithm = cur.read_u8()?;
+        let digest_type = cur.read_u8()?;
+        let mut digest = Vec::new();
+        cur.read_to_end(&mut digest)?;
+        Ok(DS {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        })
+    }
+}
+
+/// DNS Key (DNSKEY) record. See [RFC 4034 §2].
+///
+/// [RFC 4034 §2]: https://datatracker.ietf.org/doc/html/rfc4034#section-2
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct DNSKEY {
+    /// Bit flags (e.g. 256 for ZSK, 257 for KSK).
+    pub flags: u16,
+
+    /// Protocol field, must be 3.
+    pub protocol: u8,
+
+    /// Algorithm number of the public key.
+    pub algorithm: u8,
+
+    /// Public key data.
+    pub public_key: Vec<u8>,
+}
+
+impl DNSKEY {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        buf.extend_from_slice(&self.flags.to_be_bytes());
+        buf.push(self.protocol);
+        buf.push(self.algorithm);
+        buf.extend_from_slice(&self.public_key);
+        Ok(())
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<DNSKEY, DecodeError> {
+        let flags = cur.read_u16::<BE>()?;
+        let protocol = cur.read_u8()?;
+        let algorithm = cur.read_u8()?;
+        let mut public_key = Vec::new();
+        cur.read_to_end(&mut public_key)?;
+        Ok(DNSKEY {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        })
+    }
+}
+
+/// DNSSEC Signature (RRSIG) record. See [RFC 4034 §3].
+///
+/// [RFC 4034 §3]: https://datatracker.ietf.org/doc/html/rfc4034#section-3
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct RRSIG {
+    /// The RR type covered by this signature.
+    pub type_covered: Type,
+
+    /// The cryptographic algorithm used to create the signature.
+    pub algorithm: u8,
+
+    /// The number of labels in the original RRSIG RR owner name.
+    pub labels: u8,
+
+    /// The original TTL of the covered RRset.
+    pub original_ttl: u32,
+
+    /// Signature expiration time (seconds since UNIX epoch).
+    pub expiration: u32,
+
+    /// Signature inception time (seconds since UNIX epoch).
+    pub inception: u32,
+
+    /// The key tag of the DNSKEY RR that validates this signature.
+    pub key_tag: u16,
+
+    /// The domain name of the signer generating the signature.
+    pub signer_name: String,
+
+    /// The cryptographic signature.
+    pub signature: Vec<u8>,
+}
+
+impl RRSIG {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        buf.extend_from_slice(&(self.type_covered as u16).to_be_bytes());
+        buf.push(self.algorithm);
+        buf.push(self.labels);
+        buf.extend_from_slice(&self.original_ttl.to_be_bytes());
+        buf.extend_from_slice(&self.expiration.to_be_bytes());
+        buf.extend_from_slice(&self.inception.to_be_bytes());
+        buf.extend_from_slice(&self.key_tag.to_be_bytes());
+        Message::append_qname_to_vec(buf, &self.signer_name)?;
+        buf.extend_from_slice(&self.signature);
+        Ok(())
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<RRSIG, DecodeError> {
+        let type_code = cur.read_u16::<BE>()?;
+        let type_covered = num_traits::FromPrimitive::from_u16(type_code).unwrap_or(Type::Reserved);
+        let algorithm = cur.read_u8()?;
+        let labels = cur.read_u8()?;
+        let original_ttl = cur.read_u32::<BE>()?;
+        let expiration = cur.read_u32::<BE>()?;
+        let inception = cur.read_u32::<BE>()?;
+        let key_tag = cur.read_u16::<BE>()?;
+        let signer_name = cur.read_qname()?;
+        let mut signature = Vec::new();
+        cur.read_to_end(&mut signature)?;
+        Ok(RRSIG {
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+            signature,
+        })
+    }
+}
+
+/// Next Secure (NSEC) record. See [RFC 4034 §4].
+///
+/// [RFC 4034 §4]: https://datatracker.ietf.org/doc/html/rfc4034#section-4
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct NSEC {
+    /// The next owner name in canonical order.
+    pub next_domain: String,
+
+    /// The RR types that exist at the owner name.
+    pub types: Vec<Type>,
+}
+
+impl NSEC {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        Message::append_qname_to_vec(buf, &self.next_domain)?;
+        Self::encode_type_bit_maps(&self.types, buf);
+        Ok(())
+    }
+
+    /// Encodes a list of DNS record types into the windowed Type Bit Maps wire format
+    /// defined in [RFC 4034 §4.1.2].
+    ///
+    /// The 16-bit type space (0–65535) is partitioned into up to 256 window blocks of 256 types
+    /// each. For each window containing at least one present type, this emits:
+    /// - 1 octet window block number (`window = type / 256`)
+    /// - 1 octet bitmap length (1 to 32 octets, truncated after the highest set bit in the window)
+    /// - 1 to 32 octets of bitmap data where bit `i` (left-to-right, MSB to LSB) represents
+    ///   the presence of type `window * 256 + i`
+    ///
+    /// [RFC 4034 §4.1.2]: https://datatracker.ietf.org/doc/html/rfc4034#section-4.1.2
+    pub(crate) fn encode_type_bit_maps(types: &[Type], buf: &mut Vec<u8>) {
+        if types.is_empty() {
+            return;
+        }
+        let mut codes: Vec<u16> = types.iter().map(|t| *t as u16).collect();
+        codes.sort_unstable();
+        codes.dedup();
+
+        let mut cur_window: Option<u8> = None;
+        let mut bitmap = [0_u8; 32];
+        let mut max_byte_idx = 0;
+
+        for code in codes {
+            let window = (code / 256) as u8;
+            let bit_offset = (code % 256) as usize;
+            let byte_idx = bit_offset / 8;
+            let bit_idx = 7 - (bit_offset % 8);
+
+            if Some(window) != cur_window {
+                if let Some(w) = cur_window {
+                    let len = max_byte_idx + 1;
+                    buf.push(w);
+                    buf.push(len as u8);
+                    buf.extend_from_slice(&bitmap[..len]);
+                }
+                cur_window = Some(window);
+                bitmap = [0_u8; 32];
+                max_byte_idx = 0;
+            }
+
+            bitmap[byte_idx] |= 1 << bit_idx;
+            if byte_idx > max_byte_idx {
+                max_byte_idx = byte_idx;
+            }
+        }
+
+        if let Some(w) = cur_window {
+            let len = max_byte_idx + 1;
+            buf.push(w);
+            buf.push(len as u8);
+            buf.extend_from_slice(&bitmap[..len]);
+        }
+    }
+
+    /// Decodes DNS record types from the windowed Type Bit Maps wire format per [RFC 4034 §4.1.2].
+    ///
+    /// Parses consecutive window blocks until the end of the RDATA cursor is reached:
+    /// - 1 octet window block number
+    /// - 1 octet bitmap length (must be between 1 and 32 octets)
+    /// - Bitmap octets where each set bit corresponds to `(window << 8) | (byte_index * 8 + bit_index)`
+    ///
+    /// Any unassigned or unrecognized type codes that do not map to known [`Type`] variants
+    /// are skipped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeError::UnexpectedEof`] if a window block or its bitmap is truncated,
+    /// or if the bitmap length byte is invalid (`0` or greater than `32`).
+    ///
+    /// [RFC 4034 §4.1.2]: https://datatracker.ietf.org/doc/html/rfc4034#section-4.1.2
+    pub(crate) fn decode_type_bit_maps(cur: &mut Cursor<&[u8]>) -> Result<Vec<Type>, DecodeError> {
+        let mut types = Vec::new();
+        while cur.remaining()? > 0 {
+            let window = cur.read_u8()?;
+            let len = cur.read_u8()? as usize;
+            if len == 0 || len > 32 {
+                return Err(DecodeError::UnexpectedEof);
+            }
+            if cur.remaining()? < len as u64 {
+                return Err(DecodeError::UnexpectedEof);
+            }
+            let mut bitmap = vec![0_u8; len];
+            cur.read_exact(&mut bitmap)?;
+
+            for (byte_idx, &byte) in bitmap.iter().enumerate() {
+                for bit_idx in 0..8 {
+                    if (byte >> (7 - bit_idx)) & 1 == 1 {
+                        let type_code =
+                            (u16::from(window) << 8) | ((byte_idx as u16) * 8 + bit_idx as u16);
+                        if let Some(t) = num_traits::FromPrimitive::from_u16(type_code) {
+                            types.push(t);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(types)
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<NSEC, DecodeError> {
+        let next_domain = cur.read_qname()?;
+        let types = Self::decode_type_bit_maps(cur)?;
+        Ok(NSEC { next_domain, types })
+    }
+}
+
+/// Message Digest for DNS Zones (ZONEMD) record. See [RFC 8976].
+///
+/// [RFC 8976]: https://datatracker.ietf.org/doc/html/rfc8976
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct ZONEMD {
+    /// The SOA serial number of the zone at the time the digest was generated.
+    pub serial: u32,
+
+    /// The verification scheme (e.g. 1 for simple).
+    pub scheme: u8,
+
+    /// The cryptographic hash algorithm.
+    pub algorithm: u8,
+
+    /// The zone message digest.
+    pub digest: Vec<u8>,
+}
+
+impl ZONEMD {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        buf.extend_from_slice(&self.serial.to_be_bytes());
+        buf.push(self.scheme);
+        buf.push(self.algorithm);
+        buf.extend_from_slice(&self.digest);
+        Ok(())
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<ZONEMD, DecodeError> {
+        let serial = cur.read_u32::<BE>()?;
+        let scheme = cur.read_u8()?;
+        let algorithm = cur.read_u8()?;
+        let mut digest = Vec::new();
+        cur.read_to_end(&mut digest)?;
+        Ok(ZONEMD {
+            serial,
+            scheme,
+            algorithm,
+            digest,
+        })
+    }
 }
 
 fn parse_a(cur: &mut Cursor<&[u8]>, class: Class) -> Result<A, DecodeError> {

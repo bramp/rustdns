@@ -37,7 +37,7 @@ sync = []
 resolver = ["dep:tokio"]
 
 # DNS over HTTPS (DoH) client (rfc8484).
-doh  = ["http_deps", "base64"]
+doh  = ["http_deps"]
 
 # DNS over HTTPS JSON client
 json = ["http_deps", "serde", "serde_json"]
@@ -67,9 +67,6 @@ rustls = { version = "0.23.43", default-features = false, features = ["ring", "s
 tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring"], optional = true }
 webpki-roots = { version = "1.0.9", optional = true }
 
-# Needed for DNS over HTTP (DoH)
-base64 = { version = "0.23.1", optional = true }
-
 # Needed for DNS over HTTP Json
 serde = { version = "1.0.229", features = ["derive"], optional = true }
 serde_json = { version = "1.0.151", optional = true }
@@ -84,7 +81,9 @@ arbitrary = { version = "1.4", features = ["derive"], optional = true }
 
 # Everything else
 async-trait = "0.1.92"
+base64 = "0.23.1"
 chrono = "0.4.45"
+hex = "0.4.3"
 byteorder = "1.5.0"
 bytes = "1.12.1"
 idna = "1.1.0"
@@ -104,7 +103,6 @@ tokio = { version = "1.53.1", features = ["net", "time", "sync", "io-util"], opt
 
 [dev-dependencies]
 env_logger = "0.11.11"
-hex = "0.4.3"
 pretty_assertions = "1.4.1"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
