@@ -6,6 +6,16 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- Added WebAssembly (`wasm32-unknown-unknown`, `wasm32-wasip1`) support for core
+  DNS wire parsing and encoding (`--no-default-features`), zone file parsing
+  (`zones`), and pure JSON serialization (`json`).
+- Added standalone `rustdns::json` module exposing `from_slice`, `from_str`,
+  `to_string`, and `to_string_pretty` with zero networking or asynchronous runtime
+  dependencies.
+- Extended `MessageJson` schema to support `Authority` and `Additional` record
+  arrays from Google and Cloudflare DNS-over-HTTPS JSON responses.
+- Added `doh-json` feature for the HTTP-based DNS-over-HTTPS JSON client
+  (`rustdns::clients::json::Client`), decoupling it from pure serde serialization.
 - Added a declared minimum supported Rust version of 1.85.
 - Added `DecodeError` and `EncodeError`, structured error types for DNS
   wire-format decoding and encoding, replacing the previous `std::io::Error`
@@ -94,6 +104,11 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- Decoupled `json` Cargo feature into pure serde parsing and serialization (`serde`,
+  `serde_json`), while `doh-json` guards the Tokio and Hyper-based client transport.
+  `clients` continues to include `doh-json` by default.
+- Moved `socket2` dependency to `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`
+  and enabled `getrandom` with `wasm_js` on `wasm32-unknown-unknown` to support WebAssembly.
 - `File::try_into_records` now defaults an unspecified `<class>` field to `Class::Internet`
   (`IN`) per RFC 1035 §5.1 when no previous record class exists to inherit.
 - `Exchanger::exchange` and `AsyncExchanger::exchange` now return

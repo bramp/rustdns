@@ -421,7 +421,7 @@ In addition:
    instantiating messages via default construction can panic at runtime.
 3. **Incomplete Schema Coverage**: The internal `MessageJson` only decodes
    `Question` and `Answer` fields, ignoring `Authority` and `Additional` records
-   present in Google and Cloudflare DNS-over-HTTPS JSON responses (RFC 8427).
+   present in Google and Cloudflare DNS-over-HTTPS JSON responses.
 
 #### 2. Architecture & Design
 
@@ -436,7 +436,7 @@ In addition:
               v                                          v
 +-----------------------------+            +-----------------------------+
 |     rustdns::json           |            | rustdns::clients::json      |
-|  - Feature: "json"          |            |  - Feature: "json-client"   |
+|  - Feature: "json"          |            |  - Feature: "doh-json"       |
 |  - from_slice / from_str    |<-----------|  - Client::try_new(Url)     |
 |  - to_string / to_writer    | (delegates |  - Implements AsyncExchanger|
 |  - Zero I/O dependencies    |  parsing)  |  - Requires "http_deps"     |
@@ -456,10 +456,10 @@ Split the responsibilities into two distinct Cargo features:
 - `json`: Enables pure data serialization and deserialization via `serde` and
   `serde_json`. Zero network or Tokio dependencies. Compiles cleanly on
   `wasm32-unknown-unknown` and `no_std`+alloc environments.
-- `json-client`: Enables the HTTP client transport (`rustdns::clients::json::Client`)
+- `doh-json`: Enables the HTTP client transport (`rustdns::clients::json::Client`)
   and `IntoAsyncExchanger` support for `json+https://`. Depends on `json` and
   `http_deps`.
-- `clients`: Preserves backward compatibility by bundling `json-client` (alongside
+- `clients`: Preserves backward compatibility by bundling `doh-json` (alongside
   `doh`, `do53`, `dot`, `resolver`, and `sync`). Default crate configurations
   continue to compile all clients without breaking changes.
 
@@ -481,53 +481,45 @@ Extract and elevate JSON handling into a top-level module:
   - `rustdns::json::from_str(s: &str) -> Result<Message, JsonError>`
   - `rustdns::json::to_string(msg: &Message) -> Result<String, JsonError>`
 
-##### 2.3 Ergonomic `Message` Methods
-Behind `#[cfg(feature = "json")]` in [src/dns.rs](src/dns.rs):
-- `Message::from_json_slice(bytes: &[u8]) -> Result<Message, JsonError>`
-- `Message::from_json_str(s: &str) -> Result<Message, JsonError>`
-- `Message::to_json_string(&self) -> Result<String, JsonError>`
-
-##### 2.4 Transport Integration
+##### 2.3 Transport Integration
 In [src/clients/json/async.rs](src/clients/json/async.rs):
-- Keep `Client` and `AsyncExchanger` intact, guarded by `#[cfg(feature = "json-client")]`.
+- Keep `Client` and `AsyncExchanger` intact, guarded by `#[cfg(feature = "doh-json")]`.
 - Replace the internal `parse_response` implementation with a call to
   `crate::json::from_slice(body)`.
 - Retain `fuzz_parse_response` for compatibility with existing fuzz targets.
 - Update [src/clients/into_exchanger.rs](src/clients/into_exchanger.rs) to guard `json+https://` scheme handling
-  under `feature = "json-client"`.
+  under `feature = "doh-json"`.
 
 #### WASM Support Implementation Checklist
 
-- [ ] **Phase 1: Feature Decoupling in Cargo.toml**
-  - [ ] Redefine `json = ["dep:serde", "dep:serde_json"]` in [Cargo.toml](Cargo.toml).
-  - [ ] Add `json-client = ["json", "http_deps"]` to [Cargo.toml](Cargo.toml).
-  - [ ] Update `clients = ["doh", "json-client", "do53", "dot", "resolver", "sync"]` in [Cargo.toml](Cargo.toml).
-  - [ ] Update `Cargo.toml` `cargo-all-features` metadata to include `json-client`.
-- [ ] **Phase 2: Core JSON Serialization & Deserialization Module**
-  - [ ] Create [src/json.rs](src/json.rs) containing `MessageJson`, `QuestionJson`, and `RecordJson`.
-  - [ ] Add support for `Authority` and `Additional` record arrays in `MessageJson`.
-  - [ ] Implement `TryFrom<MessageJson> for Message` without calling `Message::default()` or `rand::rng()`.
-  - [ ] Implement `TryFrom<&Message> for MessageJson` for serializing outbound DNS messages to JSON.
-  - [ ] Expose `from_slice`, `from_str`, and `to_string` functions in [src/json.rs](src/json.rs).
-  - [ ] Export `pub mod json;` in [src/lib.rs](src/lib.rs) gated on `feature = "json"`.
-  - [ ] Add `from_json_slice`, `from_json_str`, and `to_json_string` to `Message` in [src/dns.rs](src/dns.rs) gated on `feature = "json"`.
-  - [ ] Ensure `JsonError` and `Error::Json` remain transparent and gated on `feature = "json"` in [src/errors.rs](src/errors.rs).
-- [ ] **Phase 3: Client & Transports Integration**
-  - [ ] Update [src/clients/mod.rs](src/clients/mod.rs) to gate `pub mod json;` on `feature = "json-client"`.
-  - [ ] Update [src/clients/json/async.rs](src/clients/json/async.rs) to delegate body decoding to `crate::json::from_slice`.
-  - [ ] Update [src/clients/into_exchanger.rs](src/clients/into_exchanger.rs) to guard `json+https://` under `feature = "json-client"`.
-  - [ ] Update [src/clients/common/mod.rs](src/clients/common/mod.rs) HTTP feature guards from `feature = "json"` to `feature = "json-client"`.
-- [ ] **Phase 4: Testing, Fuzzing, & Verification**
-  - [ ] Add unit tests in [src/json.rs](src/json.rs) and [tests/dns.rs](tests/dns.rs) verifying JSON decoding of real Google and Cloudflare responses with zero network dependencies.
-  - [ ] Update [tests/clients.rs](tests/clients.rs) to run JSON client tests under `feature = "json-client"`.
-  - [ ] Update [fuzz/fuzz_targets/json.rs](fuzz/fuzz_targets/json.rs) to test `rustdns::json::from_slice`.
-  - [ ] Verify clean compilation on `wasm32-unknown-unknown`:
+- [x] **Phase 1: Feature Decoupling in Cargo.toml**
+  - [x] Redefine `json = ["dep:serde", "dep:serde_json"]` in [Cargo.toml](Cargo.toml).
+  - [x] Add `doh-json = ["json", "http_deps"]` to [Cargo.toml](Cargo.toml).
+  - [x] Update `clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync"]` in [Cargo.toml](Cargo.toml).
+- [x] **Phase 2: Core JSON Serialization & Deserialization Module**
+  - [x] Create [src/json.rs](src/json.rs) containing `MessageJson`, `QuestionJson`, and `RecordJson`.
+  - [x] Add support for `Authority` and `Additional` record arrays in `MessageJson`.
+  - [x] Implement `TryFrom<MessageJson> for Message` without calling `Message::default()` or `rand::rng()`.
+  - [x] Implement `TryFrom<&Message> for MessageJson` for serializing outbound DNS messages to JSON.
+  - [x] Expose `from_slice`, `from_str`, and `to_string` functions in [src/json.rs](src/json.rs).
+  - [x] Export `pub mod json;` in [src/lib.rs](src/lib.rs) gated on `feature = "json"`.
+  - [x] Ensure `JsonError` and `Error::Json` remain transparent and gated on `feature = "json"` in [src/errors.rs](src/errors.rs).
+- [x] **Phase 3: Client & Transports Integration**
+  - [x] Update [src/clients/mod.rs](src/clients/mod.rs) to gate `pub mod json;` on `feature = "doh-json"`.
+  - [x] Update [src/clients/json/async.rs](src/clients/json/async.rs) to delegate body decoding to `crate::json::from_slice`.
+  - [x] Update [src/clients/into_exchanger.rs](src/clients/into_exchanger.rs) to guard `json+https://` under `feature = "doh-json"`.
+  - [x] Update [src/clients/common/mod.rs](src/clients/common/mod.rs) HTTP feature guards from `feature = "json"` to `feature = "doh-json"`.
+- [x] **Phase 4: Testing, Fuzzing, & Verification**
+  - [x] Add unit tests in [src/json.rs](src/json.rs) and [tests/dns.rs](tests/dns.rs) verifying JSON decoding of real Google and Cloudflare responses with zero network dependencies.
+  - [x] Update [tests/clients.rs](tests/clients.rs) to run JSON client tests under `feature = "doh-json"`.
+  - [x] Update [fuzz/fuzz_targets/json.rs](fuzz/fuzz_targets/json.rs) to test `rustdns::json::from_slice`.
+  - [x] Verify clean compilation on `wasm32-unknown-unknown`:
         `cargo check --target wasm32-unknown-unknown --no-default-features --features json`
-  - [ ] Verify feature matrix:
+  - [x] Verify feature matrix:
         `cargo test --no-default-features --features json`
-        `cargo test --no-default-features --features json-client`
+        `cargo test --no-default-features --features doh-json`
         `cargo test --workspace --all-features`
-  - [ ] Document changes in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`.
+  - [x] Document changes in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`.
 
 ### End-to-End Performance Benchmarking & Allocation Profiling
 
