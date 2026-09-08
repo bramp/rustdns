@@ -384,6 +384,18 @@ impl Message {
 }
 
 impl Question {
+    /// Returns the question name converted to ASCII (punycode) format.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidName`] when the question name cannot be
+    /// converted to ASCII via IDNA.
+    pub fn ascii_name(&self) -> Result<String, EncodeError> {
+        idna::domain_to_ascii(&self.name).map_err(|_| EncodeError::InvalidName {
+            name: self.name.clone(),
+        })
+    }
+
     /// Appends this question as DNS wire-format bytes to `buf`.
     ///
     /// # Errors
@@ -740,6 +752,28 @@ mod tests {
         let decoded = Message::from_slice(&encoded).expect("encoded records should parse");
 
         assert_eq!(decoded.answers, message.answers);
+    }
+
+    #[test]
+    fn question_ascii_name_encodes_punycode() {
+        let mut msg = Message::default();
+        msg.try_add_question("🍕.ws", Type::A, Class::Internet)
+            .expect("should add emoji question");
+        assert_eq!(msg.questions[0].name, "🍕.ws.");
+        assert_eq!(
+            msg.questions[0].ascii_name().expect("ascii conversion"),
+            "xn--vi8h.ws."
+        );
+
+        let ascii_q = Question {
+            name: "example.com.".to_string(),
+            r#type: Type::A,
+            class: Class::Internet,
+        };
+        assert_eq!(
+            ascii_q.ascii_name().expect("ascii conversion"),
+            "example.com."
+        );
     }
 
     #[test]

@@ -118,6 +118,19 @@ mod tests {
     }
 
     #[test]
+    fn test_create_query_unicode_domain() {
+        let msg = create_query("🍕.ws", "A").expect("create query should succeed");
+        assert_eq!(msg.questions.len(), 1);
+        assert_eq!(msg.questions[0].name, "🍕.ws.");
+        assert_eq!(
+            msg.questions[0]
+                .ascii_name()
+                .expect("ascii name conversion"),
+            "xn--vi8h.ws."
+        );
+    }
+
+    #[test]
     fn test_create_query_invalid_type() {
         let err = create_query("example.com", "NOT_A_REAL_TYPE");
         assert!(err.is_err());
