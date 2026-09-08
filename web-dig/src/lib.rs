@@ -12,7 +12,7 @@ pub mod fetch;
 #[cfg(target_arch = "wasm32")]
 use crate::exchangers::BrowserClient;
 #[cfg(target_arch = "wasm32")]
-pub use crate::exchangers::{BrowserDohClient, BrowserJsonClient};
+pub use crate::exchangers::{BrowserDohClient, BrowserJsonClient, DohMethod};
 use rustdns::Message;
 #[cfg(target_arch = "wasm32")]
 use rustdns::clients::AsyncExchanger;
@@ -72,7 +72,7 @@ pub async fn dig_with_exchanger(
 /// - `domain`: domain name to query (e.g. "example.com").
 /// - `rtype`: record type (e.g. "A", "AAAA", "MX", "TXT").
 /// - `server`: DoH HTTPS endpoint URL (e.g. `<https://cloudflare-dns.com/dns-query>`).
-/// - `protocol`: "doh" (RFC 8484 binary wire POST) or "json" (DNS-over-HTTPS JSON GET).
+/// - `protocol`: "doh" (RFC 8484 binary wire POST), "doh-get" (RFC 8484 binary wire GET with base64url), or "json" (DNS-over-HTTPS JSON GET).
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn dig(

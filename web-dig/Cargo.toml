@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rustdns = { path = "../", default-features = false, features = ["exchanger", "json"] }
 async-trait = "0.1.92"
+base64 = "0.23.1"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

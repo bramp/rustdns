@@ -5,6 +5,14 @@ const ENDPOINTS = {
         protocol: "doh",
         url: "https://cloudflare-dns.com/dns-query",
     },
+    "google-doh": {
+        protocol: "doh-get",
+        url: "https://dns.google/dns-query",
+    },
+    "quad9-doh": {
+        protocol: "doh-get",
+        url: "https://dns9.quad9.net/dns-query",
+    },
     "cloudflare-json": {
         protocol: "json",
         url: "https://cloudflare-dns.com/dns-query",

@@ -3,8 +3,6 @@
 [![Build Status](https://github.com/bramp/rustdns/actions/workflows/rust.yml/badge.svg)](https://github.com/bramp/rustdns)
 [![codecov](https://codecov.io/gh/bramp/rustdns/branch/main/graph/badge.svg)](https://codecov.io/gh/bramp/rustdns)
 
-# {{crate}}
-
 {{readme}}
 
 ## License: Apache-2.0

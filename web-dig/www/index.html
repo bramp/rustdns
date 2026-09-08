@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Q5MYG17B9W"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-Q5MYG17B9W');
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web Dig - In-Browser DNS Query Tool</title>
@@ -46,7 +55,8 @@
                             <select id="endpoint-select">
                                 <optgroup label="DNS-over-HTTPS (RFC 8484)">
                                     <option value="cloudflare-doh" selected>Cloudflare (1.1.1.1)</option>
-                                    <option value="google-doh" disabled>Google (8.8.8.8) (CORS error)</option>
+                                    <option value="google-doh">Google (8.8.8.8)</option>
+                                    <option value="quad9-doh">Quad9 (9.9.9.9)</option>
                                     <option value="custom-doh">Custom URL...</option>
                                 </optgroup>
                                 <optgroup label="DNS-over-HTTPS (Unofficial JSON API)">
@@ -105,6 +115,7 @@
 
         <footer>
             <p>Built with <a href="https://github.com/bramp/rustdns" target="_blank" rel="noopener">rustdns</a> and WebAssembly. No server-side proxy required.</p>
+            <p>Made by <a href="https://bramp.net" target="_blank" rel="noopener">bramp.net</a> &copy; 2026</p>
         </footer>
     </div>
 

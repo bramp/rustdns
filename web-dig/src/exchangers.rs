@@ -1,22 +1,43 @@
 use async_trait::async_trait;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rustdns::Message;
-use rustdns::clients::doh::CONTENT_TYPE_APPLICATION_DNS_MESSAGE;
+use rustdns::clients::doh::{CONTENT_TYPE_APPLICATION_DNS_MESSAGE, DNS_QUERY_PARAM};
 use rustdns::clients::json::CONTENT_TYPE_APPLICATION_DNS_JSON;
 use rustdns::clients::{AsyncExchanger, WireResponse, WireResponseMeta};
 use rustdns::types::ChannelSecurity;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// HTTP method used for DNS-over-HTTPS (DoH, RFC 8484) requests.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DohMethod {
+    /// HTTP POST with `application/dns-message` request body.
+    #[default]
+    Post,
+    /// HTTP GET with base64url-encoded `?dns=...` query parameter per RFC 8484 §4.1.
+    Get,
+}
+
 /// An in-browser DNS-over-HTTPS (DoH, RFC 8484) client implementing [`AsyncExchanger`].
 pub struct BrowserDohClient {
     endpoint: Arc<str>,
+    method: DohMethod,
 }
 
 impl BrowserDohClient {
-    /// Creates a new [`BrowserDohClient`] targeting the given HTTPS endpoint URL.
+    /// Creates a new [`BrowserDohClient`] targeting the given HTTPS endpoint URL using POST.
     pub fn new(url: impl Into<Arc<str>>) -> Self {
         Self {
             endpoint: url.into(),
+            method: DohMethod::Post,
+        }
+    }
+
+    /// Creates a new [`BrowserDohClient`] targeting the given HTTPS endpoint URL with the specified [`DohMethod`].
+    pub fn new_with_method(url: impl Into<Arc<str>>, method: DohMethod) -> Self {
+        Self {
+            endpoint: url.into(),
+            method,
         }
     }
 }
@@ -34,16 +55,38 @@ impl AsyncExchanger for BrowserDohClient {
 
         SendWrapper(async move {
             let start = now_millis();
-            let (resp_bytes, _status) = crate::fetch::fetch_binary(
-                &self.endpoint,
-                &[
-                    ("Content-Type", CONTENT_TYPE_APPLICATION_DNS_MESSAGE),
-                    ("Accept", CONTENT_TYPE_APPLICATION_DNS_MESSAGE),
-                ],
-                Some(&wire_query),
-            )
-            .await
-            .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
+            let (resp_bytes, bytes_sent) = match self.method {
+                DohMethod::Post => {
+                    let (bytes, _status) = crate::fetch::fetch_binary(
+                        &self.endpoint,
+                        &[
+                            ("Content-Type", CONTENT_TYPE_APPLICATION_DNS_MESSAGE),
+                            ("Accept", CONTENT_TYPE_APPLICATION_DNS_MESSAGE),
+                        ],
+                        Some(&wire_query),
+                    )
+                    .await
+                    .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
+                    (bytes, wire_query.len())
+                }
+                DohMethod::Get => {
+                    let encoded = URL_SAFE_NO_PAD.encode(&wire_query);
+                    let separator = if self.endpoint.contains('?') {
+                        '&'
+                    } else {
+                        '?'
+                    };
+                    let url = format!("{}{}{DNS_QUERY_PARAM}={encoded}", self.endpoint, separator);
+                    let (bytes, _status) = crate::fetch::fetch_binary(
+                        &url,
+                        &[("Accept", CONTENT_TYPE_APPLICATION_DNS_MESSAGE)],
+                        None,
+                    )
+                    .await
+                    .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
+                    (bytes, url.len())
+                }
+            };
 
             let elapsed = Duration::from_secs_f64(((now_millis() - start).max(0.0)) / 1000.0);
             let message = Message::from_slice(&resp_bytes)?;
@@ -51,7 +94,7 @@ impl AsyncExchanger for BrowserDohClient {
             let meta = WireResponseMeta {
                 server: None,
                 elapsed,
-                bytes_sent: wire_query.len(),
+                bytes_sent,
                 bytes_received: resp_bytes.len(),
                 channel_security: ChannelSecurity::Encrypted,
                 tls_info: None,
@@ -159,13 +202,17 @@ pub enum BrowserClient {
 }
 
 impl BrowserClient {
-    /// Creates a [`BrowserClient`] according to `protocol` ("doh" or "json") targeting `server`.
+    /// Creates a [`BrowserClient`] according to `protocol` ("doh", "doh-post", "doh-get", or "json") targeting `server`.
     pub fn try_new(protocol: &str, server: impl Into<Arc<str>>) -> Result<Self, String> {
         match protocol.to_lowercase().as_str() {
-            "doh" | "rfc8484" | "wire" => Ok(Self::Doh(BrowserDohClient::new(server))),
+            "doh" | "doh-post" | "rfc8484" | "wire" => Ok(Self::Doh(BrowserDohClient::new(server))),
+            "doh-get" => Ok(Self::Doh(BrowserDohClient::new_with_method(
+                server,
+                DohMethod::Get,
+            ))),
             "json" | "doh-json" => Ok(Self::Json(BrowserJsonClient::new(server))),
             _ => Err(format!(
-                "unsupported protocol '{protocol}': must be 'doh' or 'json'"
+                "unsupported protocol '{protocol}': must be 'doh', 'doh-get', or 'json'"
             )),
         }
     }
