@@ -81,7 +81,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Restore IANA root zone fixtures
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: tests/fixtures
           key: root-fixtures-${{ github.run_id }}
@@ -94,7 +94,7 @@ jobs:
 
       - name: Save IANA root zone fixtures
         if: steps.fetch-fixtures.outputs.updated == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: tests/fixtures
           key: root-fixtures-${{ github.run_id }}
