@@ -38,6 +38,8 @@ pub const MAX_EDNS_OPTION_DATA_LEN: usize = u16::MAX as usize;
 /// [RFC 8900]: https://datatracker.ietf.org/doc/html/rfc8900
 pub const EDNS_SAFE_UDP_PAYLOAD_SIZE: u16 = 1232;
 
+// TODO https://datatracker.ietf.org/doc/html/rfc9715#section-3.2 suggests PAYLOAD_SIZE of 1400
+
 /// Recommended EDNS(0) payload size (4096 bytes) for DNS-over-HTTPS (DoH) queries,
 /// per [RFC 8484 §4.2.1] and [RFC 6891 §6.2.3].
 ///

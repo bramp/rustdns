@@ -1,6 +1,5 @@
-use crate::Class;
-use crate::Type;
 use crate::from_str::FromStrError;
+use crate::types::{Algorithm, Class, DigestType, SecurityStatus, Type};
 use thiserror::Error;
 
 /// A convenient alias for results returned by this crate.
@@ -226,6 +225,10 @@ pub enum EncodeError {
         max: u64,
     },
 
+    /// A timestamp cannot be represented in a 32-bit seconds field.
+    #[error("timestamp is out of range for a 32-bit field")]
+    TimestampOutOfRange,
+
     /// A TXT character-string was longer than its length byte can hold.
     #[error("TXT string is longer than {max} bytes")]
     TxtStringTooLong {
@@ -381,7 +384,85 @@ pub enum DnssecError {
     )]
     UntrustedChannel,
 
+    /// No valid signature was found for an RRset.
+    #[error("DNSSEC validation failed: missing valid RRSIG for RRset")]
+    MissingSignature,
+
+    /// No matching trust anchor was found for the delegation chain.
+    #[error("DNSSEC validation failed: no trust anchor found for zone '{0}'")]
+    NoTrustAnchor(String),
+
+    /// An unsupported cryptographic signing algorithm was encountered.
+    #[error("DNSSEC algorithm '{0}' is not supported")]
+    UnsupportedAlgorithm(Algorithm),
+
+    /// An unsupported DS digest algorithm was encountered.
+    #[error("DNSSEC DS digest type '{0}' is not supported")]
+    UnsupportedDigestType(DigestType),
+
     /// Local cryptographic validation failed.
     #[error("DNSSEC local validation failed: {0}")]
     ValidationFailed(String),
+}
+
+impl DnssecError {
+    /// Returns the corresponding [`SecurityStatus`] for this DNSSEC error.
+    ///
+    /// Per RFC 4035 §5.2 and RFC 6840 §5.1:
+    /// - An unsigned zone, unanchored zone, or unsupported cryptographic algorithm/digest
+    ///   means the chain cannot be authenticated, so it is treated as [`SecurityStatus::Insecure`].
+    /// - Responses claiming `AD=1` over an untrusted plaintext transport are [`SecurityStatus::Indeterminate`].
+    /// - Mismatched, missing, expired, or cryptographically invalid signatures are [`SecurityStatus::Bogus`].
+    #[must_use]
+    pub fn security_status(&self) -> SecurityStatus {
+        match self {
+            //
+            DnssecError::InsecureResponse
+            | DnssecError::NoTrustAnchor(_)
+            | DnssecError::UnsupportedAlgorithm(_)
+            | DnssecError::UnsupportedDigestType(_) => SecurityStatus::Insecure,
+            //
+            DnssecError::UntrustedChannel => SecurityStatus::Indeterminate,
+            //
+            DnssecError::BogusResponse
+            | DnssecError::MissingSignature
+            | DnssecError::ValidationFailed(_) => SecurityStatus::Bogus,
+        }
+    }
+
+    /// Returns `true` if this error indicates the zone or response is insecure (unsigned, no anchor, or unsupported crypto).
+    #[must_use]
+    pub fn is_insecure(&self) -> bool {
+        self.security_status() == SecurityStatus::Insecure
+    }
+
+    /// Returns `true` if this error indicates the response is bogus (validation or signature verification failed).
+    #[must_use]
+    pub fn is_bogus(&self) -> bool {
+        self.security_status() == SecurityStatus::Bogus
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dnssec_error_security_status() {
+        assert!(DnssecError::InsecureResponse.is_insecure());
+        assert!(!DnssecError::InsecureResponse.is_bogus());
+
+        assert!(DnssecError::UnsupportedAlgorithm(Algorithm::Unknown(254)).is_insecure());
+        assert!(DnssecError::UnsupportedDigestType(DigestType::Unknown(99)).is_insecure());
+        assert!(DnssecError::NoTrustAnchor("example.com.".to_string()).is_insecure());
+
+        assert_eq!(
+            DnssecError::UntrustedChannel.security_status(),
+            SecurityStatus::Indeterminate
+        );
+
+        assert!(DnssecError::BogusResponse.is_bogus());
+        assert!(DnssecError::MissingSignature.is_bogus());
+        assert!(DnssecError::ValidationFailed("bad sig".to_string()).is_bogus());
+    }
 }
