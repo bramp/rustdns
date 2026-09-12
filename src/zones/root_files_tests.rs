@@ -35,14 +35,11 @@ fn get_fixture_path(filename: &str, env_var: &str) -> Option<PathBuf> {
 
 #[test]
 fn test_parse_root_hints() {
-    let hints_path = match get_fixture_path("named.root", "ROOT_HINTS_PATH") {
-        Some(path) => path,
-        None => {
-            eprintln!(
-                "SKIPPED: tests/fixtures/named.root not found. Run ./scripts/fetch_root_fixtures.sh to download."
-            );
-            return;
-        }
+    let Some(hints_path) = get_fixture_path("named.root", "ROOT_HINTS_PATH") else {
+        eprintln!(
+            "SKIPPED: tests/fixtures/named.root not found. Run ./scripts/fetch_root_fixtures.sh to download."
+        );
+        return;
     };
 
     let contents = fs::read_to_string(&hints_path)
@@ -129,14 +126,11 @@ fn test_parse_root_hints() {
 
 #[test]
 fn test_parse_root_zone() {
-    let zone_path = match get_fixture_path("root.zone", "ROOT_ZONE_PATH") {
-        Some(path) => path,
-        None => {
-            eprintln!(
-                "SKIPPED: tests/fixtures/root.zone not found. Run ./scripts/fetch_root_fixtures.sh to download."
-            );
-            return;
-        }
+    let Some(zone_path) = get_fixture_path("root.zone", "ROOT_ZONE_PATH") else {
+        eprintln!(
+            "SKIPPED: tests/fixtures/root.zone not found. Run ./scripts/fetch_root_fixtures.sh to download."
+        );
+        return;
     };
 
     let metadata = fs::metadata(&zone_path)

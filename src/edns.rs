@@ -210,12 +210,12 @@ impl EdnsOption {
     pub(crate) fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         let mut data = Vec::new();
         match self {
-            Self::Nsid(value) => data.extend_from_slice(value),
             Self::ClientSubnet(subnet) => subnet.append_data_to_vec(&mut data)?,
             Self::Cookie(cookie) => cookie.append_data_to_vec(&mut data)?,
             Self::TcpKeepalive(timeout) => append_tcp_keepalive_to_vec(&mut data, *timeout)?,
-            Self::Padding(value) => data.extend_from_slice(value),
-            Self::Unknown { data: value, .. } => data.extend_from_slice(value),
+            Self::Nsid(value) | Self::Padding(value) | Self::Unknown { data: value, .. } => {
+                data.extend_from_slice(value);
+            }
         }
 
         let data_len = u16::try_from(data.len()).map_err(|_| EncodeError::OptionDataTooLong {

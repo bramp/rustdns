@@ -86,7 +86,7 @@ pub(crate) fn tls_info_from_response<B>(server: &Url, resp: &http::Response<B>) 
         version: format!("{:?}", resp.version()),
         // hyper-rustls does not expose the negotiated cipher suite through response extensions.
         cipher_suite: None,
-        server_name: server.host_str().map(|s| s.to_string()),
+        server_name: server.host_str().map(ToString::to_string),
         alpn,
     }
 }

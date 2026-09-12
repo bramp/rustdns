@@ -32,7 +32,7 @@ pub(crate) fn tls_info_from_connection(
 
     let alpn = conn
         .alpn_protocol()
-        .and_then(|p| std::str::from_utf8(p).ok().map(|s| s.to_string()));
+        .and_then(|p| std::str::from_utf8(p).ok().map(ToString::to_string));
 
     Some(TlsInfo {
         version: version_str,
