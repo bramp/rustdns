@@ -26,6 +26,9 @@ The current baseline is `0.7.0`.
 - [ ] Add explicit DNS encoding options API (opt-in name compression).
 - [ ] Complete removal of input-dependent `expect`, `unwrap`, and assertions in production paths.
 - [ ] Final public API and semver compatibility audit.
+- [ ] Switch the features tcp/udp and async-tcp/async-udp. The default tcp should be async like all the others.
+- [ ] Let's move the EDNS types into a edns submodule (e.g EdnsCookie -> edns::Cookie)
+- [ ] Change the API to have getters and setters (encapsulate struct fields where appropriate). - Is this a good idea?
 
 ---
 
@@ -91,6 +94,7 @@ Core trust model, transport security classifications, and fail-closed resolution
 - [x] Unit tests for `is_secure_channel` across all clients.
 - [x] Round-trip wire tests for `NSEC3`, `NSEC3PARAM`, and `Resource::Raw`.
 - [x] Authenticated Denial of Existence proofs (NSEC and NSEC3 closest encloser / wildcard proofs) in `src/dnssec/denial.rs`.
+- [ ] DNSSEC signing and key generation for RSA, ECDSA, and Ed25519 (cryptographic validation is complete).
 
 ---
 
@@ -179,6 +183,23 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 - [ ] Enforce test coverage threshold in CI.
 - [ ] Run `cargo-semver-checks` against previous release.
 - [ ] Publish `1.0.0` release notes and tag.
+
+---
+
+## 9. Advanced Protocol Extensions
+
+- [ ] Implement zone transfer protocols: AXFR (RFC 5936) and IXFR (RFC 1995).
+- [ ] Implement transaction signatures: TSIG (RFC 2845) and SIG(0) (RFC 2931).
+- [x] EDNS(0) NSID (RFC 7873) and COOKIE (RFC 7873) options.
+
+---
+
+## 10. Tooling, Examples, and Architecture
+
+- [ ] Server-side examples: demonstrate handling, routing, and responding to incoming DNS queries with `rustdns`.
+- [ ] Implement more `dig` CLI features, such as iterative delegation tracing (`+trace`).
+- [ ] Runtime-independence: decouple core transports from Tokio to support alternative async runtimes (e.g. `smol`, `async-std`) and pure WASM environments.
+- [ ] Evaluate converting binary parsing from manual byteorder readers to a zero-copy parser (e.g., `nom` or `winnow`).
 
 ## Definition Of Done
 
