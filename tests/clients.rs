@@ -118,4 +118,128 @@ mod tests {
         let dot = rustdns::clients::sync::dot::Client::try_new("dns.google", addr).unwrap();
         assert_eq!(&*dot.endpoint(), "tls://dns.google:853");
     }
+
+    #[test]
+    fn channel_security_and_is_secure_channel_across_clients() {
+        use rustdns::clients::AsyncExchanger;
+        use rustdns::types::ChannelSecurity;
+
+        let loopback_v4 = "127.0.0.1:53".parse().unwrap();
+        let loopback_v6 = "[::1]:53".parse().unwrap();
+        let remote_v4 = "8.8.8.8:53".parse().unwrap();
+        let remote_v6 = "[2001:4860:4860::8888]:53".parse().unwrap();
+
+        #[cfg(feature = "do53")]
+        {
+            // Async UDP
+            let udp_local = rustdns::clients::udp::Client::new(loopback_v4);
+            assert_eq!(udp_local.channel_security(), ChannelSecurity::Loopback);
+            assert!(udp_local.is_secure_channel());
+
+            let udp_remote = rustdns::clients::udp::Client::new(remote_v4);
+            assert_eq!(udp_remote.channel_security(), ChannelSecurity::Insecure);
+            assert!(!udp_remote.is_secure_channel());
+
+            // Async TCP
+            let tcp_local = rustdns::clients::tcp::Client::new(loopback_v6);
+            assert_eq!(tcp_local.channel_security(), ChannelSecurity::Loopback);
+            assert!(tcp_local.is_secure_channel());
+
+            let tcp_remote = rustdns::clients::tcp::Client::new(remote_v6);
+            assert_eq!(tcp_remote.channel_security(), ChannelSecurity::Insecure);
+            assert!(!tcp_remote.is_secure_channel());
+
+            // Async Do53
+            let do53_local = rustdns::clients::do53::Client::new(loopback_v4);
+            assert_eq!(do53_local.channel_security(), ChannelSecurity::Loopback);
+            assert!(do53_local.is_secure_channel());
+
+            let do53_remote = rustdns::clients::do53::Client::new(remote_v4);
+            assert_eq!(do53_remote.channel_security(), ChannelSecurity::Insecure);
+            assert!(!do53_remote.is_secure_channel());
+        }
+
+        #[cfg(all(feature = "sync", feature = "do53"))]
+        {
+            use rustdns::clients::Exchanger;
+
+            // Sync UDP
+            let sync_udp_local = rustdns::clients::sync::udp::Client::new(loopback_v4);
+            assert_eq!(sync_udp_local.channel_security(), ChannelSecurity::Loopback);
+            assert!(sync_udp_local.is_secure_channel());
+
+            let sync_udp_remote = rustdns::clients::sync::udp::Client::new(remote_v4);
+            assert_eq!(
+                sync_udp_remote.channel_security(),
+                ChannelSecurity::Insecure
+            );
+            assert!(!sync_udp_remote.is_secure_channel());
+
+            // Sync TCP
+            let sync_tcp_local = rustdns::clients::sync::tcp::Client::new(loopback_v6);
+            assert_eq!(sync_tcp_local.channel_security(), ChannelSecurity::Loopback);
+            assert!(sync_tcp_local.is_secure_channel());
+
+            let sync_tcp_remote = rustdns::clients::sync::tcp::Client::new(remote_v6);
+            assert_eq!(
+                sync_tcp_remote.channel_security(),
+                ChannelSecurity::Insecure
+            );
+            assert!(!sync_tcp_remote.is_secure_channel());
+
+            // Sync Do53
+            let sync_do53_local = rustdns::clients::sync::do53::Client::new(loopback_v4);
+            assert_eq!(
+                sync_do53_local.channel_security(),
+                ChannelSecurity::Loopback
+            );
+            assert!(sync_do53_local.is_secure_channel());
+
+            let sync_do53_remote = rustdns::clients::sync::do53::Client::new(remote_v4);
+            assert_eq!(
+                sync_do53_remote.channel_security(),
+                ChannelSecurity::Insecure
+            );
+            assert!(!sync_do53_remote.is_secure_channel());
+        }
+
+        #[cfg(feature = "dot")]
+        {
+            let dot = rustdns::clients::dot::Client::try_new(
+                "dns.google",
+                "8.8.8.8:853".parse().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(dot.channel_security(), ChannelSecurity::Encrypted);
+            assert!(dot.is_secure_channel());
+        }
+
+        #[cfg(all(feature = "sync", feature = "dot"))]
+        {
+            use rustdns::clients::Exchanger;
+            let sync_dot = rustdns::clients::sync::dot::Client::try_new(
+                "dns.google",
+                "8.8.8.8:853".parse().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(sync_dot.channel_security(), ChannelSecurity::Encrypted);
+            assert!(sync_dot.is_secure_channel());
+        }
+
+        #[cfg(feature = "doh")]
+        {
+            let doh =
+                rustdns::clients::doh::Client::new("https://dns.google/dns-query", Method::POST)
+                    .unwrap();
+            assert_eq!(doh.channel_security(), ChannelSecurity::Encrypted);
+            assert!(doh.is_secure_channel());
+        }
+
+        #[cfg(feature = "doh-json")]
+        {
+            let json = rustdns::clients::json::Client::new("https://dns.google/resolve").unwrap();
+            assert_eq!(json.channel_security(), ChannelSecurity::Encrypted);
+            assert!(json.is_secure_channel());
+        }
+    }
 }

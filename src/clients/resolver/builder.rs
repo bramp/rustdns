@@ -14,6 +14,8 @@ pub struct ResolverBuilder {
     dnssec_mode: DnssecMode,
     upstream_trust_policy: UpstreamTrustPolicy,
     payload_size: u16,
+    #[cfg(feature = "dnssec")]
+    trust_store: crate::dnssec::TrustStore,
 }
 
 impl Default for ResolverBuilder {
@@ -28,6 +30,8 @@ impl Default for ResolverBuilder {
             dnssec_mode: DnssecMode::default(),
             upstream_trust_policy: UpstreamTrustPolicy::default(),
             payload_size: crate::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE,
+            #[cfg(feature = "dnssec")]
+            trust_store: crate::dnssec::TrustStore::default(),
         }
     }
 }
@@ -57,7 +61,7 @@ impl ResolverBuilder {
     /// This is only a default: it is not a property of any one exchange.
     /// When DNS resolution is one step inside a larger, already deadline-bound
     /// operation (for example an incoming request with its own SLA), use
-    /// [`Resolver::exchange_with_deadline`] or [`Resolver::lookup_with_deadline`]
+    /// [`crate::clients::AsyncResolver::exchange_with_deadline`] or [`Resolver::lookup_with_deadline`]
     /// to pass the caller's actual remaining budget instead.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
@@ -81,6 +85,13 @@ impl ResolverBuilder {
     /// Sets the DNSSEC validation mode. Defaults to [`DnssecMode::Off`].
     pub fn dnssec_mode(mut self, mode: DnssecMode) -> Self {
         self.dnssec_mode = mode;
+        self
+    }
+
+    /// Sets the DNSSEC trust store containing configured trust anchors.
+    #[cfg(feature = "dnssec")]
+    pub fn trust_store(mut self, store: crate::dnssec::TrustStore) -> Self {
+        self.trust_store = store;
         self
     }
 
@@ -127,6 +138,10 @@ impl ResolverBuilder {
             dnssec_mode: self.dnssec_mode,
             upstream_trust_policy: self.upstream_trust_policy,
             payload_size: self.payload_size,
+            #[cfg(feature = "dnssec")]
+            trust_store: self.trust_store,
+            #[cfg(feature = "dnssec")]
+            dnssec_cache: crate::dnssec::DnssecCache::default(),
         })
     }
 }

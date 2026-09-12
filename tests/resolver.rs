@@ -6,7 +6,7 @@ mod tests {
     use rustdns::Message;
     use rustdns::Record;
     use rustdns::Resource;
-    use rustdns::clients::{AsyncExchanger, Resolver, WireResponse};
+    use rustdns::clients::{AsyncExchanger, AsyncResolver, Resolver, WireResponse};
     use rustdns::types::*;
     use std::net::IpAddr;
     use std::time::Duration;

@@ -52,7 +52,7 @@ cfg_feature! {
 
     mod resolver;
     pub use self::resolver::{
-        Backoff, Resolver, ResolverBuilder, Response, ResponseMeta, Strategy,
+        AsyncResolver, Backoff, Resolver, ResolverBuilder, Response, ResponseMeta, Strategy,
     };
 }
 

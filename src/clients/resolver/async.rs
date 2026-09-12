@@ -145,6 +145,10 @@ pub struct Resolver {
     pub(crate) dnssec_mode: DnssecMode,
     pub(crate) upstream_trust_policy: UpstreamTrustPolicy,
     pub(crate) payload_size: u16,
+    #[cfg(feature = "dnssec")]
+    pub(crate) trust_store: crate::dnssec::TrustStore,
+    #[cfg(feature = "dnssec")]
+    pub(crate) dnssec_cache: crate::dnssec::DnssecCache,
 }
 
 /// Classification of a correlated response, used to decide whether to retry or fail over.
@@ -261,17 +265,23 @@ impl Resolver {
     pub fn payload_size(&self) -> u16 {
         self.payload_size
     }
+}
 
-    /// Like [`Resolver::exchange_with_deadline`], using a deadline `self.timeout` from now.
+/// An asynchronous DNS resolver capable of dispatching queries across upstreams.
+#[async_trait::async_trait]
+pub trait AsyncResolver: Send + Sync {
+    /// Exchanges a DNS query message, bounded by an overall resolution deadline.
     ///
-    /// # Errors
-    ///
-    /// See [`Resolver::exchange_with_deadline`].
-    pub async fn exchange(&self, query: &Message) -> Result<Response, crate::Error> {
-        self.exchange_with_deadline(query, Instant::now() + self.timeout)
-            .await
-    }
+    /// The implementation handles upstream selection, failover, and retry policies.
+    async fn exchange_with_deadline(
+        &self,
+        query: &Message,
+        deadline: Instant,
+    ) -> Result<Response, crate::Error>;
+}
 
+#[async_trait::async_trait]
+impl AsyncResolver for Resolver {
     /// Sends `query` to the configured upstreams, following the resolver's
     /// strategy, retry, and failover policy, and returns the response plus
     /// resolver execution metadata.
@@ -296,7 +306,7 @@ impl Resolver {
     ///
     /// Returns an error if `query` has no question, if `deadline` elapses, or
     /// if every eligible upstream is exhausted without a usable response.
-    pub async fn exchange_with_deadline(
+    async fn exchange_with_deadline(
         &self,
         query: &Message,
         deadline: Instant,
@@ -372,8 +382,58 @@ impl Resolver {
             ))
         })?
     }
+}
 
-    /// Helper to enforce DNSSEC validation policy on a response.
+#[async_trait::async_trait]
+impl<T: AsyncResolver + ?Sized> AsyncResolver for &T {
+    async fn exchange_with_deadline(
+        &self,
+        query: &Message,
+        deadline: Instant,
+    ) -> Result<Response, crate::Error> {
+        (**self).exchange_with_deadline(query, deadline).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: AsyncResolver + ?Sized> AsyncResolver for Arc<T> {
+    async fn exchange_with_deadline(
+        &self,
+        query: &Message,
+        deadline: Instant,
+    ) -> Result<Response, crate::Error> {
+        (**self).exchange_with_deadline(query, deadline).await
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: AsyncResolver + ?Sized> AsyncResolver for Box<T> {
+    async fn exchange_with_deadline(
+        &self,
+        query: &Message,
+        deadline: Instant,
+    ) -> Result<Response, crate::Error> {
+        (**self).exchange_with_deadline(query, deadline).await
+    }
+}
+
+impl Resolver {
+    /// Like [`AsyncResolver::exchange_with_deadline`], using a deadline `self.timeout` from now.
+    ///
+    /// # Errors
+    ///
+    /// See [`AsyncResolver::exchange_with_deadline`].
+    pub async fn exchange(&self, query: &Message) -> Result<Response, crate::Error> {
+        self.exchange_with_deadline(query, Instant::now() + self.timeout)
+            .await
+    }
+
+    /// Enforces the upstream DNSSEC validation policy on a response.
+    ///
+    /// This method trusts the upstream recursive resolver's DNSSEC validation assertions
+    /// (the `AD` Authenticated Data bit) evaluated against the [`UpstreamTrustPolicy`].
+    /// Unlike [`Resolver::validate_local`], this relies on upstream trust assertions
+    /// and does not perform cryptographic signature verification locally.
     fn validate_dnssec(&self, response: &Response) -> Result<(), crate::Error> {
         match self.dnssec_mode {
             DnssecMode::Off => Ok(()),
@@ -395,12 +455,76 @@ impl Resolver {
                     Err(crate::Error::Dnssec(crate::errors::DnssecError::UntrustedChannel))
                 }
             },
-            DnssecMode::StrictLocal => Err(crate::Error::Dnssec(
-                crate::errors::DnssecError::ValidationFailed(
-                    "strict local validation is not yet implemented".to_string(),
-                ),
-            )),
+            DnssecMode::ValidateLocal => {
+                // In ValidateLocal mode, full cryptographic validation is performed by
+                // validate_local(). If called on a validated response, ensure
+                // the status is not Bogus or Indeterminate.
+                match response.meta.security_status {
+                    SecurityStatus::Secure | SecurityStatus::Insecure => Ok(()),
+                    SecurityStatus::Bogus => {
+                        Err(crate::Error::Dnssec(crate::errors::DnssecError::BogusResponse))
+                    }
+                    SecurityStatus::Indeterminate => {
+                        Err(crate::Error::Dnssec(crate::errors::DnssecError::UntrustedChannel))
+                    }
+                }
+            }
         }
+    }
+
+    /// Performs full local cryptographic DNSSEC chain-of-trust validation for [`DnssecMode::ValidateLocal`].
+    ///
+    /// Unlike [`Resolver::validate_dnssec`], which trusts the upstream resolver's `AD` bit,
+    /// this method independently verifies the entire cryptographic chain:
+    /// - Verifies RRSIG signatures over RRsets using the zone's DNSKEYs.
+    /// - Follows delegation chains upwards, checking DS records against parent DNSKEYs.
+    /// - Validates all the way to configured local trust anchors (e.g. the IANA root anchors).
+    ///
+    /// On success, updates `response.meta.security_status` with the cryptographic validation outcome
+    /// ([`SecurityStatus::Secure`] or [`SecurityStatus::Insecure`] for unsigned zones per RFC 4035 §5.2).
+    /// On failure, updates `response.meta.security_status` to [`SecurityStatus::Bogus`] and returns an error.
+    #[cfg(feature = "dnssec")]
+    async fn validate_local(
+        &self,
+        response: &mut Response,
+        deadline: Instant,
+    ) -> Result<(), crate::Error> {
+        let validator = crate::dnssec::ChainValidator::new(
+            self,
+            &self.trust_store,
+            &self.dnssec_cache,
+            deadline,
+        );
+        match validator
+            .validate_message_answers(&response.message, SystemTime::now())
+            .await
+        {
+            Ok(status) => {
+                response.meta.security_status = status;
+                Ok(())
+            }
+            Err(err) => {
+                if let crate::Error::Dnssec(ref dnssec_err) = err {
+                    response.meta.security_status = dnssec_err.security_status();
+                } else {
+                    response.meta.security_status = SecurityStatus::Bogus;
+                }
+                Err(err)
+            }
+        }
+    }
+
+    #[cfg(not(feature = "dnssec"))]
+    async fn validate_local(
+        &self,
+        _response: &mut Response,
+        _deadline: Instant,
+    ) -> Result<(), crate::Error> {
+        Err(crate::Error::Dnssec(
+            crate::errors::DnssecError::ValidationFailed(
+                "DNSSEC feature is disabled".to_string(),
+            ),
+        ))
     }
 
     /// Like [`Resolver::query_with_deadline`], using a deadline `self.timeout` from now.
@@ -446,8 +570,18 @@ impl Resolver {
         };
         query.set_extension(ext);
 
-        let response = self.exchange_with_deadline(&query, deadline).await?;
-        self.validate_dnssec(&response)?;
+        let mut response = self.exchange_with_deadline(&query, deadline).await?;
+
+        match self.dnssec_mode {
+            DnssecMode::Off => {}
+            DnssecMode::TrustUpstream { .. } => {
+                self.validate_dnssec(&response)?;
+            }
+            DnssecMode::ValidateLocal => {
+                self.validate_local(&mut response, deadline).await?;
+            }
+        }
+
         Ok(response)
     }
 
@@ -1033,5 +1167,71 @@ mod tests {
         assert_eq!(resp.meta.attempts, 2);
         assert_eq!(resp.meta.wire.len(), 2);
         assert_eq!(resp.meta.upstream.as_ref(), "dnssec-mock");
+    }
+
+    #[cfg(feature = "dnssec")]
+    #[tokio::test]
+    async fn validate_local_validates_locally_without_upstream_trust() {
+        let a_record = Record::new(
+            "bramp.net",
+            Class::Internet,
+            Duration::from_secs(60),
+            Resource::A("127.0.0.1".parse().unwrap()),
+        );
+
+        // Even over an insecure transport and with AD=0, an unsigned domain is
+        // verified locally by ChainValidator and evaluates to Insecure (RFC 4035 §5.2).
+        let mock_unsigned = DnssecMockExchanger {
+            secure: false,
+            ad: false,
+            rcode: Rcode::NoError,
+            answers: vec![a_record.clone()],
+            received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let resolver = Resolver::builder()
+            .dnssec_mode(DnssecMode::ValidateLocal)
+            .upstream(mock_insecure_client(mock_unsigned))
+            .build()
+            .unwrap();
+
+        let resp = resolver.query("bramp.net", Type::A).await.unwrap();
+        assert_eq!(resp.meta.security_status, SecurityStatus::Insecure);
+
+        // Tampered / bogus RRSIG triggers local validation failure
+        let invalid_rrsig = Record::new(
+            "bramp.net",
+            Class::Internet,
+            Duration::from_secs(60),
+            Resource::RRSIG(crate::resource::RRSIG {
+                type_covered: Type::A,
+                algorithm: Algorithm::RSASHA256,
+                labels: 2,
+                original_ttl: Duration::from_secs(60),
+                expiration: SystemTime::now() + Duration::from_secs(3600),
+                inception: SystemTime::now() - Duration::from_secs(60),
+                key_tag: 12345,
+                signer_name: "bramp.net".to_string(),
+                signature: vec![0xDE, 0xAD, 0xBE, 0xEF],
+            }),
+        );
+        let mock_bogus = DnssecMockExchanger {
+            secure: true,
+            ad: true, // Upstream claims AD=1, but ValidateLocal does not trust upstream
+            rcode: Rcode::NoError,
+            answers: vec![a_record, invalid_rrsig],
+            received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let resolver_local = Resolver::builder()
+            .dnssec_mode(DnssecMode::ValidateLocal)
+            .upstream(mock_insecure_client(mock_bogus))
+            .build()
+            .unwrap();
+
+        let result = resolver_local.query("bramp.net", Type::A).await;
+        assert!(result.is_err());
+    }
+
+    fn mock_insecure_client(mock: DnssecMockExchanger) -> DnssecMockExchanger {
+        mock
     }
 }
