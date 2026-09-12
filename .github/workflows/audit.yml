@@ -5,11 +5,13 @@ on:
     branches: [ main ]
     paths:
       - 'Cargo.lock'
+      - '**/Cargo.toml'
       - 'deny.toml'
   pull_request:
     branches: [ main ]
     paths:
       - 'Cargo.lock'
+      - '**/Cargo.toml'
       - 'deny.toml'
   schedule:
     - cron: '0 0 * * 1' # Every Monday at 00:00 UTC
