@@ -1,5 +1,10 @@
-/// TODO Document
-// TODO https://github.com/Badcow/DNS-Parser has a nice custom format extension. Perhaps include?
+//! Zone file parsing, directive handling, and record resolution.
+//!
+//! Provides types and parsers for RFC 1035 zone file master format, supporting:
+//! - Parsing zone files with `$ORIGIN` and `$TTL` directives ([`File`]).
+//! - Converting loose, uncontextualized zone entries into fully resolved [`crate::Record`] lists ([`File::try_into_records`]).
+//! - Parsing individual zone file record lines ([`Record::from_str`]).
+
 use crate::zones::preprocessor::preprocess;
 use crate::zones::parser::Rule;
 use crate::zones::parser::ZoneParser;
@@ -121,24 +126,33 @@ impl FromStr for File {
     }
 }
 
-/// Internal struct for capturing each entry.
+/// An entry in an unprocessed zone file.
 #[derive(Clone, Debug, Display, PartialEq)]
 pub enum Entry {
+    /// An `$ORIGIN <domain>` directive that establishes or updates the current base domain.
     Origin(String),
+    /// A `$TTL <duration>` directive that sets the default time-to-live for subsequent records.
     TTL(Duration),
     // TODO support $INCLUDE
+    /// A resource record entry.
     Record(Record),
 }
 
-/// Very similar to a [`crate::Record`] but allows for
-/// optional values. When parsing a full zone file
-/// those options can be derived from previous entries.
+/// A parsed zone file resource record before origin and TTL inheritance.
+///
+/// Unlike [`crate::Record`], fields such as `name`, `ttl`, and `class` are optional
+/// and can be inherited from preceding directives or records during processing via
+/// [`File::try_into_records`].
 // TODO Implement a Display to turn this back into Zone format.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
+    /// The domain name of the record, or `None` to inherit the previous record's name.
     pub name: Option<String>,
+    /// The time-to-live for the record, or `None` to inherit the current default `$TTL`.
     pub ttl: Option<Duration>,
+    /// The class of the record, or `None` to inherit the previous class (defaulting to [`Class::Internet`]).
     pub class: Option<Class>,
+    /// The resource record data payload.
     pub resource: Resource,
 }
 

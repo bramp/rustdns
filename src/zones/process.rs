@@ -9,26 +9,57 @@ use crate::Resource;
 use core::time::Duration;
 use thiserror::Error;
 
+/// An error encountered while processing a zone file into concrete [`Record`] entries.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProcessError {
+    /// An `$ORIGIN` directive contained a relative domain name rather than an absolute FQDN.
     #[error("entry {entry_index}: $ORIGIN '{origin}' must be an absolute domain")]
-    OriginNotAbsolute { entry_index: usize, origin: String },
+    OriginNotAbsolute {
+        /// Index of the offending entry in the zone file.
+        entry_index: usize,
+        /// The invalid origin string specified.
+        origin: String,
+    },
+    /// A record omitted its domain name, but no preceding record existed to inherit a name from.
     #[error("entry {entry_index}: record is missing a name and has no previous name")]
-    MissingName { entry_index: usize },
+    MissingName {
+        /// Index of the offending entry in the zone file.
+        entry_index: usize,
+    },
+    /// A record omitted its TTL, and no zone-level `$TTL` directive has been defined.
     #[error("entry {entry_index} ({record_name}): record is missing a TTL and no default TTL is set")]
-    MissingTtl { entry_index: usize, record_name: String },
+    MissingTtl {
+        /// Index of the offending entry in the zone file.
+        entry_index: usize,
+        /// The record name context.
+        record_name: String,
+    },
+    /// A record omitted its class, and no previous record existed to inherit a class from.
     #[error("entry {entry_index} ({record_name}): record is missing a class and has no previous class")]
-    MissingClass { entry_index: usize, record_name: String },
+    MissingClass {
+        /// Index of the offending entry in the zone file.
+        entry_index: usize,
+        /// The record name context.
+        record_name: String,
+    },
+    /// A record name was relative, but no current `$ORIGIN` was defined to resolve it against.
     #[error("entry {entry_index} ({record_name}): relative domain '{name}' has no origin")]
     RelativeNameWithoutOrigin {
+        /// Index of the offending entry in the zone file.
         entry_index: usize,
+        /// The record name context.
         record_name: String,
+        /// The relative domain name.
         name: String,
     },
+    /// An SOA record contained an invalid `rname` (responsible person mailbox) format.
     #[error("entry {entry_index} ({record_name}): invalid SOA rname '{rname}'")]
     InvalidRname {
+        /// Index of the offending entry in the zone file.
         entry_index: usize,
+        /// The record name context.
         record_name: String,
+        /// The invalid rname string.
         rname: String,
     },
 }
