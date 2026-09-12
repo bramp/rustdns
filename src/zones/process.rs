@@ -167,7 +167,10 @@ impl File {
             | Resource::SPF(_)
             | Resource::DS(_)
             | Resource::DNSKEY(_)
+            | Resource::NSEC3(_)
+            | Resource::NSEC3PARAM(_)
             | Resource::ZONEMD(_)
+            | Resource::Raw(_)
             | Resource::OPT
             | Resource::ANY => Ok(resource.clone()),
 

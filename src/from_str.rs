@@ -16,7 +16,7 @@ use core::num::ParseIntError;
 use core::str::FromStr;
 use regex::Regex;
 use std::net::AddrParseError;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -67,6 +67,11 @@ impl Resource {
             Type::RRSIG => Resource::RRSIG(s.parse()?),
             Type::NSEC => Resource::NSEC(s.parse()?),
             Type::ZONEMD => Resource::ZONEMD(s.parse()?),
+
+            // TODO Implement NSEC3 and NSEC3PARAM parsing
+            Type::NSEC3 | Type::NSEC3PARAM | Type::Unknown(_) => {
+                return Err(FromStrError::UnsupportedType);
+            }
 
             // This should never appear in a answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => return Err(FromStrError::UnsupportedType),
@@ -167,8 +172,8 @@ impl FromStr for DS {
             return Err(FromStrError::InvalidFormat);
         }
         let key_tag = parts[0].parse()?;
-        let algorithm = parts[1].parse()?;
-        let digest_type = parts[2].parse()?;
+        let algorithm = parts[1].parse().map_err(|_| FromStrError::InvalidFormat)?;
+        let digest_type = parts[2].parse().map_err(|_| FromStrError::InvalidFormat)?;
         let digest_hex = parts[3..].join("");
         let digest =
             crate::util::hex_decode(&digest_hex).map_err(|_| FromStrError::InvalidFormat)?;
@@ -204,16 +209,14 @@ impl FromStr for DNSKEY {
     }
 }
 
-fn parse_rrsig_time(s: &str) -> Result<u32, FromStrError> {
+fn parse_rrsig_time(s: &str) -> Result<SystemTime, FromStrError> {
     if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S") {
-            let ts = dt.and_utc().timestamp();
-            if let Ok(ts_u32) = u32::try_from(ts) {
-                return Ok(ts_u32);
-            }
+            return Ok(dt.and_utc().into());
         }
     }
-    s.parse::<u32>().map_err(FromStrError::from)
+    let secs = s.parse::<u64>().map_err(FromStrError::from)?;
+    Ok(UNIX_EPOCH + Duration::from_secs(secs))
 }
 
 impl FromStr for RRSIG {
@@ -227,7 +230,7 @@ impl FromStr for RRSIG {
         let type_covered = Type::from_str(parts[0]).map_err(|_| FromStrError::InvalidFormat)?;
         let algorithm = parts[1].parse()?;
         let labels = parts[2].parse()?;
-        let original_ttl = parts[3].parse()?;
+        let original_ttl = Duration::from_secs(parts[3].parse()?);
         let expiration = parse_rrsig_time(parts[4])?;
         let inception = parse_rrsig_time(parts[5])?;
         let key_tag = parts[6].parse()?;

@@ -8,7 +8,7 @@ use std::io;
 use std::io::Cursor;
 use std::io::Read;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// IPv4 Address (A) record.
 pub type A = Ipv4Addr;
@@ -52,7 +52,10 @@ impl Resource {
             Resource::DNSKEY(dnskey) => dnskey.append_rdata_to_vec(buf)?,
             Resource::RRSIG(rrsig) => rrsig.append_rdata_to_vec(buf)?,
             Resource::NSEC(nsec) => nsec.append_rdata_to_vec(buf)?,
+            Resource::NSEC3(nsec3) => nsec3.append_rdata_to_vec(buf)?,
+            Resource::NSEC3PARAM(param) => param.append_rdata_to_vec(buf)?,
             Resource::ZONEMD(zonemd) => zonemd.append_rdata_to_vec(buf)?,
+            Resource::Raw(raw) => buf.extend_from_slice(&raw.data),
             Resource::OPT | Resource::ANY => {
                 return Err(EncodeError::UnsupportedType(self.r#type()));
             }
@@ -73,7 +76,7 @@ impl Record {
     /// the [`EncodeError`] name variants.
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.name)?;
-        buf.extend_from_slice(&(self.r#type() as u16).to_be_bytes());
+        buf.extend_from_slice(&self.r#type().code().to_be_bytes());
         buf.extend_from_slice(&(self.class as u16).to_be_bytes());
         let ttl = u32::try_from(self.ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
             max: u64::from(u32::MAX),
@@ -125,8 +128,6 @@ impl Record {
         // If parsing fails for this record, (and the length seems correct),
         // we could turn this into a warning instead of a full error.
 
-        // TODO Consider changing these parse methods to some kind of common function
-        // that accepts Cursor and Class.
         let resource = match r#type {
             Type::A => Resource::A(parse_a(&mut record, class)?),
             Type::AAAA => Resource::AAAA(parse_aaaa(&mut record, class)?),
@@ -143,12 +144,19 @@ impl Record {
             Type::DNSKEY => Resource::DNSKEY(DNSKEY::parse(&mut record)?),
             Type::RRSIG => Resource::RRSIG(RRSIG::parse(&mut record)?),
             Type::NSEC => Resource::NSEC(NSEC::parse(&mut record)?),
+            Type::NSEC3 => Resource::NSEC3(NSEC3::parse(&mut record)?),
+            Type::NSEC3PARAM => Resource::NSEC3PARAM(NSEC3PARAM::parse(&mut record)?),
             Type::ZONEMD => Resource::ZONEMD(ZONEMD::parse(&mut record)?),
 
-            // This should never appear in a answer record unless we have invalid data.
+            // This should never appear in an answer record unless we have invalid data.
             Type::Reserved | Type::OPT | Type::ANY => {
-                // TODO This could be a warning, instead of a full error.
                 return Err(DecodeError::UnexpectedType(r#type));
+            }
+
+            Type::Unknown(code) => {
+                let mut data = Vec::new();
+                record.read_to_end(&mut data)?;
+                Resource::Raw(RawResource { rtype: code, data })
             }
         };
 
@@ -230,28 +238,66 @@ pub struct DS {
     pub key_tag: u16,
 
     /// The algorithm number of the DNSKEY RR referred to by the DS RR.
-    pub algorithm: u8,
+    pub algorithm: Algorithm,
 
     /// The digest type used to calculate the digest.
-    pub digest_type: u8,
+    pub digest_type: DigestType,
 
     /// The cryptographic digest of the DNSKEY RR.
     pub digest: Vec<u8>,
 }
 
 impl DS {
+    /// Constructs a DS record for a given DNSKEY owner name and DNSKEY record (RFC 4034 §5.1.4).
+    ///
+    /// Digest types (RFC 4034 §5.1.4, RFC 4509, RFC 6605):
+    /// - `DigestType::Sha1`: SHA-1 (legacy)
+    /// - `DigestType::Sha256`: SHA-256
+    /// - `DigestType::Sha384`: SHA-384
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError`] if canonical owner serialization fails, or
+    /// [`crate::DnssecError`] if the digest type is unsupported.
+    #[cfg(feature = "dnssec")]
+    pub fn from_dnskey(
+        owner: &str,
+        dnskey: &DNSKEY,
+        digest_type: DigestType,
+    ) -> Result<DS, crate::Error> {
+        let mut wire = Vec::new();
+        crate::dnssec::canonical::append_canonical_name_to_vec(&mut wire, owner)?;
+        dnskey.append_rdata_to_vec(&mut wire)?;
+
+        let algorithm = match digest_type {
+            DigestType::Sha1 => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+            DigestType::Sha256 => &ring::digest::SHA256,
+            DigestType::Sha384 => &ring::digest::SHA384,
+            other => return Err(crate::DnssecError::UnsupportedDigestType(other).into()),
+        };
+
+        let digest = ring::digest::digest(algorithm, &wire).as_ref().to_vec();
+
+        Ok(DS {
+            key_tag: dnskey.key_tag(),
+            algorithm: dnskey.algorithm,
+            digest_type,
+            digest,
+        })
+    }
+
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.extend_from_slice(&self.key_tag.to_be_bytes());
-        buf.push(self.algorithm);
-        buf.push(self.digest_type);
+        buf.push(self.algorithm.code());
+        buf.push(self.digest_type.code());
         buf.extend_from_slice(&self.digest);
         Ok(())
     }
 
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<DS, DecodeError> {
         let key_tag = cur.read_u16::<BE>()?;
-        let algorithm = cur.read_u8()?;
-        let digest_type = cur.read_u8()?;
+        let algorithm = Algorithm::from(cur.read_u8()?);
+        let digest_type = DigestType::from(cur.read_u8()?);
         let mut digest = Vec::new();
         cur.read_to_end(&mut digest)?;
         Ok(DS {
@@ -275,18 +321,65 @@ pub struct DNSKEY {
     /// Protocol field, must be 3.
     pub protocol: u8,
 
-    /// Algorithm number of the public key.
-    pub algorithm: u8,
+    /// Algorithm of the public key.
+    pub algorithm: Algorithm,
 
     /// Public key data.
     pub public_key: Vec<u8>,
 }
 
 impl DNSKEY {
+    /// Computes the 16-bit key tag for this DNSKEY per [RFC 4034 Appendix B].
+    ///
+    /// # Algorithm Notes
+    /// - **Algorithm 1 (`RSAMD5`)**: Uses the legacy calculation defined in [RFC 4034 Appendix B.1]
+    ///   (inherited from RFC 2535), extracting the next-to-last two octets of the public key modulus.
+    /// - **All Other Algorithms**: Every subsequent DNSSEC algorithm specification ([RFC 4034 Appendix B.2],
+    ///   [RFC 5702 §2.1] for RSA/SHA-256 and RSA/SHA-512, [RFC 6605 §4] for ECDSA P-256 and P-384,
+    ///   and [RFC 8080 §4] for Ed25519 and Ed448) explicitly reuses the identical 16-bit shift-and-add
+    ///   checksum loop over the entire RDATA wire octets.
+    ///
+    /// [RFC 4034 Appendix B]: https://datatracker.ietf.org/doc/html/rfc4034#appendix-B
+    /// [RFC 4034 Appendix B.1]: https://datatracker.ietf.org/doc/html/rfc4034#appendix-B.1
+    /// [RFC 4034 Appendix B.2]: https://datatracker.ietf.org/doc/html/rfc4034#appendix-B.2
+    /// [RFC 5702 §2.1]: https://datatracker.ietf.org/doc/html/rfc5702#section-2.1
+    /// [RFC 6605 §4]: https://datatracker.ietf.org/doc/html/rfc6605#section-4
+    /// [RFC 8080 §4]: https://datatracker.ietf.org/doc/html/rfc8080#section-4
+    #[must_use]
+    pub fn key_tag(&self) -> u16 {
+        if self.algorithm == Algorithm::RSAMD5 {
+            // Algorithm 1 is RSA/MD5 (RFC 2535 / RFC 4034 Appendix B.1):
+            // The most significant 16 bits of the least significant 24 bits
+            // of the public key modulus (octets at len - 3 and len - 2).
+            if self.public_key.len() >= 3 {
+                let len = self.public_key.len();
+                let b1 = u16::from(self.public_key[len - 3]);
+                let b2 = u16::from(self.public_key[len - 2]);
+                (b1 << 8) | b2
+            } else {
+                0
+            }
+        } else {
+            // Universal checksum loop for all other algorithms (RFC 4034 Appendix B.2)
+            let [f0, f1] = self.flags.to_be_bytes();
+            let header = [f0, f1, self.protocol, self.algorithm.code()];
+            let mut ac: u32 = 0;
+            for (i, &b) in header.iter().chain(&self.public_key).enumerate() {
+                if i & 1 == 1 {
+                    ac = ac.wrapping_add(u32::from(b));
+                } else {
+                    ac = ac.wrapping_add(u32::from(b) << 8);
+                }
+            }
+            ac = ac.wrapping_add((ac >> 16) & 0xFFFF);
+            (ac & 0xFFFF) as u16
+        }
+    }
+
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.extend_from_slice(&self.flags.to_be_bytes());
         buf.push(self.protocol);
-        buf.push(self.algorithm);
+        buf.push(self.algorithm.code());
         buf.extend_from_slice(&self.public_key);
         Ok(())
     }
@@ -294,7 +387,7 @@ impl DNSKEY {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<DNSKEY, DecodeError> {
         let flags = cur.read_u16::<BE>()?;
         let protocol = cur.read_u8()?;
-        let algorithm = cur.read_u8()?;
+        let algorithm = Algorithm::from(cur.read_u8()?);
         let mut public_key = Vec::new();
         cur.read_to_end(&mut public_key)?;
         Ok(DNSKEY {
@@ -310,25 +403,24 @@ impl DNSKEY {
 ///
 /// [RFC 4034 §3]: https://datatracker.ietf.org/doc/html/rfc4034#section-3
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct RRSIG {
     /// The RR type covered by this signature.
     pub type_covered: Type,
 
     /// The cryptographic algorithm used to create the signature.
-    pub algorithm: u8,
+    pub algorithm: Algorithm,
 
     /// The number of labels in the original RRSIG RR owner name.
     pub labels: u8,
 
     /// The original TTL of the covered RRset.
-    pub original_ttl: u32,
+    pub original_ttl: Duration,
 
-    /// Signature expiration time (seconds since UNIX epoch).
-    pub expiration: u32,
+    /// Signature expiration time.
+    pub expiration: SystemTime,
 
-    /// Signature inception time (seconds since UNIX epoch).
-    pub inception: u32,
+    /// Signature inception time.
+    pub inception: SystemTime,
 
     /// The key tag of the DNSKEY RR that validates this signature.
     pub key_tag: u16,
@@ -341,13 +433,48 @@ pub struct RRSIG {
 }
 
 impl RRSIG {
+    /// Returns the 32-bit expiration timestamp in seconds since UNIX epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::TimestampOutOfRange`] if `expiration` is before [`UNIX_EPOCH`]
+    /// or exceeds [`u32::MAX`] seconds.
+    pub fn expiration_seconds(&self) -> Result<u32, EncodeError> {
+        let dur = self
+            .expiration
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| EncodeError::TimestampOutOfRange)?;
+        u32::try_from(dur.as_secs()).map_err(|_| EncodeError::TimestampOutOfRange)
+    }
+
+    /// Returns the 32-bit inception timestamp in seconds since UNIX epoch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::TimestampOutOfRange`] if `inception` is before [`UNIX_EPOCH`]
+    /// or exceeds [`u32::MAX`] seconds.
+    pub fn inception_seconds(&self) -> Result<u32, EncodeError> {
+        let dur = self
+            .inception
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| EncodeError::TimestampOutOfRange)?;
+        u32::try_from(dur.as_secs()).map_err(|_| EncodeError::TimestampOutOfRange)
+    }
+
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
-        buf.extend_from_slice(&(self.type_covered as u16).to_be_bytes());
-        buf.push(self.algorithm);
+        let orig_ttl =
+            u32::try_from(self.original_ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
+                max: u64::from(u32::MAX),
+            })?;
+        let expiration = self.expiration_seconds()?;
+        let inception = self.inception_seconds()?;
+
+        buf.extend_from_slice(&self.type_covered.code().to_be_bytes());
+        buf.push(self.algorithm.code());
         buf.push(self.labels);
-        buf.extend_from_slice(&self.original_ttl.to_be_bytes());
-        buf.extend_from_slice(&self.expiration.to_be_bytes());
-        buf.extend_from_slice(&self.inception.to_be_bytes());
+        buf.extend_from_slice(&orig_ttl.to_be_bytes());
+        buf.extend_from_slice(&expiration.to_be_bytes());
+        buf.extend_from_slice(&inception.to_be_bytes());
         buf.extend_from_slice(&self.key_tag.to_be_bytes());
         Message::append_qname_to_vec(buf, &self.signer_name)?;
         buf.extend_from_slice(&self.signature);
@@ -356,16 +483,44 @@ impl RRSIG {
 
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<RRSIG, DecodeError> {
         let type_code = cur.read_u16::<BE>()?;
-        let type_covered = num_traits::FromPrimitive::from_u16(type_code).unwrap_or(Type::Reserved);
-        let algorithm = cur.read_u8()?;
+        let type_covered = Type::from(type_code);
+        let algorithm = Algorithm::from(cur.read_u8()?);
         let labels = cur.read_u8()?;
-        let original_ttl = cur.read_u32::<BE>()?;
-        let expiration = cur.read_u32::<BE>()?;
-        let inception = cur.read_u32::<BE>()?;
+        let original_ttl = Duration::from_secs(u64::from(cur.read_u32::<BE>()?));
+        let expiration = UNIX_EPOCH + Duration::from_secs(u64::from(cur.read_u32::<BE>()?));
+        let inception = UNIX_EPOCH + Duration::from_secs(u64::from(cur.read_u32::<BE>()?));
         let key_tag = cur.read_u16::<BE>()?;
         let signer_name = cur.read_qname()?;
         let mut signature = Vec::new();
         cur.read_to_end(&mut signature)?;
+        Ok(RRSIG {
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+            signature,
+        })
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for RRSIG {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let type_covered = u.arbitrary()?;
+        let algorithm = u.arbitrary()?;
+        let labels = u.arbitrary()?;
+        let original_ttl = Duration::from_secs(u.arbitrary::<u32>()?.into());
+        let exp_secs = u.arbitrary::<u32>()?;
+        let inc_secs = u.arbitrary::<u32>()?;
+        let expiration = UNIX_EPOCH + Duration::from_secs(u64::from(exp_secs));
+        let inception = UNIX_EPOCH + Duration::from_secs(u64::from(inc_secs));
+        let key_tag = u.arbitrary()?;
+        let signer_name = u.arbitrary()?;
+        let signature = u.arbitrary()?;
         Ok(RRSIG {
             type_covered,
             algorithm,
@@ -393,6 +548,142 @@ pub struct NSEC {
     pub types: Vec<Type>,
 }
 
+/// Next Secure version 3 (NSEC3) record. See [RFC 5155].
+///
+/// [RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct NSEC3 {
+    /// The cryptographic hash algorithm used to hash owner names (RFC 5155 §11.4).
+    pub hash_algorithm: Nsec3HashAlgorithm,
+
+    /// Bit flags (e.g. 0x01 = Opt-Out per RFC 5155 §3.1.2).
+    pub flags: u8,
+
+    /// The number of additional times the hash function has been performed.
+    pub iterations: u16,
+
+    /// The binary salt appended to owner names prior to hashing.
+    pub salt: Vec<u8>,
+
+    /// The binary next hashed owner name in hash order.
+    pub next_hashed_owner_name: Vec<u8>,
+
+    /// The RR types that exist at the original owner name.
+    pub types: Vec<Type>,
+}
+
+impl NSEC3 {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        buf.push(self.hash_algorithm.code());
+        buf.push(self.flags);
+        buf.extend_from_slice(&self.iterations.to_be_bytes());
+        let salt_len = u8::try_from(self.salt.len()).map_err(|_| EncodeError::RdataTooLong {
+            max: usize::from(u8::MAX),
+        })?;
+        buf.push(salt_len);
+        buf.extend_from_slice(&self.salt);
+        let hash_len = u8::try_from(self.next_hashed_owner_name.len()).map_err(|_| {
+            EncodeError::RdataTooLong {
+                max: usize::from(u8::MAX),
+            }
+        })?;
+        buf.push(hash_len);
+        buf.extend_from_slice(&self.next_hashed_owner_name);
+        NSEC::encode_type_bit_maps(&self.types, buf);
+        Ok(())
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<NSEC3, DecodeError> {
+        let hash_algorithm = Nsec3HashAlgorithm::from(cur.read_u8()?);
+        let flags = cur.read_u8()?;
+        let iterations = cur.read_u16::<BE>()?;
+        let salt_len = cur.read_u8()? as usize;
+        let mut salt = vec![0_u8; salt_len];
+        cur.read_exact(&mut salt)?;
+        let hash_len = cur.read_u8()? as usize;
+        let mut next_hashed_owner_name = vec![0_u8; hash_len];
+        cur.read_exact(&mut next_hashed_owner_name)?;
+        let types = NSEC::decode_type_bit_maps(cur)?;
+        Ok(NSEC3 {
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+            next_hashed_owner_name,
+            types,
+        })
+    }
+
+    /// Flag bit indicating that this NSEC3 record covers delegations that may not have DNSKEY/DS (RFC 5155 §3.1.2).
+    pub const FLAG_OPT_OUT: u8 = 0x01;
+
+    /// Returns `true` if the Opt-Out flag is set.
+    #[must_use]
+    pub fn is_opt_out(&self) -> bool {
+        self.flags & Self::FLAG_OPT_OUT != 0
+    }
+}
+
+/// Next Secure version 3 Parameters (NSEC3PARAM) record. See [RFC 5155].
+///
+/// [RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct NSEC3PARAM {
+    /// The cryptographic hash algorithm used (RFC 5155 §11.4).
+    pub hash_algorithm: Nsec3HashAlgorithm,
+
+    /// Bit flags (must be zero when created, per RFC 5155 §4.1.2).
+    pub flags: u8,
+
+    /// The number of iterations.
+    pub iterations: u16,
+
+    /// The binary salt.
+    pub salt: Vec<u8>,
+}
+
+impl NSEC3PARAM {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+        buf.push(self.hash_algorithm.code());
+        buf.push(self.flags);
+        buf.extend_from_slice(&self.iterations.to_be_bytes());
+        let salt_len = u8::try_from(self.salt.len()).map_err(|_| EncodeError::RdataTooLong {
+            max: usize::from(u8::MAX),
+        })?;
+        buf.push(salt_len);
+        buf.extend_from_slice(&self.salt);
+        Ok(())
+    }
+
+    pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<NSEC3PARAM, DecodeError> {
+        let hash_algorithm = Nsec3HashAlgorithm::from(cur.read_u8()?);
+        let flags = cur.read_u8()?;
+        let iterations = cur.read_u16::<BE>()?;
+        let salt_len = cur.read_u8()? as usize;
+        let mut salt = vec![0_u8; salt_len];
+        cur.read_exact(&mut salt)?;
+        Ok(NSEC3PARAM {
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+        })
+    }
+}
+
+/// Unparsed or raw resource record data.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct RawResource {
+    /// 16-bit RR type code.
+    pub rtype: u16,
+
+    /// Raw binary RDATA bytes.
+    pub data: Vec<u8>,
+}
+
 impl NSEC {
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.next_domain)?;
@@ -415,7 +706,7 @@ impl NSEC {
         if types.is_empty() {
             return;
         }
-        let mut codes: Vec<u16> = types.iter().map(|t| *t as u16).collect();
+        let mut codes: Vec<u16> = types.iter().map(Type::code).collect();
         codes.sort_unstable();
         codes.dedup();
 
@@ -485,14 +776,13 @@ impl NSEC {
             let mut bitmap = vec![0_u8; len];
             cur.read_exact(&mut bitmap)?;
 
+            // TODO Document this algorithm / cite references.
             for (byte_idx, &byte) in bitmap.iter().enumerate() {
                 for bit_idx in 0..8 {
                     if (byte >> (7 - bit_idx)) & 1 == 1 {
                         let type_code =
                             (u16::from(window) << 8) | ((byte_idx as u16) * 8 + bit_idx as u16);
-                        if let Some(t) = num_traits::FromPrimitive::from_u16(type_code) {
-                            types.push(t);
-                        }
+                        types.push(Type::from(type_code));
                     }
                 }
             }
@@ -776,7 +1066,7 @@ impl From<&[&str]> for TXT {
 
 #[cfg(test)]
 mod tests {
-    use crate::SOA;
+    use super::*;
     use pretty_assertions::assert_eq;
     use std::io::Cursor;
     use std::time::Duration;
@@ -860,5 +1150,63 @@ mod tests {
         assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU");
 
         assert!(SOA::email_to_rname("invalid_no_at").is_err());
+    }
+
+    #[test]
+    fn test_rfc4034_dnskey_key_tag_and_ds_from_dnskey() {
+        use crate::types::{Algorithm, DigestType, Nsec3HashAlgorithm};
+        use crate::util::base64_decode;
+
+        // RFC 4034 §5.4 test vector
+        let pubkey_b64 = "AQOeiiR0GOMYkDshWoSKz9Xz\
+                          fwJr1AYtsmx3TGkJaNXVbfi/\
+                          2pHm822aJ5iI9BMzNXxeYCmZ\
+                          DRD99WYwYqUSdjMmmAphXdvx\
+                          egXd/M5+X7OrzKBaMbCVdFLU\
+                          Uh6DhweJBjEVv5f2wwjM9Xzc\
+                          nOf+EPbtG9DMBmADjFDc2w/r\
+                          ljwvFw==";
+        let pubkey = base64_decode(pubkey_b64).expect("valid base64 public key");
+
+        let dnskey = DNSKEY {
+            flags: 256,
+            protocol: 3,
+            algorithm: Algorithm::RSASHA1,
+            public_key: pubkey,
+        };
+
+        // Key tag must match RFC 4034 §5.4 (key id = 60485)
+        assert_eq!(dnskey.key_tag(), 60485);
+
+        // Test DS::from_dnskey matching RFC 4034 §5.4
+        #[cfg(feature = "dnssec")]
+        {
+            let ds = DS::from_dnskey("dskey.example.com.", &dnskey, DigestType::Sha1)
+                .expect("from_dnskey must succeed");
+            assert_eq!(ds.key_tag, 60485);
+            assert_eq!(ds.algorithm, Algorithm::RSASHA1);
+            assert_eq!(ds.digest_type, DigestType::Sha1);
+            assert_eq!(
+                crate::util::hex_encode(&ds.digest),
+                "2BB183AF5F22588179A53B0A98631FAD1A292118"
+            );
+        }
+
+        // Test Nsec3HashAlgorithm
+        assert_eq!(Nsec3HashAlgorithm::Sha1.code(), 1);
+        assert_eq!(Nsec3HashAlgorithm::from(1), Nsec3HashAlgorithm::Sha1);
+        assert_eq!(
+            Nsec3HashAlgorithm::from(99),
+            Nsec3HashAlgorithm::Unknown(99)
+        );
+        assert_eq!(Nsec3HashAlgorithm::Sha1.to_string(), "1");
+        assert_eq!(
+            "SHA1".parse::<Nsec3HashAlgorithm>().unwrap(),
+            Nsec3HashAlgorithm::Sha1
+        );
+        assert_eq!(
+            "1".parse::<Nsec3HashAlgorithm>().unwrap(),
+            Nsec3HashAlgorithm::Sha1
+        );
     }
 }

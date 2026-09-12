@@ -11,6 +11,7 @@ mod tests {
     use core::time::Duration;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn test_parse_combinations() {
@@ -260,8 +261,8 @@ mod tests {
                     class: Some(Class::Internet),
                     resource: Resource::DS(DS {
                         key_tag: 31852,
-                        algorithm: 8,
-                        digest_type: 2,
+                        algorithm: crate::types::Algorithm::RSASHA256,
+                        digest_type: crate::types::DigestType::Sha256,
                         digest: crate::util::hex_decode("89F7670AFC091B199B47900E4CE4135B9463B7F74D3D19A1C732E78C345D4DE6").unwrap(),
                     }),
                 },
@@ -275,7 +276,7 @@ mod tests {
                     resource: Resource::DNSKEY(DNSKEY {
                         flags: 256,
                         protocol: 3,
-                        algorithm: 8,
+                        algorithm: crate::types::Algorithm::RSASHA256,
                         public_key: crate::util::base64_decode("AwEAAeCYD6Z7").unwrap(),
                     }),
                 },
@@ -288,11 +289,11 @@ mod tests {
                     class: Some(Class::Internet),
                     resource: Resource::RRSIG(RRSIG {
                         type_covered: crate::Type::SOA,
-                        algorithm: 8,
+                        algorithm: crate::types::Algorithm::RSASHA256,
                         labels: 0,
-                        original_ttl: 86400,
-                        expiration: 1789880400, // 2026-09-20 05:00:00 UTC
-                        inception: 1788753600,  // 2026-09-07 04:00:00 UTC
+                        original_ttl: Duration::from_secs(86400),
+                        expiration: UNIX_EPOCH + Duration::from_secs(1789880400), // 2026-09-20 05:00:00 UTC
+                        inception: UNIX_EPOCH + Duration::from_secs(1788753600),  // 2026-09-07 04:00:00 UTC
                         key_tag: 57780,
                         signer_name: ".".to_string(),
                         signature: crate::util::base64_decode("XfzAJ3WNy9rp+A==").unwrap(),

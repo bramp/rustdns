@@ -118,6 +118,8 @@ pub struct Message {
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// The domain name in question. Must be a valid UTF-8 encoded domain name.
+    ///
+    /// Prefer calling ascii_name() to get the ASCII representation of the name, that is typically used in DNS queries.
     pub name: String,
 
     /// The question's type.
@@ -333,19 +335,28 @@ pub enum DnssecMode {
 
     /// Relies on upstream recursive resolver DNSSEC validation.
     ///
-    /// Sets the EDNS(0) `DO=1` (DNSSEC OK) bit on queries. When receiving responses:
-    /// - If `require_secure` is `true`, lookups only succeed if `security_status` is [`SecurityStatus::Secure`].
-    ///   Unsigned domains ([`SecurityStatus::Insecure`]), bogus, or indeterminate responses fail the lookup.
-    /// - If `require_secure` is `false`, unsigned domains ([`SecurityStatus::Insecure`]) are also accepted,
-    ///   while bogus or indeterminate responses fail the lookup.
+    /// Sets the EDNS(0) `DO=1` (DNSSEC OK) bit on queries. Upstream `AD`
+    /// (Authenticated Data) assertions are evaluated against the configured
+    /// [`UpstreamTrustPolicy`] and transport security:
+    /// - Responses with `AD=1` over a trusted channel evaluate to [`SecurityStatus::Secure`].
+    /// - Responses with `AD=1` over an untrusted channel evaluate to [`SecurityStatus::Indeterminate`].
+    /// - Responses with `AD=0` evaluate to [`SecurityStatus::Insecure`].
+    /// - `SERVFAIL` responses evaluate to [`SecurityStatus::Bogus`].
+    ///
+    /// Both `Bogus` and `Indeterminate` responses fail closed.
     TrustUpstream {
-        /// Whether only cryptographically secure (signed) domains are accepted.
+        /// Whether the resolver requires upstream validation (`SecurityStatus::Secure`).
+        ///
+        /// When `true`, queries fail if the upstream did not validate the response
+        /// (`SecurityStatus::Insecure`, such as for an unsigned zone).
+        /// When `false` (default), unsigned responses are accepted.
         require_secure: bool,
     },
 
-    /// Performs strict local DNSSEC validation down to configured trust anchors.
-    /// (Reserved for future local validation).
-    StrictLocal,
+    /// Performs full local cryptographic DNSSEC chain-of-trust validation down to
+    /// configured trust anchors (e.g. root anchors), verifying signatures and keys
+    /// independently of upstream trust assertions.
+    ValidateLocal,
 }
 
 /// Policy dictating when upstream `AD` (Authenticated Data) assertions are trusted.
@@ -532,86 +543,508 @@ pub enum ExtendedRcode {
 
 /// Resource Record Type, for example, A, CNAME or SOA.
 ///
-#[derive(
-    Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, Ord, PartialEq, PartialOrd,
-)]
-#[strum(ascii_case_insensitive)]
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[repr(u16)]
 pub enum Type {
-    Reserved = 0,
+    Reserved,
 
     /// (Default) IPv4 Address.
-    A = 1,
-    NS = 2,
-    CNAME = 5,
-    SOA = 6,
+    A,
+    NS,
+    CNAME,
+    SOA,
 
     /// Domain name pointer. See [`util::reverse()`] to create a valid domain name from a IP address.
     ///
     /// [`util::reverse()`]: crate::util::reverse()
-    PTR = 12,
+    PTR,
 
     /// Mail exchange.
-    MX = 15,
+    MX,
 
     /// Text strings.
-    TXT = 16,
+    TXT,
 
     /// IPv6 Address.
-    AAAA = 28,
+    AAAA,
 
     /// Server Selection
-    SRV = 33,
+    SRV,
 
     /// EDNS(0) Opt type. See [rfc3225] and [rfc6891].
     ///
     /// [rfc3225]: https://datatracker.ietf.org/doc/html/rfc3225
     /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
-    OPT = 41,
+    OPT,
 
     /// Delegation Signer. See [rfc4034].
     ///
     /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
-    DS = 43,
+    DS,
 
     /// Signature for an RRset. See [rfc4034].
     ///
     /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
-    RRSIG = 46,
+    RRSIG,
 
     /// Next Secure name. See [rfc4034].
     ///
     /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
-    NSEC = 47,
+    NSEC,
 
     /// DNS Key. See [rfc4034].
     ///
     /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
-    DNSKEY = 48,
+    DNSKEY,
+
+    /// Next Secure version 3 (NSEC3). See [RFC 5155].
+    ///
+    /// [rfc5155]: https://datatracker.ietf.org/doc/html/rfc5155
+    NSEC3,
+
+    /// Next Secure version 3 Parameters (NSEC3PARAM). See [RFC 5155].
+    ///
+    /// [rfc5155]: https://datatracker.ietf.org/doc/html/rfc5155
+    NSEC3PARAM,
 
     /// Message Digest for DNS Zones. See [rfc8976].
     ///
     /// [rfc8976]: https://datatracker.ietf.org/doc/html/rfc8976
-    ZONEMD = 63,
+    ZONEMD,
 
     /// Sender Policy Framework. See [rfc4408]
     /// Discontinued in [rfc7208] due to widespread lack of support.
     ///
     /// [rfc4408]: https://datatracker.ietf.org/doc/html/rfc4408
     /// [rfc7208]: https://datatracker.ietf.org/doc/html/rfc7208
-    SPF = 99,
+    SPF,
 
     /// Any record type.
     /// Only valid as a Question Type.
-    ANY = 255,
+    ANY,
+
+    /// Unassigned, unrecognized, or private resource record type.
+    Unknown(u16),
+}
+
+impl Type {
+    /// Returns the 16-bit numeric type code for this resource record type.
+    #[must_use]
+    pub const fn code(&self) -> u16 {
+        match self {
+            Type::Reserved => 0,
+            Type::A => 1,
+            Type::NS => 2,
+            Type::CNAME => 5,
+            Type::SOA => 6,
+            Type::PTR => 12,
+            Type::MX => 15,
+            Type::TXT => 16,
+            Type::AAAA => 28,
+            Type::SRV => 33,
+            Type::OPT => 41,
+            Type::DS => 43,
+            Type::RRSIG => 46,
+            Type::NSEC => 47,
+            Type::DNSKEY => 48,
+            Type::NSEC3 => 50,
+            Type::NSEC3PARAM => 51,
+            Type::ZONEMD => 63,
+            Type::SPF => 99,
+            Type::ANY => 255,
+            Type::Unknown(code) => *code,
+        }
+    }
+}
+
+impl From<u16> for Type {
+    fn from(code: u16) -> Self {
+        match code {
+            0 => Type::Reserved,
+            1 => Type::A,
+            2 => Type::NS,
+            5 => Type::CNAME,
+            6 => Type::SOA,
+            12 => Type::PTR,
+            15 => Type::MX,
+            16 => Type::TXT,
+            28 => Type::AAAA,
+            33 => Type::SRV,
+            41 => Type::OPT,
+            43 => Type::DS,
+            46 => Type::RRSIG,
+            47 => Type::NSEC,
+            48 => Type::DNSKEY,
+            50 => Type::NSEC3,
+            51 => Type::NSEC3PARAM,
+            63 => Type::ZONEMD,
+            99 => Type::SPF,
+            255 => Type::ANY,
+            other => Type::Unknown(other),
+        }
+    }
+}
+
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Type::Reserved => "Reserved",
+            Type::A => "A",
+            Type::NS => "NS",
+            Type::CNAME => "CNAME",
+            Type::SOA => "SOA",
+            Type::PTR => "PTR",
+            Type::MX => "MX",
+            Type::TXT => "TXT",
+            Type::AAAA => "AAAA",
+            Type::SRV => "SRV",
+            Type::OPT => "OPT",
+            Type::DS => "DS",
+            Type::RRSIG => "RRSIG",
+            Type::NSEC => "NSEC",
+            Type::DNSKEY => "DNSKEY",
+            Type::NSEC3 => "NSEC3",
+            Type::NSEC3PARAM => "NSEC3PARAM",
+            Type::ZONEMD => "ZONEMD",
+            Type::SPF => "SPF",
+            Type::ANY => "ANY",
+            Type::Unknown(code) => return f.pad(&format!("TYPE{code}")),
+        };
+        f.pad(s)
+    }
+}
+
+impl std::str::FromStr for Type {
+    type Err = strum::ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let upper = s.to_ascii_uppercase();
+        match upper.as_str() {
+            "RESERVED" => Ok(Type::Reserved),
+            "A" => Ok(Type::A),
+            "NS" => Ok(Type::NS),
+            "CNAME" => Ok(Type::CNAME),
+            "SOA" => Ok(Type::SOA),
+            "PTR" => Ok(Type::PTR),
+            "MX" => Ok(Type::MX),
+            "TXT" => Ok(Type::TXT),
+            "AAAA" => Ok(Type::AAAA),
+            "SRV" => Ok(Type::SRV),
+            "OPT" => Ok(Type::OPT),
+            "DS" => Ok(Type::DS),
+            "RRSIG" => Ok(Type::RRSIG),
+            "NSEC" => Ok(Type::NSEC),
+            "DNSKEY" => Ok(Type::DNSKEY),
+            "NSEC3" => Ok(Type::NSEC3),
+            "NSEC3PARAM" => Ok(Type::NSEC3PARAM),
+            "ZONEMD" => Ok(Type::ZONEMD),
+            "SPF" => Ok(Type::SPF),
+            "ANY" | "*" => Ok(Type::ANY),
+            _ => {
+                if let Some(num) = upper.strip_prefix("TYPE") {
+                    if let Ok(code) = num.parse::<u16>() {
+                        return Ok(Type::from(code));
+                    }
+                }
+                Err(strum::ParseError::VariantNotFound)
+            }
+        }
+    }
+}
+
+impl From<Type> for u16 {
+    fn from(t: Type) -> Self {
+        t.code()
+    }
 }
 
 /// Defaults to [`Type::ANY`].
 impl Default for Type {
     fn default() -> Self {
         Type::ANY
+    }
+}
+
+/// DNSSEC signing and authentication algorithm numbers as defined by IANA and [RFC 8624].
+///
+/// [RFC 8624]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum Algorithm {
+    /// RSA/MD5 [RFC 2537, RFC 4034] - Deprecated, MUST NOT be used.
+    RSAMD5,
+
+    /// Diffie-Hellman [RFC 2539].
+    DH,
+
+    /// DSA/SHA1 [RFC 2536, RFC 3755].
+    DSA,
+
+    /// RSA/SHA-1 [RFC 3110, RFC 4034].
+    RSASHA1,
+
+    /// DSA-NSEC3-SHA1 [RFC 5155].
+    DSANSEC3SHA1,
+
+    /// RSASHA1-NSEC3-SHA1 [RFC 5155].
+    RSASHA1NSEC3SHA1,
+
+    /// RSA/SHA-256 [RFC 5702].
+    RSASHA256,
+
+    /// RSA/SHA-512 [RFC 5702].
+    RSASHA512,
+
+    /// GOST R 34.10-2001 [RFC 5933].
+    ECCGOST,
+
+    /// ECDSA Curve P-256 with SHA-256 [RFC 6605].
+    ECDSAP256SHA256,
+
+    /// ECDSA Curve P-384 with SHA-384 [RFC 6605].
+    ECDSAP384SHA384,
+
+    /// Ed25519 [RFC 8080].
+    ED25519,
+
+    /// Ed448 [RFC 8080].
+    ED448,
+
+    /// Unrecognized, private, or reserved algorithm number.
+    Unknown(u8),
+}
+
+impl Algorithm {
+    /// Returns the 8-bit numeric algorithm code.
+    #[must_use]
+    pub const fn code(&self) -> u8 {
+        match self {
+            Algorithm::RSAMD5 => 1,
+            Algorithm::DH => 2,
+            Algorithm::DSA => 3,
+            Algorithm::RSASHA1 => 5,
+            Algorithm::DSANSEC3SHA1 => 6,
+            Algorithm::RSASHA1NSEC3SHA1 => 7,
+            Algorithm::RSASHA256 => 8,
+            Algorithm::RSASHA512 => 10,
+            Algorithm::ECCGOST => 12,
+            Algorithm::ECDSAP256SHA256 => 13,
+            Algorithm::ECDSAP384SHA384 => 14,
+            Algorithm::ED25519 => 15,
+            Algorithm::ED448 => 16,
+            Algorithm::Unknown(code) => *code,
+        }
+    }
+}
+
+impl From<u8> for Algorithm {
+    fn from(code: u8) -> Self {
+        match code {
+            1 => Algorithm::RSAMD5,
+            2 => Algorithm::DH,
+            3 => Algorithm::DSA,
+            5 => Algorithm::RSASHA1,
+            6 => Algorithm::DSANSEC3SHA1,
+            7 => Algorithm::RSASHA1NSEC3SHA1,
+            8 => Algorithm::RSASHA256,
+            10 => Algorithm::RSASHA512,
+            12 => Algorithm::ECCGOST,
+            13 => Algorithm::ECDSAP256SHA256,
+            14 => Algorithm::ECDSAP384SHA384,
+            15 => Algorithm::ED25519,
+            16 => Algorithm::ED448,
+            other => Algorithm::Unknown(other),
+        }
+    }
+}
+
+impl From<Algorithm> for u8 {
+    fn from(a: Algorithm) -> Self {
+        a.code()
+    }
+}
+
+impl std::fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.code())
+    }
+}
+
+impl std::str::FromStr for Algorithm {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if let Ok(num) = trimmed.parse::<u8>() {
+            return Ok(Algorithm::from(num));
+        }
+        let upper = trimmed.to_ascii_uppercase().replace(['-', '_'], "");
+        Ok(match upper.as_str() {
+            "RSAMD5" => Algorithm::RSAMD5,
+            "DH" => Algorithm::DH,
+            "DSA" => Algorithm::DSA,
+            "RSASHA1" => Algorithm::RSASHA1,
+            "DSANSEC3SHA1" => Algorithm::DSANSEC3SHA1,
+            "RSASHA1NSEC3SHA1" => Algorithm::RSASHA1NSEC3SHA1,
+            "RSASHA256" => Algorithm::RSASHA256,
+            "RSASHA512" => Algorithm::RSASHA512,
+            "ECCGOST" => Algorithm::ECCGOST,
+            "ECDSAP256SHA256" | "ECDSAP256" => Algorithm::ECDSAP256SHA256,
+            "ECDSAP384SHA384" | "ECDSAP384" => Algorithm::ECDSAP384SHA384,
+            "ED25519" => Algorithm::ED25519,
+            "ED448" => Algorithm::ED448,
+            _ => {
+                return trimmed.parse::<u8>().map(Algorithm::from);
+            }
+        })
+    }
+}
+
+/// DNSSEC Delegation Signer (DS) digest algorithm numbers as defined by IANA and [RFC 4034], [RFC 4509], [RFC 6605].
+///
+/// [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034#section-5.1.4
+/// [RFC 4509]: https://datatracker.ietf.org/doc/html/rfc4509
+/// [RFC 6605]: https://datatracker.ietf.org/doc/html/rfc6605
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum DigestType {
+    /// SHA-1 [RFC 4034] - Mandatory for historical validation.
+    Sha1,
+
+    /// SHA-256 [RFC 4509] - Standard for modern DNSSEC.
+    Sha256,
+
+    /// GOST R 34.11-94 [RFC 5933].
+    GostR3411_94,
+
+    /// SHA-384 [RFC 6605].
+    Sha384,
+
+    /// Unrecognized, private, or reserved digest type.
+    Unknown(u8),
+}
+
+impl DigestType {
+    /// Returns the 8-bit numeric digest type code.
+    #[must_use]
+    pub const fn code(&self) -> u8 {
+        match self {
+            DigestType::Sha1 => 1,
+            DigestType::Sha256 => 2,
+            DigestType::GostR3411_94 => 3,
+            DigestType::Sha384 => 4,
+            DigestType::Unknown(code) => *code,
+        }
+    }
+}
+
+impl From<u8> for DigestType {
+    fn from(code: u8) -> Self {
+        match code {
+            1 => DigestType::Sha1,
+            2 => DigestType::Sha256,
+            3 => DigestType::GostR3411_94,
+            4 => DigestType::Sha384,
+            other => DigestType::Unknown(other),
+        }
+    }
+}
+
+impl From<DigestType> for u8 {
+    fn from(d: DigestType) -> Self {
+        d.code()
+    }
+}
+
+impl std::fmt::Display for DigestType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.code())
+    }
+}
+
+impl std::str::FromStr for DigestType {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if let Ok(num) = trimmed.parse::<u8>() {
+            return Ok(DigestType::from(num));
+        }
+        let upper = trimmed.to_ascii_uppercase().replace(['-', '_'], "");
+        Ok(match upper.as_str() {
+            "SHA1" => DigestType::Sha1,
+            "SHA256" => DigestType::Sha256,
+            "GOSTR341194" | "GOST" => DigestType::GostR3411_94,
+            "SHA384" => DigestType::Sha384,
+            _ => {
+                return trimmed.parse::<u8>().map(DigestType::from);
+            }
+        })
+    }
+}
+
+/// Cryptographic hash algorithm used for NSEC3 hashed owner names (RFC 5155 §11.4).
+#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[allow(clippy::upper_case_acronyms)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum Nsec3HashAlgorithm {
+    /// SHA-1 [RFC 5155] - Currently the only standardized NSEC3 hash algorithm.
+    Sha1,
+
+    /// Unassigned, reserved, or private hash algorithm.
+    Unknown(u8),
+}
+
+impl Nsec3HashAlgorithm {
+    /// Returns the 8-bit numeric hash algorithm code.
+    #[must_use]
+    pub const fn code(&self) -> u8 {
+        match self {
+            Nsec3HashAlgorithm::Sha1 => 1,
+            Nsec3HashAlgorithm::Unknown(code) => *code,
+        }
+    }
+}
+
+impl From<u8> for Nsec3HashAlgorithm {
+    fn from(code: u8) -> Self {
+        match code {
+            1 => Nsec3HashAlgorithm::Sha1,
+            other => Nsec3HashAlgorithm::Unknown(other),
+        }
+    }
+}
+
+impl From<Nsec3HashAlgorithm> for u8 {
+    fn from(a: Nsec3HashAlgorithm) -> Self {
+        a.code()
+    }
+}
+
+impl std::fmt::Display for Nsec3HashAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.code())
+    }
+}
+
+impl std::str::FromStr for Nsec3HashAlgorithm {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if let Ok(num) = trimmed.parse::<u8>() {
+            return Ok(Nsec3HashAlgorithm::from(num));
+        }
+        let upper = trimmed.to_ascii_uppercase().replace(['-', '_'], "");
+        Ok(match upper.as_str() {
+            "SHA1" => Nsec3HashAlgorithm::Sha1,
+            _ => {
+                return trimmed.parse::<u8>().map(Nsec3HashAlgorithm::from);
+            }
+        })
     }
 }
 
@@ -668,36 +1101,60 @@ impl Default for Class {
     }
 }
 
-/// Recource Record Definitions.
+/// Resource record definitions.
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Resource {
-    A(A), // Support non-Internet classes?
+    /// IPv4 Address (A) record.
+    A(A),
+    /// IPv6 Address (AAAA) record.
     AAAA(AAAA),
 
+    /// Canonical name (CNAME) record, for aliasing one name to another.
     CNAME(CNAME),
+    /// Name Server (NS) record for delegating to the given authoritative name servers.
     NS(NS),
+    /// Pointer (PTR) record most commonly used for implementing reverse DNS lookups.
     PTR(PTR),
 
     // TODO Implement RFC 1464 for further parsing of the text
     // TODO per RFC 4408 a TXT record is allowed to contain multiple strings
+    /// Text (TXT) record for arbitrary human-readable text in a DNS record.
     TXT(TXT),
+    /// Sender Policy Framework (SPF) record.
     SPF(TXT),
 
+    /// Mail EXchanger (MX) record specifying the mail server responsible for accepting email messages on behalf of a domain name.
     MX(MX),
+    /// Start of Authority (SOA) record containing administrative information about the zone.
     SOA(SOA),
+    /// Service (SRV) record containing hostname and port number information of specified services.
     SRV(SRV),
 
+    /// Delegation Signer (DS) record.
     DS(DS),
+    /// DNS Key (DNSKEY) record.
     DNSKEY(DNSKEY),
+    /// DNSSEC Signature (RRSIG) record.
     RRSIG(RRSIG),
+    /// Next Secure (NSEC) record.
     NSEC(NSEC),
+    /// Next Secure version 3 (NSEC3) record.
+    NSEC3(NSEC3),
+    /// Next Secure version 3 Parameters (NSEC3PARAM) record.
+    NSEC3PARAM(NSEC3PARAM),
+    /// Message Digest for DNS Zones (ZONEMD) record.
     ZONEMD(ZONEMD),
 
+    /// EDNS(0) OPT pseudo-record.
     OPT,
 
-    ANY, // Not a valid Record Type, but is a Type
+    /// Wildcard / any-type query pseudo-record (valid only in queries).
+    ANY,
+
+    /// Unrecognized or raw resource record data.
+    Raw(RawResource),
 }
 
 impl Resource {
@@ -719,9 +1176,12 @@ impl Resource {
             Resource::DNSKEY(_) => Type::DNSKEY,
             Resource::RRSIG(_) => Type::RRSIG,
             Resource::NSEC(_) => Type::NSEC,
+            Resource::NSEC3(_) => Type::NSEC3,
+            Resource::NSEC3PARAM(_) => Type::NSEC3PARAM,
             Resource::ZONEMD(_) => Type::ZONEMD,
             Resource::OPT => Type::OPT,
             Resource::ANY => Type::ANY,
+            Resource::Raw(raw) => Type::from(raw.rtype),
         }
     }
 }

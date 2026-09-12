@@ -45,6 +45,7 @@ use crate::QR;
 use crate::Question;
 use crate::Record;
 use crate::Resource;
+use crate::Type;
 use crate::errors::JsonError;
 use core::convert::TryInto;
 use num_traits::FromPrimitive;
@@ -170,7 +171,7 @@ impl TryFrom<&Message> for MessageJson {
         for q in &msg.questions {
             question.push(QuestionJson {
                 name: q.name.clone(),
-                r#type: q.r#type as u16,
+                r#type: q.r#type.code(),
             });
         }
 
@@ -178,7 +179,7 @@ impl TryFrom<&Message> for MessageJson {
         for a in &msg.answers {
             answer.push(RecordJson {
                 name: a.name.clone(),
-                r#type: a.resource.r#type() as u16,
+                r#type: a.resource.r#type().code(),
                 ttl: a.ttl.as_secs().min(u32::MAX as u64) as u32,
                 data: a.resource.to_string(),
             });
@@ -188,7 +189,7 @@ impl TryFrom<&Message> for MessageJson {
         for auth in &msg.authoritys {
             authority.push(RecordJson {
                 name: auth.name.clone(),
-                r#type: auth.resource.r#type() as u16,
+                r#type: auth.resource.r#type().code(),
                 ttl: auth.ttl.as_secs().min(u32::MAX as u64) as u32,
                 data: auth.resource.to_string(),
             });
@@ -198,7 +199,7 @@ impl TryFrom<&Message> for MessageJson {
         for add in &msg.additionals {
             additional.push(RecordJson {
                 name: add.name.clone(),
-                r#type: add.resource.r#type() as u16,
+                r#type: add.resource.r#type().code(),
                 ttl: add.ttl.as_secs().min(u32::MAX as u64) as u32,
                 data: add.resource.to_string(),
             });
@@ -235,8 +236,7 @@ impl TryInto<Question> for QuestionJson {
     type Error = JsonError;
 
     fn try_into(self) -> Result<Question, Self::Error> {
-        let r#type =
-            FromPrimitive::from_u16(self.r#type).ok_or(JsonError::InvalidType(self.r#type))?;
+        let r#type = Type::from(self.r#type);
 
         Ok(Question {
             name: self.name,
@@ -267,8 +267,7 @@ impl TryInto<Record> for RecordJson {
     type Error = JsonError;
 
     fn try_into(self) -> Result<Record, Self::Error> {
-        let r#type =
-            FromPrimitive::from_u16(self.r#type).ok_or(JsonError::InvalidType(self.r#type))?;
+        let r#type = Type::from(self.r#type);
 
         let resource = Resource::parse_text(r#type, &self.data)
             .map_err(|x| JsonError::InvalidResource(r#type, x))?;

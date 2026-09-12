@@ -10,6 +10,8 @@ use crate::resource::DNSKEY;
 use crate::resource::DS;
 use crate::resource::MX;
 use crate::resource::NSEC;
+use crate::resource::NSEC3;
+use crate::resource::NSEC3PARAM;
 use crate::resource::RRSIG;
 use crate::resource::SOA;
 use crate::resource::SRV;
@@ -169,7 +171,16 @@ impl fmt::Display for Resource {
             Resource::DNSKEY(dnskey) => dnskey.fmt(f),
             Resource::RRSIG(rrsig) => rrsig.fmt(f),
             Resource::NSEC(nsec) => nsec.fmt(f),
+            Resource::NSEC3(nsec3) => nsec3.fmt(f),
+            Resource::NSEC3PARAM(param) => param.fmt(f),
             Resource::ZONEMD(zonemd) => zonemd.fmt(f),
+            Resource::Raw(raw) => write!(
+                f,
+                "TYPE{} \\# {} {}",
+                raw.rtype,
+                raw.data.len(),
+                crate::util::hex_encode(&raw.data)
+            ),
 
             Resource::OPT => write!(f, "OPT (TODO)"),
             Resource::ANY => write!(f, "*"),
@@ -250,15 +261,17 @@ impl fmt::Display for DNSKEY {
 
 impl fmt::Display for RRSIG {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let exp_dt: chrono::DateTime<chrono::Utc> = self.expiration.into();
+        let inc_dt: chrono::DateTime<chrono::Utc> = self.inception.into();
         write!(
             f,
             "{type_covered} {algorithm} {labels} {original_ttl} {expiration} {inception} {key_tag} {signer_name} {signature}",
             type_covered = self.type_covered,
             algorithm = self.algorithm,
             labels = self.labels,
-            original_ttl = self.original_ttl,
-            expiration = self.expiration,
-            inception = self.inception,
+            original_ttl = self.original_ttl.as_secs(),
+            expiration = exp_dt.format("%Y%m%d%H%M%S"),
+            inception = inc_dt.format("%Y%m%d%H%M%S"),
             key_tag = self.key_tag,
             signer_name = self.signer_name,
             signature = crate::util::base64_encode(&self.signature),
@@ -273,6 +286,47 @@ impl fmt::Display for NSEC {
             write!(f, " {t}")?;
         }
         Ok(())
+    }
+}
+
+impl fmt::Display for NSEC3 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let salt = if self.salt.is_empty() {
+            "-".to_string()
+        } else {
+            crate::util::hex_encode(&self.salt)
+        };
+        write!(
+            f,
+            "{algo} {flags} {iterations} {salt} {next_hash}",
+            algo = self.hash_algorithm,
+            flags = self.flags,
+            iterations = self.iterations,
+            salt = salt,
+            next_hash = crate::util::base32hex_encode(&self.next_hashed_owner_name),
+        )?;
+        for t in &self.types {
+            write!(f, " {t}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for NSEC3PARAM {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let salt = if self.salt.is_empty() {
+            "-".to_string()
+        } else {
+            crate::util::hex_encode(&self.salt)
+        };
+        write!(
+            f,
+            "{algo} {flags} {iterations} {salt}",
+            algo = self.hash_algorithm,
+            flags = self.flags,
+            iterations = self.iterations,
+            salt = salt,
+        )
     }
 }
 
@@ -395,8 +449,8 @@ mod tests {
                 (
                     Resource::DS(DS {
                         key_tag: 31852,
-                        algorithm: 8,
-                        digest_type: 2,
+                        algorithm: crate::types::Algorithm::RSASHA256,
+                        digest_type: crate::types::DigestType::Sha256,
                         digest: vec![0x89, 0xF7, 0x67, 0x0A],
                     }),
                     "31852 8 2 89F7670A",
@@ -405,7 +459,7 @@ mod tests {
                     Resource::DNSKEY(DNSKEY {
                         flags: 256,
                         protocol: 3,
-                        algorithm: 8,
+                        algorithm: crate::types::Algorithm::RSASHA256,
                         public_key: vec![1, 2, 3, 4],
                     }),
                     "256 3 8 AQIDBA==",
@@ -413,16 +467,18 @@ mod tests {
                 (
                     Resource::RRSIG(RRSIG {
                         type_covered: Type::A,
-                        algorithm: 8,
+                        algorithm: crate::types::Algorithm::RSASHA256,
                         labels: 2,
-                        original_ttl: 3600,
-                        expiration: 1789880400,
-                        inception: 1788753600,
+                        original_ttl: std::time::Duration::from_secs(3600),
+                        expiration: std::time::UNIX_EPOCH
+                            + std::time::Duration::from_secs(1789880400),
+                        inception: std::time::UNIX_EPOCH
+                            + std::time::Duration::from_secs(1788753600),
                         key_tag: 12345,
                         signer_name: "example.com.".to_string(),
                         signature: vec![10, 20, 30, 40],
                     }),
-                    "A 8 2 3600 1789880400 1788753600 12345 example.com. ChQeKA==",
+                    "A 8 2 3600 20260920050000 20260907040000 12345 example.com. ChQeKA==",
                 ),
                 (
                     Resource::NSEC(NSEC {

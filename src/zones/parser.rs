@@ -18,7 +18,7 @@ use pest_consume::Parser;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[grammar = "zones/zones.pest"]
@@ -120,19 +120,16 @@ impl ZoneParser {
         }
     }
 
-    fn rrsig_time(input: Node) -> Result<u32> {
+    fn rrsig_time(input: Node) -> Result<SystemTime> {
         assert_eq!(input.as_rule(), Rule::rrsig_time);
         let s = input.as_str();
         if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
             if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S") {
-                let ts = dt.and_utc().timestamp();
-                if let Ok(ts_u32) = u32::try_from(ts) {
-                    return Ok(ts_u32);
-                }
+                return Ok(dt.and_utc().into());
             }
         }
-        match s.parse::<u32>() {
-            Ok(val) => Ok(val),
+        match s.parse::<u64>() {
+            Ok(secs) => Ok(UNIX_EPOCH + Duration::from_secs(secs)),
             Err(e) => Err(input.error(e)),
         }
     }
@@ -244,7 +241,7 @@ impl ZoneParser {
                 type_covered,
                 algorithm,
                 labels,
-                original_ttl: original_ttl.as_secs() as u32,
+                original_ttl,
                 expiration,
                 inception,
                 key_tag,

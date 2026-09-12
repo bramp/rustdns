@@ -119,7 +119,7 @@ impl<'a> MessageParser<'a> {
                     return Err(DecodeError::MultipleOptRecords);
                 }
 
-                let ext = Extension::parse(&mut self.cur, name, r#type)?;
+                let ext = Extension::parse(&mut self.cur, name, Type::OPT)?;
 
                 self.m.extension = Some(ext);
             } else {
@@ -182,23 +182,6 @@ impl Message {
         MessageParser::new(buf).parse()
     }
 
-    /// Takes a unicode domain, converts to ascii, and back to unicode.
-    /// This has the effective of normalising it, so its easier to compare
-    /// what was queried, and what was returned.
-    fn normalise_domain(&mut self, domain: &str) -> Result<String, idna::Errors> {
-        let ascii = idna::domain_to_ascii(domain)?;
-        let (mut unicode, result) = idna::domain_to_unicode(&ascii);
-        match result {
-            Ok(_) => {
-                if !unicode.ends_with('.') {
-                    unicode.push('.')
-                }
-                Ok(unicode)
-            }
-            Err(errors) => Err(errors),
-        }
-    }
-
     /// Adds a question to the message, returning an error if the domain is invalid.
     ///
     /// Note: DNS servers typically do not support more than one question. There is ambiguity in how to handle
@@ -216,13 +199,7 @@ impl Message {
         r#type: Type,
         class: Class,
     ) -> Result<(), crate::Error> {
-        let domain = self
-            .normalise_domain(domain)
-            .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
-        let ascii_domain = idna::domain_to_ascii(&domain)
-            .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
-
-        limits::validate_ascii_name(&ascii_domain)
+        let domain = crate::names::normalise(domain)
             .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
 
         limits::validate_section_count(self.questions.len() + 1)?;
@@ -355,16 +332,7 @@ impl Message {
     ///
     // TODO Support DNS name compression through message-level encoder state.
     pub(crate) fn append_qname_to_vec(buf: &mut Vec<u8>, domain: &str) -> Result<(), EncodeError> {
-        // Decode this label into the original unicode.
-        // TODO Switch to using our own idna::Config. (but we can't use disallowed_by_std3_ascii_rules).
-        let domain = match idna::domain_to_ascii(domain) {
-            Err(_) => {
-                return Err(EncodeError::InvalidName {
-                    name: domain.to_string(),
-                });
-            }
-            Ok(domain) => domain,
-        };
+        let domain = crate::names::to_ascii(domain)?;
 
         if !domain.is_empty() && domain != "." {
             limits::validate_ascii_name(&domain)?;
@@ -390,10 +358,9 @@ impl Question {
     ///
     /// Returns [`EncodeError::InvalidName`] when the question name cannot be
     /// converted to ASCII via IDNA.
+    // TODO Should we drop this, now that it's a simple wrapper?
     pub fn ascii_name(&self) -> Result<String, EncodeError> {
-        idna::domain_to_ascii(&self.name).map_err(|_| EncodeError::InvalidName {
-            name: self.name.clone(),
-        })
+        crate::names::to_ascii(&self.name)
     }
 
     /// Appends this question as DNS wire-format bytes to `buf`.
@@ -405,7 +372,7 @@ impl Question {
     /// question name cannot be encoded.
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         Message::append_qname_to_vec(buf, &self.name)?;
-        buf.extend_from_slice(&(self.r#type as u16).to_be_bytes());
+        buf.extend_from_slice(&self.r#type.code().to_be_bytes());
         buf.extend_from_slice(&(self.class as u16).to_be_bytes());
         Ok(())
     }
@@ -492,7 +459,7 @@ impl Extension {
     /// when an individual option value cannot be represented.
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.push(0); // A single "." domain name                          // 0-1
-        buf.extend_from_slice(&(Type::OPT as u16).to_be_bytes()); // 1-3
+        buf.extend_from_slice(&Type::OPT.code().to_be_bytes()); // 1-3
         buf.extend_from_slice(&self.payload_size.to_be_bytes()); // 3-5
 
         buf.push(self.extend_rcode); // 5-6
@@ -525,8 +492,9 @@ impl Extension {
 mod tests {
     use super::Message;
     use crate::{
-        Class, DNSKEY, DS, EdnsOption, Extension, MX, NSEC, Question, RRSIG, Record, Resource, SOA,
-        SRV, TXT, Type, ZONEMD,
+        Algorithm, Class, DNSKEY, DS, DigestType, EdnsOption, Extension, MX, NSEC, NSEC3,
+        NSEC3PARAM, Nsec3HashAlgorithm, Question, RRSIG, RawResource, Record, Resource, SOA, SRV,
+        TXT, Type, ZONEMD,
     };
     use std::convert::TryFrom;
 
@@ -807,23 +775,23 @@ mod tests {
             }),
             Resource::DS(DS {
                 key_tag: 31852,
-                algorithm: 8,
-                digest_type: 2,
+                algorithm: Algorithm::RSASHA256,
+                digest_type: DigestType::Sha256,
                 digest: vec![1, 2, 3, 4, 5, 6, 7, 8],
             }),
             Resource::DNSKEY(DNSKEY {
                 flags: 256,
                 protocol: 3,
-                algorithm: 8,
+                algorithm: Algorithm::RSASHA256,
                 public_key: vec![10, 20, 30, 40],
             }),
             Resource::RRSIG(RRSIG {
                 type_covered: Type::A,
-                algorithm: 8,
+                algorithm: Algorithm::RSASHA256,
                 labels: 2,
-                original_ttl: 3600,
-                expiration: 1789880400,
-                inception: 1788753600,
+                original_ttl: std::time::Duration::from_secs(3600),
+                expiration: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1789880400),
+                inception: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1788753600),
                 key_tag: 12345,
                 signer_name: "example.com.".to_string(),
                 signature: vec![99, 100, 101, 102],
@@ -831,6 +799,24 @@ mod tests {
             Resource::NSEC(NSEC {
                 next_domain: "next.example.com.".to_string(),
                 types: vec![Type::A, Type::AAAA, Type::RRSIG, Type::NSEC],
+            }),
+            Resource::NSEC3(NSEC3 {
+                hash_algorithm: Nsec3HashAlgorithm::Sha1,
+                flags: NSEC3::FLAG_OPT_OUT,
+                iterations: 12,
+                salt: vec![0xAA, 0xBB, 0xCC],
+                next_hashed_owner_name: vec![1, 2, 3, 4, 5, 6, 7, 8],
+                types: vec![Type::A, Type::AAAA, Type::RRSIG],
+            }),
+            Resource::NSEC3PARAM(NSEC3PARAM {
+                hash_algorithm: Nsec3HashAlgorithm::Sha1,
+                flags: 0,
+                iterations: 10,
+                salt: vec![0x12, 0x34],
+            }),
+            Resource::Raw(RawResource {
+                rtype: 65280,
+                data: vec![0xDE, 0xAD, 0xBE, 0xEF],
             }),
             Resource::ZONEMD(ZONEMD {
                 serial: 2026090700,

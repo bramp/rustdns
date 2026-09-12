@@ -186,13 +186,8 @@ pub trait DNSReadExt: io::Read + io::Seek {
 
     /// Reads a DNS Type.
     fn read_type(&mut self) -> Result<Type, DecodeError> {
-        let r#type = self.read_u16::<BE>()?;
-        let r#type = match FromPrimitive::from_u16(r#type) {
-            Some(t) => t,
-            None => return Err(DecodeError::InvalidType(r#type)),
-        };
-
-        Ok(r#type)
+        let code = self.read_u16::<BE>()?;
+        Ok(Type::from(code))
     }
 
     /// Reads a DNS Class.
