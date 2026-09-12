@@ -309,7 +309,7 @@
 //! $ git tag v0.6.0 && git push origin v0.6.0
 //! ```
 //!
-//! ## Reference
+//! # Reference
 //!
 //! * [rfc1034]: DOMAIN NAMES - CONCEPTS AND FACILITIES
 //! * [rfc1035]: DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION
