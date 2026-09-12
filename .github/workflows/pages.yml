@@ -42,7 +42,7 @@ jobs:
           wasm-pack build --target web --out-dir www/pkg
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v7
+        uses: actions/upload-pages-artifact@v5
         with:
           path: web-dig/www
 
