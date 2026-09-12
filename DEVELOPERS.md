@@ -31,3 +31,27 @@ method allocates output or appends to caller-owned storage.
 - Prefer standard conversion traits such as `From`, `TryFrom`, and `FromStr` for
   primitive or textual conversions, while retaining named helpers when they are
   clearer or needed for compatibility.
+
+## Record Field Modeling
+
+Prefer rich, idiomatic Rust types over raw primitive integers in resource record structs:
+- Use `std::time::Duration` for TTLs and time intervals (e.g., `Record.ttl`, `SOA.refresh`, `RRSIG.original_ttl`).
+- Use `std::time::SystemTime` for wall-clock dates and timestamps (e.g., `RRSIG.expiration`, `RRSIG.inception`).
+- Use strongly-typed enums for protocol codes (`Type`, `Class`, `Algorithm`, `DigestType`, `Nsec3HashAlgorithm`) with `Unknown(u8|u16)` fallback variants.
+- Provide helper methods (such as `expiration_seconds(&self) -> Result<u32, EncodeError>`) when wire or protocol operations require converted primitives.
+
+## Testing Fixtures
+
+Root hint (`named.root`), root zone (`root.zone`), and IANA trust anchor (`root-anchors.xml`) test fixtures can be downloaded or updated using `./scripts/fetch_root_fixtures.sh`:
+- Download only root trust anchors:
+  ```sh
+  ./scripts/fetch_root_fixtures.sh --anchors-only
+  ```
+- Download all root fixtures (`named.root`, `root.zone`, and `root-anchors.xml`):
+  ```sh
+  ./scripts/fetch_root_fixtures.sh
+  ```
+- Force refresh regardless of file age:
+  ```sh
+  ./scripts/fetch_root_fixtures.sh --force
+  ```

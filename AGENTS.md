@@ -10,6 +10,9 @@ These instructions apply to all development work in this repository.
   could disprove it.
 - Fix root causes rather than symptoms.
 - Prefer existing project patterns and standard library APIs over new dependencies.
+- Prefer rich, idiomatic Rust types (e.g., `std::time::Duration` for TTLs/intervals,
+  `std::time::SystemTime` for timestamps, and domain enums) over raw numeric primitives
+  in resource record structs.
 - Use meaningful names, explicit error propagation, checked arithmetic for
   untrusted input, and minimal cloning.
 - Do not use input-dependent `unwrap`, `expect`, assertions, or unchecked indexing

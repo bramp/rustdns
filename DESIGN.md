@@ -138,7 +138,7 @@ pub enum DnssecMode {
     #[default]
     Off,
     TrustUpstream { require_secure: bool },
-    StrictLocal, // Reserved for future local cryptographic verification (RFC 4035)
+    ValidateLocal, // Full local cryptographic verification down to trust anchors (RFC 4035)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -148,6 +148,14 @@ pub enum UpstreamTrustPolicy {
     AlwaysTrust,
 }
 ```
+
+### 2.4 Record & Data Type Representation
+
+Public DNSSEC and DNS resource records model fields with rich Rust standard and domain types:
+- **Intervals and TTLs**: Represented with `std::time::Duration` (e.g., `Record.ttl`, `SOA.refresh`, `RRSIG.original_ttl`).
+- **Dates and Timestamps**: Represented with `std::time::SystemTime` (e.g., `RRSIG.expiration`, `RRSIG.inception`).
+- **Protocol Enums**: Represented with strongly-typed enums (`Type`, `Class`, `Algorithm`, `DigestType`, `Nsec3HashAlgorithm`) paired with numeric `.code()` methods and non-failing `Unknown(u8|u16)` variants for forward compatibility.
+- **Wire Conversion Helpers**: Records provide bounded conversion methods (e.g., `RRSIG::expiration_seconds(&self) -> Result<u32, EncodeError>`) ensuring checked conversion during wire serialization.
 
 ---
 

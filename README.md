@@ -9,26 +9,87 @@ rustdns is a simple, fast, and fully fledged DNS library for interacting
 with domain name services at a high or low level.
 
 ## Features
-* Parsing and generating the following record types:
-  * A,
-  * AAAA,
-  * CNAME,
-  * MX,
-  * NS,
-  * SOA,
-  * PTR,
-  * TXT, and
-  * SRV
+* Parsing and generating record types: A, AAAA, CNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, OPT, PTR, RRSIG, SOA, SPF, SRV, TXT, and ZONEMD (plus raw/unrecognized record fallback).
+* Multiple client transports ([`clients::Exchanger`] / [`clients::AsyncExchanger`]): UDP, TCP, combined Do53, DNS-over-TLS (DoT, [rfc7858]), DNS-over-HTTPS (DoH, [rfc8484]), and DNS-over-HTTPS JSON.
+* High-level asynchronous [`Resolver`] with multi-upstream failover, exponential backoff, deadline budgets, and concurrent dual-stack address lookups.
+* Full DNSSEC cryptographic validation ([rfc4034], [rfc4035], [rfc5155], [rfc6840]) with built-in IANA root trust anchors and delegation chain verification.
 * Extension Mechanisms for DNS ([EDNS(0)]).
-* Support [International Domain Names (IDNA)](https://en.wikipedia.org/wiki/Internationalized_domain_name) - Different scripts, alphabets, anhd even emojis!
+* Support [International Domain Names (IDNA)](https://en.wikipedia.org/wiki/Internationalized_domain_name) - Different scripts, alphabets, and even emojis!
 * Sample `dig` and `nslookup` style [command line tools](#usage-cli).
 * Fully [tested](#testing), and [fuzzed](#fuzzing).
 
-## Usage (low-level library)
+## Usage (high-level async resolver)
+
+For most applications, [`Resolver`] is the recommended way to resolve DNS queries.
+It handles multi-server failover, retries with backoff, EDNS sizing, and DNSSEC validation.
 
 ```rust
-use rustdns::Message;
-use rustdns::types::*;
+use rustdns::prelude::*;
+use std::time::Duration;
+
+// Build a resolver with multiple upstream servers and failover:
+let resolver = Resolver::builder()
+    .upstream("8.8.8.8:53")
+    .upstream("1.1.1.1:53")
+    .timeout(Duration::from_secs(5))
+    .build()?;
+
+// Look up IPv4 and IPv6 addresses concurrently:
+let addrs = resolver.lookup("bramp.net").await?;
+println!("Addresses: {addrs:?}");
+
+// Or query for a specific record type with full response metadata:
+let response = resolver.query("bramp.net", Type::MX).await?;
+println!("DNS Response:\n{}", response.message);
+```
+
+#### Low-level query with an Exchanger
+
+If you only need a single point-to-point query without failover, retries, or DNSSEC validation,
+an [`clients::AsyncExchanger`] client can be used directly:
+
+```rust
+use rustdns::clients::udp;
+use rustdns::prelude::*;
+
+let mut query = Message::default();
+query.try_add_question("bramp.net", Type::A, Class::Internet)?;
+
+let client = udp::Client::new("8.8.8.8:53".parse()?);
+let response = client.exchange(&query).await?;
+println!("DNS Response:\n{}", response.message);
+```
+
+### Resolver vs. Exchanger
+
+`rustdns` distinguishes between low-level transport exchangers and high-level resolvers:
+
+- **[`clients::Exchanger`] / [`clients::AsyncExchanger`]**: Point-to-point transports
+  (e.g., raw UDP, TCP, DoT, DoH). An exchanger takes a verbatim [`Message`] and
+  sends it to a single server endpoint without retries, failover, deadline
+  tracking, or validation.
+- **[`Resolver`]**: High-level, production-grade resolution engine built on top of
+  exchangers:
+  - **Multi-Upstream Orchestration & Failover**: Configures multiple upstreams
+    with automated failover strategies (`Strategy::Failover`).
+  - **Retry & Exponential Backoff**: Automatically handles transient network errors
+    and retryable upstream errors (such as `SERVFAIL`) with customizable backoff and jitter.
+  - **Deadline & Budget Management**: Bounds the entire resolution process—including all
+    attempts and retries—by an overall deadline (`query_with_deadline`, `lookup_with_deadline`).
+  - **Automated EDNS & Buffer Sizing**: Sets safe EDNS(0) buffer limits (1232 bytes per
+    DNS Flag Day recommendations) and appropriate query flags.
+  - **DNSSEC Validation**: Enforces configurable DNSSEC policies, including full local
+    cryptographic chain-of-trust validation down to IANA root anchors (`DnssecMode::ValidateLocal`).
+  - **Concurrent Dual-Stack Lookups**: `lookup` concurrently resolves `A` and `AAAA`
+    records, returning unified IP addresses.
+
+## Usage (low-level message & socket API)
+
+For custom protocols, specialized transports, or offline packet manipulation,
+the low-level [`Message`] and [`Extension`] types can be used directly:
+
+```rust
+use rustdns::prelude::*;
 use std::net::UdpSocket;
 use std::time::Duration;
 
@@ -232,7 +293,13 @@ $ git tag v0.6.0 && git push origin v0.6.0
 
 * [rfc1034]: DOMAIN NAMES - CONCEPTS AND FACILITIES
 * [rfc1035]: DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION
+* [rfc4034]: Resource Records for the DNS Security Extensions
+* [rfc4035]: Protocol Modifications for the DNS Security Extensions
+* [rfc5155]: DNS Security (DNSSEC) Hashed Authenticated Denial of Existence
+* [rfc6840]: Clarifications and Implementation Notes for DNS Security (DNSSEC)
 * [rfc6895]: Domain Name System (DNS) IANA Considerations
+* [rfc7858]: Specification for DNS over Transport Layer Security (TLS)
+* [rfc8484]: DNS Queries over HTTPS (DoH)
 * [IANA Domain Name System (DNS) Parameters](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml)
 * [Computer Networks CPS365 FALL 2016](https://courses.cs.duke.edu//fall16/compsci356/DNS/DNS-primer.pdf)
 * [miekg's Go DNS Library](https://github.com/miekg/dns)
@@ -240,7 +307,13 @@ $ git tag v0.6.0 && git push origin v0.6.0
 [EDNS(0)]: https://en.wikipedia.org/wiki/Extension_Mechanisms_for_DNS
 [rfc1034]: https://datatracker.ietf.org/doc/html/rfc1034
 [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+[rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+[rfc4035]: https://datatracker.ietf.org/doc/html/rfc4035
+[rfc5155]: https://datatracker.ietf.org/doc/html/rfc5155
+[rfc6840]: https://datatracker.ietf.org/doc/html/rfc6840
 [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
+[rfc7858]: https://datatracker.ietf.org/doc/html/rfc7858
+[rfc8484]: https://datatracker.ietf.org/doc/html/rfc8484
 
 ## License: Apache-2.0
 

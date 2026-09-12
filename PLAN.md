@@ -78,16 +78,57 @@ The core resolver architecture, deadline propagation, response correlation, fail
 
 Core trust model, transport security classifications, and fail-closed resolution are complete (see [DESIGN.md](DESIGN.md#2-dnssec-support--upstream-trust-architecture)). Remaining tasks:
 
-- [ ] Add `Resource::Raw` fallback in [src/types.rs](src/types.rs) so unknown type codes decode safely when `DO=1` is set.
-- [ ] Add `Type::NSEC3` (50) and `Type::NSEC3PARAM` (51) to `Type`.
-- [ ] Implement wire encoding and decoding for `NSEC3` and `NSEC3PARAM` (RFC 5155) in [src/resource.rs](src/resource.rs).
-- [ ] Add CLI flags to [dig/main.rs](dig/main.rs) (`+dnssec`, `+ad`, `+noad`, `+cd`) and display `SecurityStatus`.
-- [ ] Unit tests for `is_secure_channel` across all clients.
-- [ ] Round-trip wire tests for `NSEC3`, `NSEC3PARAM`, and `Resource::Raw`.
+- [x] Add `Type::Unknown(u16)` to `Type` with `code()` and `From<u16>` / `From<Type>`, and `Resource::Raw` fallback in [src/types.rs](src/types.rs) so unknown type codes decode safely when `DO=1` is set.
+- [x] Add `Type::NSEC3` (50) and `Type::NSEC3PARAM` (51) to `Type`.
+- [x] Implement wire encoding and decoding for `NSEC3` and `NSEC3PARAM` (RFC 5155) in [src/resource.rs](src/resource.rs).
+- [x] Implement `DNSKEY::key_tag()` (RFC 4034 Appendix B) and `DS::calculate()` for SHA-1, SHA-256, and SHA-384.
+- [x] Canonical RRset wire serialization (`canonical_name_wire`, `canonical_owner_for_rrsig`, `construct_signed_data`) in `src/dnssec/canonical.rs`.
+- [x] Cryptographic signature verification using `ring` (Algorithms 8, 10, 13, 14, 15) in `src/dnssec/crypto.rs` and `src/dnssec/rrset_validator.rs`.
+- [x] Official IANA Root Zone Trust Anchors (KSK 20326 and KSK 38636) and `TrustStore` in `src/dnssec/anchor.rs`.
+- [x] Iterative chain-of-trust delegation validator and DNSKEY/DS caching in `src/dnssec/chain.rs`.
+- [x] Wire `DnssecMode::ValidateLocal` into `Resolver` with automatic chain validation.
+- [x] Add CLI flags to [dig/main.rs](dig/main.rs) (`+dnssec`, `+ad`, `+noad`, `+cd`, `+validate`) and display `SecurityStatus`.
+- [x] Unit tests for `is_secure_channel` across all clients.
+- [x] Round-trip wire tests for `NSEC3`, `NSEC3PARAM`, and `Resource::Raw`.
+- [x] Authenticated Denial of Existence proofs (NSEC and NSEC3 closest encloser / wildcard proofs) in `src/dnssec/denial.rs`.
 
 ---
 
-## 4. Zone File Parser Enhancements (RFC Conformance)
+## 4. Domain Name Modeling (`Name` Type)
+
+Transition from stringly-typed domain names (`String` / `&str`) to a strongly-typed, canonical wire-first `Name` abstraction (Pattern 1):
+
+### Design: Canonical Wire-First `Name`
+
+- **Representation**: Internally stores a normalized, lowercase, wire-format ASCII (Punycode) FQDN ending with a trailing dot (`.`):
+  ```rust
+  #[derive(Clone, Eq, PartialEq, Hash)]
+  pub struct Name {
+      ascii: String,
+  }
+  ```
+- **Invariants**:
+  1. Valid IDNA / Punycode: 100% ASCII octets.
+  2. Lowercase: Case-normalized per RFC 4034 §6.1.
+  3. Bounded: Validated against DNS label ($\le 63$ octets) and name ($\le 255$ octets) limits.
+  4. FQDN: Always has a trailing dot (`.`), with root represented as `"."`.
+- **Ordering**: Naturally implements `Ord` and `PartialOrd` via Canonical DNS Name Order (RFC 4034 §6.1, `crate::names::canonical_cmp`).
+- **Ergonomics & Performance**:
+  - `as_ascii(&self) -> &str` / `as_bytes(&self) -> &[u8]`: Zero-cost access for wire encoders and crypto hashers.
+  - `to_unicode(&self) -> String`: Converts back to user-friendly Unicode representation on demand (e.g. `🍕.ws.`).
+  - Implements `Display` (displaying Unicode for human readability), `FromStr`, and `TryFrom<&str>`.
+  - Hierarchy methods: `parent(&self) -> Option<Name>`, `count_labels(&self) -> u8`, `is_subdomain_of(&self, &Name) -> bool`.
+
+### Tasks
+
+- [ ] Implement `Name` struct in [src/names.rs](src/names.rs) upholding all canonical wire invariants.
+- [ ] Add unit tests for `Name` parsing, validation bounds, IDNA roundtrips, and RFC 4034 canonical ordering.
+- [ ] Adopt `Name` in internal DNSSEC modules (`ChainValidator`, `DnssecCache`, `rrset_validator`) to eliminate repeated normalization and string allocations.
+- [ ] Plan public API evolution: migrate `Question.name` and `Record.name` from `String` to `Name` (or accept `Into<Name>`).
+
+---
+
+## 5. Zone File Parser Enhancements (RFC Conformance)
 
 Authoritative root zone (`root.zone`) and root hints (`named.root`) are supported (see [DESIGN.md](DESIGN.md#5-zone-file-parser--rfc-conformance-specification)). Remaining tasks for general master files:
 
@@ -102,7 +143,7 @@ Authoritative root zone (`root.zone`) and root hints (`named.root`) are supporte
 
 ---
 
-## 5. Performance Benchmarking & Allocation Profiling
+## 6. Performance Benchmarking & Allocation Profiling
 
 Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performance-benchmarking--allocation-profiling-design).
 
@@ -114,7 +155,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 
 ---
 
-## 6. Fuzzing Strategy
+## 7. Fuzzing Strategy
 
 - [ ] **Zone File Fuzzing (`fuzz_zones`)**: Fuzz Pest grammar, preprocessor bracket counting, and `Record::from_str`.
 - [x] **Round-Trip Serialization (`from_slice`)**: Exercised in [fuzz/fuzz_targets/from_slice.rs](fuzz/fuzz_targets/from_slice.rs).
@@ -127,7 +168,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 
 ---
 
-## 7. Rust Platform & Release Milestones
+## 8. Rust Platform & Release Milestones
 
 - [ ] Move lint policy into workspace configuration.
 - [ ] Ratchet toward `missing_docs`, `missing_debug_implementations`, and `unsafe_code = "forbid"`.

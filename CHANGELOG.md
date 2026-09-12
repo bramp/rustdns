@@ -104,7 +104,7 @@ All notable changes to rustdns are documented here.
   `Resolver::query` and `Resolver::lookup` (which manage EDNS options and enforce DNSSEC policy).
 - Added `scripts/fetch_root_fixtures.sh` to download and cache IANA root hints (`named.root`) and
   authoritative root zone (`root.zone`) fixtures for offline-friendly testing and CI caching.
-- Added root hints and root zone integration tests in `tests/root_files.rs`, verifying parsing of canonical
+- Added root hints and root zone integration tests in `tests/zones.rs`, verifying parsing of canonical
   `named.root` (extracting all 13 root name servers and glue records) and `root.zone` (all 24.8k records).
 - Added DNSSEC and zone digest record types (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `ZONEMD`) to `Type`,
   `Resource`, wire-format encoding/decoding, text parsing (`Resource::parse_text`), presentation formatting (`Display`),
