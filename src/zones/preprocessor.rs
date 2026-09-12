@@ -10,7 +10,7 @@ struct ZonePreprocessor;
 
 type Result<T> = result::Result<T, Error<Rule>>;
 
-fn parse_tokens(pair: Pair<Rule>) -> Result<String> {
+fn parse_tokens(pair: Pair<'_, Rule>) -> Result<String> {
     assert_eq!(pair.as_rule(), Rule::tokens);
 
     let mut result = String::new();

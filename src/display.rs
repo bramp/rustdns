@@ -22,7 +22,7 @@ use std::fmt;
 /// Displays this message in a format resembling `dig` output.
 impl fmt::Display for Message {
     // TODO There seems to be whitespace/newlines in this output. Fix.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.fmt_header(f)?;
 
         // ;; OPT PSEUDOSECTION:
@@ -78,7 +78,7 @@ impl fmt::Display for Message {
 }
 
 impl Message {
-    fn fmt_header(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_header(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
             ";; ->>HEADER<<- opcode: {opcode}, status: {rcode}, id: {id}",
@@ -128,7 +128,7 @@ impl Message {
 }
 
 impl fmt::Display for Question {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
             "; {name:<18}      {class:4} {type:6}\n",
@@ -140,7 +140,7 @@ impl fmt::Display for Question {
 }
 
 impl fmt::Display for Record {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
             "{name:<20} {ttl:>4} {class:4} {type:6} {resource}",
@@ -189,7 +189,7 @@ impl fmt::Display for Resource {
 }
 
 impl fmt::Display for MX {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // "10 aspmx.l.google.com."
         write!(
             f,
@@ -201,7 +201,7 @@ impl fmt::Display for MX {
 }
 
 impl fmt::Display for SOA {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO Would be nice to display the rname as an email address (if possible).
 
         // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
@@ -220,7 +220,7 @@ impl fmt::Display for SOA {
 }
 
 impl fmt::Display for SRV {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // "5 0 389 ldap.google.com."
         write!(
             f,
@@ -234,7 +234,7 @@ impl fmt::Display for SRV {
 }
 
 impl fmt::Display for DS {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{key_tag} {algorithm} {digest_type} {digest}",
@@ -247,7 +247,7 @@ impl fmt::Display for DS {
 }
 
 impl fmt::Display for DNSKEY {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{flags} {protocol} {algorithm} {key}",
@@ -260,7 +260,7 @@ impl fmt::Display for DNSKEY {
 }
 
 impl fmt::Display for RRSIG {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let exp_dt: chrono::DateTime<chrono::Utc> = self.expiration.into();
         let inc_dt: chrono::DateTime<chrono::Utc> = self.inception.into();
         write!(
@@ -280,7 +280,7 @@ impl fmt::Display for RRSIG {
 }
 
 impl fmt::Display for NSEC {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{next_domain}", next_domain = self.next_domain)?;
         for t in &self.types {
             write!(f, " {t}")?;
@@ -290,7 +290,7 @@ impl fmt::Display for NSEC {
 }
 
 impl fmt::Display for NSEC3 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let salt = if self.salt.is_empty() {
             "-".to_string()
         } else {
@@ -313,7 +313,7 @@ impl fmt::Display for NSEC3 {
 }
 
 impl fmt::Display for NSEC3PARAM {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let salt = if self.salt.is_empty() {
             "-".to_string()
         } else {
@@ -331,7 +331,7 @@ impl fmt::Display for NSEC3PARAM {
 }
 
 impl fmt::Display for ZONEMD {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{serial} {scheme} {algorithm} {digest}",
@@ -344,7 +344,7 @@ impl fmt::Display for ZONEMD {
 }
 
 impl fmt::Display for TXT {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let output = self
             .0
             .iter()
@@ -381,8 +381,8 @@ mod tests {
     use crate::TXT;
     use crate::Type;
     use crate::ZONEMD;
-    use core::time::Duration;
     use pretty_assertions::assert_eq;
+    use std::time::{Duration, UNIX_EPOCH};
 
     lazy_static! {
         static ref DISPLAY_TESTS : Vec<(Resource, &'static str)> = {
@@ -469,11 +469,9 @@ mod tests {
                         type_covered: Type::A,
                         algorithm: crate::types::Algorithm::RSASHA256,
                         labels: 2,
-                        original_ttl: std::time::Duration::from_secs(3600),
-                        expiration: std::time::UNIX_EPOCH
-                            + std::time::Duration::from_secs(1789880400),
-                        inception: std::time::UNIX_EPOCH
-                            + std::time::Duration::from_secs(1788753600),
+                        original_ttl: Duration::from_secs(3600),
+                        expiration: UNIX_EPOCH + Duration::from_secs(1789880400),
+                        inception: UNIX_EPOCH + Duration::from_secs(1788753600),
                         key_tag: 12345,
                         signer_name: "example.com.".to_string(),
                         signature: vec![10, 20, 30, 40],

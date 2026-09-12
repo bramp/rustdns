@@ -29,12 +29,12 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 #[pest_consume::parser]
 impl ZoneParser {
-    fn EOI(input: Node) -> Result<()> {
+    fn EOI(input: Node<'_>) -> Result<()> {
         assert_eq!(input.as_rule(), Rule::EOI);
         Ok(())
     }
 
-    fn ip4(input: Node) -> Result<Ipv4Addr> {
+    fn ip4(input: Node<'_>) -> Result<Ipv4Addr> {
         assert_eq!(input.as_rule(), Rule::ip4);
 
         match Ipv4Addr::from_str(input.as_str()) {
@@ -43,7 +43,7 @@ impl ZoneParser {
         }
     }
 
-    fn ip6(input: Node) -> Result<Ipv6Addr> {
+    fn ip6(input: Node<'_>) -> Result<Ipv6Addr> {
         assert_eq!(input.as_rule(), Rule::ip6);
 
         match Ipv6Addr::from_str(input.as_str()) {
@@ -52,7 +52,7 @@ impl ZoneParser {
         }
     }
 
-    fn duration(input: Node) -> Result<Duration> {
+    fn duration(input: Node<'_>) -> Result<Duration> {
         assert_eq!(input.as_rule(), Rule::duration);
 
         // TODO Support more complex duration types (e.g "1d")
@@ -75,7 +75,7 @@ impl ZoneParser {
         Ok(input.as_str())
     }
 
-    fn class(input: Node) -> Result<Class> {
+    fn class(input: Node<'_>) -> Result<Class> {
         assert_eq!(input.as_rule(), Rule::class);
 
         match input.as_str().parse() {
@@ -84,7 +84,7 @@ impl ZoneParser {
         }
     }
 
-    fn number<T: std::str::FromStr>(input: Node) -> Result<T>
+    fn number<T: FromStr>(input: Node<'_>) -> Result<T>
     where
         T::Err: std::fmt::Display,
     {
@@ -96,7 +96,7 @@ impl ZoneParser {
         }
     }
 
-    fn type_name(input: Node) -> Result<Type> {
+    fn type_name(input: Node<'_>) -> Result<Type> {
         assert_eq!(input.as_rule(), Rule::type_name);
         match Type::from_str(input.as_str()) {
             Ok(t) => Ok(t),
@@ -104,7 +104,7 @@ impl ZoneParser {
         }
     }
 
-    fn base64_string(input: Node) -> Result<Vec<u8>> {
+    fn base64_string(input: Node<'_>) -> Result<Vec<u8>> {
         assert_eq!(input.as_rule(), Rule::base64_string);
         match crate::util::base64_decode(input.as_str()) {
             Ok(bytes) => Ok(bytes),
@@ -112,7 +112,7 @@ impl ZoneParser {
         }
     }
 
-    fn hex_string(input: Node) -> Result<Vec<u8>> {
+    fn hex_string(input: Node<'_>) -> Result<Vec<u8>> {
         assert_eq!(input.as_rule(), Rule::hex_string);
         match crate::util::hex_decode(input.as_str()) {
             Ok(bytes) => Ok(bytes),
@@ -120,7 +120,7 @@ impl ZoneParser {
         }
     }
 
-    fn rrsig_time(input: Node) -> Result<SystemTime> {
+    fn rrsig_time(input: Node<'_>) -> Result<SystemTime> {
         assert_eq!(input.as_rule(), Rule::rrsig_time);
         let s = input.as_str();
         if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
@@ -135,7 +135,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_a(input: Node) -> Result<Resource> {
+    fn resource_a(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_a);
 
         Ok(match_nodes!(input.into_children();
@@ -144,7 +144,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_aaaa(input: Node) -> Result<Resource> {
+    fn resource_aaaa(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_aaaa);
 
         Ok(match_nodes!(input.into_children();
@@ -153,7 +153,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_cname(input: Node) -> Result<Resource> {
+    fn resource_cname(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_cname);
 
         Ok(match_nodes!(input.into_children();
@@ -162,7 +162,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_ns(input: Node) -> Result<Resource> {
+    fn resource_ns(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_ns);
 
         Ok(match_nodes!(input.into_children();
@@ -171,7 +171,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_mx(input: Node) -> Result<Resource> {
+    fn resource_mx(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_mx);
 
         Ok(match_nodes!(input.into_children();
@@ -183,7 +183,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_ptr(input: Node) -> Result<Resource> {
+    fn resource_ptr(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_ptr);
 
         Ok(match_nodes!(input.into_children();
@@ -192,7 +192,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_soa(input: Node) -> Result<Resource> {
+    fn resource_soa(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_soa);
 
         Ok(match_nodes!(input.into_children();
@@ -205,7 +205,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_ds(input: Node) -> Result<Resource> {
+    fn resource_ds(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_ds);
 
         Ok(match_nodes!(input.into_children();
@@ -219,7 +219,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_dnskey(input: Node) -> Result<Resource> {
+    fn resource_dnskey(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_dnskey);
 
         Ok(match_nodes!(input.into_children();
@@ -233,7 +233,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_rrsig(input: Node) -> Result<Resource> {
+    fn resource_rrsig(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_rrsig);
 
         Ok(match_nodes!(input.into_children();
@@ -252,7 +252,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_nsec(input: Node) -> Result<Resource> {
+    fn resource_nsec(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_nsec);
 
         Ok(match_nodes!(input.into_children();
@@ -264,7 +264,7 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
-    fn resource_zonemd(input: Node) -> Result<Resource> {
+    fn resource_zonemd(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_zonemd);
 
         Ok(match_nodes!(input.into_children();
@@ -278,7 +278,7 @@ impl ZoneParser {
     }
 
     #[alias(entry)]
-    fn origin(input: Node) -> Result<Entry> {
+    fn origin(input: Node<'_>) -> Result<Entry> {
         assert_eq!(input.as_rule(), Rule::origin);
 
         Ok(match_nodes!(input.into_children();
@@ -287,7 +287,7 @@ impl ZoneParser {
     }
 
     #[alias(entry)]
-    fn ttl(input: Node) -> Result<Entry> {
+    fn ttl(input: Node<'_>) -> Result<Entry> {
         assert_eq!(input.as_rule(), Rule::ttl);
 
         Ok(match_nodes!(input.into_children();
@@ -296,7 +296,7 @@ impl ZoneParser {
     }
 
     #[alias(entry)]
-    fn record(input: Node) -> Result<Entry> {
+    fn record(input: Node<'_>) -> Result<Entry> {
         assert_eq!(input.as_rule(), Rule::record);
 
         let record = Self::parse_record(input)?;
@@ -305,7 +305,7 @@ impl ZoneParser {
         Ok(Entry::Record(record))
     }
 
-    pub fn single_record(input: Node) -> Result<Record> {
+    pub fn single_record(input: Node<'_>) -> Result<Record> {
         assert_eq!(input.as_rule(), Rule::single_record);
 
         match_nodes!(input.into_children();
@@ -313,7 +313,7 @@ impl ZoneParser {
         )
     }
 
-    pub fn file(input: Node) -> Result<Vec<Entry>> {
+    pub fn file(input: Node<'_>) -> Result<Vec<Entry>> {
         assert_eq!(input.as_rule(), Rule::file);
 
         match_nodes!(input.into_children();
@@ -327,7 +327,7 @@ impl ZoneParser {
     // This is in a seperate ZoneParser impl, due to limitations with
     // `#[pest_consume::parser]` which does not allow aliased methods to be
     // called, or used in match_nodes.
-    fn parse_record(input: Node) -> Result<Record> {
+    fn parse_record(input: Node<'_>) -> Result<Record> {
         assert_eq!(input.as_rule(), Rule::record);
 
         let mut record = Record {
