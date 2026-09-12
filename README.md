@@ -297,18 +297,6 @@ $ git commit -am "Release v0.6.0" && git push
 $ git tag v0.6.0 && git push origin v0.6.0
 ```
 
-## TODO (in order of priority)
-* [ ] Document UDP/TCP library
-* [ ] Client side examples
-* [ ] Server side examples
-* [ ] DNSSEC: Signing, validating and key generation for DSA, RSA, ECDSA and Ed25519
-* [ ] NSID, Cookies, AXFR/IXFR, TSIG, SIG(0)
-* [ ] Runtime-independence
-* [ ] Change the API to have getters and setters.
-* [ ] Change hyper-alpn to support tokio-native-tls for people that want that.
-* [ ] Implement more dig features, such as +trace
-* [ ] Maybe convert the binary parsing to Nom format.
-
 ### Reference
 
 * [rfc1034]: DOMAIN NAMES - CONCEPTS AND FACILITIES
