@@ -7,11 +7,12 @@ use crate::clients::{AsyncExchanger, WireResponse};
 use crate::limits::MAX_DNS_MESSAGE_LEN;
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use http::header::*;
+use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Bytes;
 use hyper_util::client::legacy::connect::HttpInfo;
+use std::fmt;
 use std::io;
 use std::time::Duration;
 use url::Url;
@@ -59,6 +60,18 @@ pub struct Client {
     write_timeout: Duration,
     /// Hyper client whose connection pool is reused across exchanges.
     http_client: HttpClient,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("server", &self.server)
+            .field("method", &self.method)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("read_timeout", &self.read_timeout)
+            .field("write_timeout", &self.write_timeout)
+            .finish_non_exhaustive()
+    }
 }
 
 impl std::panic::RefUnwindSafe for Client {}
@@ -220,7 +233,7 @@ impl AsyncExchanger for Client {
         let remote_addr = resp
             .extensions()
             .get::<HttpInfo>()
-            .map(|http_info| http_info.remote_addr());
+            .map(HttpInfo::remote_addr);
         log::trace!("DoH remote address: {remote_addr:?}");
         log::trace!("DoH HTTP status: {}", resp.status());
 

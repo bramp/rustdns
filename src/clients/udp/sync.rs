@@ -44,6 +44,7 @@ use std::time::Duration;
 /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
 /// [rfc2181]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
 /// [rfc7766]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
+#[derive(Debug)]
 pub struct Client {
     /// The DNS server this client queries.
     server: SocketAddr,

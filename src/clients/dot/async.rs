@@ -6,6 +6,7 @@ use crate::clients::{AsyncExchanger, WireResponse};
 use async_trait::async_trait;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
+use std::fmt;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -83,6 +84,18 @@ pub struct Client {
     // reader/writer task with an in-flight query map (`HashMap<u16, oneshot::Sender<Message>>`)
     // will allow full pipelining under RFC 7766 §6.2.1.1 without locking across the entire RTT.
     connection: tokio::sync::Mutex<Option<TlsStream<tokio::net::TcpStream>>>,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("server_name", &self.server_name)
+            .field("server", &self.server)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("read_timeout", &self.read_timeout)
+            .field("write_timeout", &self.write_timeout)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Client {

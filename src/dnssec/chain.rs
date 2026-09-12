@@ -21,7 +21,7 @@ use std::time::{Instant, SystemTime};
 
 /// In-memory cache for validated DNSSEC keys and delegation signers.
 // TODO Consider merging this with a more general cache.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct DnssecCache {
     dnskeys: Arc<Mutex<HashMap<String, Vec<Record>>>>,
     ds_records: Arc<Mutex<HashMap<String, Vec<Record>>>>,
@@ -56,6 +56,7 @@ impl DnssecCache {
 }
 
 /// An iterative DNSSEC chain-of-trust validator.
+#[derive(Debug)]
 pub struct ChainValidator<'a, R: AsyncResolver + ?Sized> {
     resolver: &'a R,
     trust_store: &'a TrustStore,
@@ -234,7 +235,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
         zone: &'b str,
         ksk: &'b DNSKEY,
         now: SystemTime,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::Error>> + Send + 'b>> {
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), crate::Error>> + Send + 'b>> {
         Box::pin(async move {
             let anchors = self.trust_store.find_anchors(zone);
             if !anchors.is_empty() {

@@ -4,6 +4,7 @@ use crate::clients::common::timeouts::with_timeout;
 use crate::clients::{AsyncExchanger, WireResponse};
 use crate::limits::MAX_DNS_MESSAGE_LEN;
 use async_trait::async_trait;
+use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,6 +57,15 @@ pub struct Client {
 
     /// Lazily created socket, connected to `server` and reused across exchanges.
     socket: tokio::sync::Mutex<Option<tokio::net::UdpSocket>>,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("server", &self.server)
+            .field("read_timeout", &self.read_timeout)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Client {

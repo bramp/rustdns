@@ -1,6 +1,7 @@
 use super::{Backoff, Resolver, Strategy};
 use crate::clients::{AsyncExchanger, IntoAsyncExchanger};
-use crate::types::*;
+use crate::types::{DnssecMode, UpstreamTrustPolicy};
+use std::fmt;
 use std::time::Duration;
 
 /// Builder for [`Resolver`].
@@ -16,6 +17,24 @@ pub struct ResolverBuilder {
     payload_size: u16,
     #[cfg(feature = "dnssec")]
     trust_store: crate::dnssec::TrustStore,
+}
+
+impl fmt::Debug for ResolverBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("ResolverBuilder");
+        d.field("upstreams_len", &self.upstreams.len())
+            .field("error", &self.error)
+            .field("strategy", &self.strategy)
+            .field("timeout", &self.timeout)
+            .field("retries", &self.retries)
+            .field("backoff", &self.backoff)
+            .field("dnssec_mode", &self.dnssec_mode)
+            .field("upstream_trust_policy", &self.upstream_trust_policy)
+            .field("payload_size", &self.payload_size);
+        #[cfg(feature = "dnssec")]
+        d.field("trust_store", &self.trust_store);
+        d.finish()
+    }
 }
 
 impl Default for ResolverBuilder {

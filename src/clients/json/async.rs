@@ -9,10 +9,11 @@ use crate::errors::JsonError;
 use async_trait::async_trait;
 use http::Method;
 use http::Request;
-use http::header::*;
+use http::header::{ACCEPT, CONTENT_TYPE};
 use http_body_util::{BodyExt, Empty, Limited};
 use hyper::body::Bytes;
 use hyper_util::client::legacy::connect::HttpInfo;
+use std::fmt;
 use std::io;
 use std::time::Duration;
 use url::Url;
@@ -64,6 +65,17 @@ pub struct Client {
     http_client: HttpClient,
 }
 
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("server", &self.server)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("read_timeout", &self.read_timeout)
+            .field("write_timeout", &self.write_timeout)
+            .finish_non_exhaustive()
+    }
+}
+
 impl std::panic::RefUnwindSafe for Client {}
 impl std::panic::UnwindSafe for Client {}
 
@@ -85,9 +97,9 @@ impl Client {
     /// # Errors
     ///
     /// Returns an error if `server` does not use HTTPS.
-    pub fn try_new(server: Url) -> Result<Self, crate::Error> {
+    pub fn try_new(server: Url) -> Result<Self, Error> {
         if server.scheme() != "https" {
-            return Err(crate::Error::InvalidArgument(
+            return Err(Error::InvalidArgument(
                 "DoH JSON servers must use HTTPS".to_string(),
             ));
         }
@@ -106,15 +118,15 @@ impl Client {
     /// # Errors
     ///
     /// Returns an error if `url` cannot be parsed or does not use HTTPS.
-    pub fn try_from_url(url: &str) -> Result<Self, crate::Error> {
+    pub fn try_from_url(url: &str) -> Result<Self, Error> {
         let parsed = url
             .parse::<Url>()
-            .map_err(|e| crate::Error::InvalidArgument(format!("invalid URL '{url}': {e}")))?;
+            .map_err(|e| Error::InvalidArgument(format!("invalid URL '{url}': {e}")))?;
         Self::try_new(parsed)
     }
 
     /// Compatibility constructor. Prefer [`Client::try_new`] or [`Client::try_from_url`].
-    pub fn new(server: &str) -> Result<Self, crate::Error> {
+    pub fn new(server: &str) -> Result<Self, Error> {
         Self::try_from_url(server)
     }
 
@@ -162,7 +174,7 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error for request construction failures, unsuccessful HTTP
     /// responses, invalid content types, oversized bodies, or invalid JSON/DNS data.
-    async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, Error> {
         if query.questions.len() != 1 {
             return Err(Error::InvalidArgument(
                 "expected exactly one question must be provided".to_string(),
@@ -171,9 +183,10 @@ impl AsyncExchanger for Client {
 
         let client = &self.http_client;
 
-        let question = query.questions.first().ok_or_else(|| {
-            crate::Error::InvalidArgument("expected one DNS question".to_string())
-        })?;
+        let question = query
+            .questions
+            .first()
+            .ok_or_else(|| Error::InvalidArgument("expected one DNS question".to_string()))?;
 
         let ascii_name = question.ascii_name()?;
 
@@ -218,19 +231,19 @@ impl AsyncExchanger for Client {
         let remote_addr = resp
             .extensions()
             .get::<HttpInfo>()
-            .map(|http_info| http_info.remote_addr());
+            .map(HttpInfo::remote_addr);
         log::trace!("DoH JSON remote address: {remote_addr:?}");
         log::trace!("DoH JSON HTTP status: {}", resp.status());
 
         let content_type = resp
             .headers()
             .get(CONTENT_TYPE)
-            .ok_or(crate::Error::MissingContentType)?;
+            .ok_or(Error::MissingContentType)?;
         log::trace!("DoH JSON response content-type: {:?}", content_type);
         if !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_DNS_JSON)
             && !content_type_equal(content_type, CONTENT_TYPE_APPLICATION_JSON)
         {
-            return Err(crate::Error::UnexpectedContentType {
+            return Err(Error::UnexpectedContentType {
                 actual: format!("{content_type:?}"),
                 expected: "application/dns-json or application/json",
             });
@@ -275,7 +288,7 @@ impl AsyncExchanger for Client {
 }
 
 fn parse_response(body: &[u8]) -> Result<Message, JsonError> {
-    crate::json::from_slice(body)
+    from_slice(body)
 }
 
 /// Parses a DNS-over-HTTPS JSON response body into a [`Message`].

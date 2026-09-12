@@ -2,7 +2,11 @@ use crate::Extension;
 use crate::Message;
 use crate::clients::resolver::ResolverBuilder;
 use crate::clients::{AsyncExchanger, WireResponse, WireResponseMeta};
-use crate::types::*;
+use crate::types::{
+    ChannelSecurity, Class, DnssecMode, QR, Rcode, Resource, SecurityStatus, Type,
+    UpstreamTrustPolicy,
+};
+use std::fmt;
 use std::net::IpAddr;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -58,8 +62,8 @@ impl ResponseMeta {
     }
 }
 
-impl std::fmt::Display for ResponseMeta {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ResponseMeta {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, ";; Query time: {} msec", self.elapsed.as_millis())?;
         writeln!(f, ";; UPSTREAM: {}", self.upstream)?;
         if let Some(winning) = self.wire.last() {
@@ -122,8 +126,8 @@ impl DerefMut for Response {
     }
 }
 
-impl std::fmt::Display for Response {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)?;
         write!(f, "{}", self.meta)
     }
@@ -149,6 +153,21 @@ pub struct Resolver {
     pub(crate) trust_store: crate::dnssec::TrustStore,
     #[cfg(feature = "dnssec")]
     pub(crate) dnssec_cache: crate::dnssec::DnssecCache,
+}
+
+impl fmt::Debug for Resolver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Resolver")
+            .field("upstreams_len", &self.upstreams.len())
+            .field("strategy", &self.strategy)
+            .field("timeout", &self.timeout)
+            .field("retries", &self.retries)
+            .field("backoff", &self.backoff)
+            .field("dnssec_mode", &self.dnssec_mode)
+            .field("upstream_trust_policy", &self.upstream_trust_policy)
+            .field("payload_size", &self.payload_size)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Classification of a correlated response, used to decide whether to retry or fail over.
@@ -721,6 +740,8 @@ impl Resolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Record;
+    use crate::types::Algorithm;
 
     fn query_with_id(id: u16) -> Message {
         let mut query = Message {

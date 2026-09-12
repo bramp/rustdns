@@ -8,6 +8,7 @@ use rustls::{ClientConfig, ClientConnection, StreamOwned};
 use socket2::{Socket, TcpKeepalive};
 use std::cell::Cell;
 use std::convert::TryFrom;
+use std::fmt;
 use std::io;
 use std::io::Read;
 use std::io::Write;
@@ -76,6 +77,18 @@ pub struct Client {
 
     /// Lazily created TLS connection and its last successful-use time.
     connection: Cell<Option<(TlsStream, Instant)>>,
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("server_name", &self.server_name)
+            .field("server", &self.server)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("read_timeout", &self.read_timeout)
+            .field("write_timeout", &self.write_timeout)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Client {
