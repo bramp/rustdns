@@ -25,7 +25,7 @@ members = [
 default = ["clients", "zones"]
 
 # Enable the DNS clients (asynchronous, plus the blocking variants).
-clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync", "exchanger"]
+clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync", "exchanger", "dnssec"]
 
 # Generic Exchanger trait and WireResponse types (WASM compatible, no Tokio or HTTP dependencies).
 exchanger = []
@@ -38,7 +38,10 @@ do53 = ["dep:tokio"]
 sync = []
 
 # Async, multi-upstream Resolver (builder-configured, works with any AsyncExchanger).
-resolver = ["dep:tokio"]
+resolver = ["dep:tokio", "dnssec"]
+
+# DNSSEC cryptographic verification and chain-of-trust resolution.
+dnssec = ["dep:ring"]
 
 # DNS over HTTPS (DoH) client (rfc8484).
 doh  = ["http_deps"]
@@ -73,6 +76,9 @@ mime = { version = "0.3.17", optional = true }
 rustls = { version = "0.23.43", default-features = false, features = ["ring", "std"], optional = true }
 tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring"], optional = true }
 webpki-roots = { version = "1.0.9", optional = true }
+
+# Needed for DNSSEC cryptographic validation
+ring = { version = "0.17", optional = true }
 
 # Needed for DNS over HTTP Json
 serde = { version = "1.0.229", features = ["derive"], optional = true }
@@ -116,6 +122,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 [dev-dependencies]
 env_logger = "0.11.11"
 pretty_assertions = "1.4.1"
+quick-xml = { version = "0.37", features = ["serialize"] }
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 yaml_serde = "0.10.7"

@@ -824,6 +824,7 @@ dependencies = [
  "pest_derive",
  "rand",
  "regex",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
