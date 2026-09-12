@@ -14,6 +14,8 @@ mod parser;
 mod parser_tests;
 mod preprocessor;
 mod process;
+#[cfg(test)]
+mod root_files_tests;
 
 pub use process::ProcessError;
 

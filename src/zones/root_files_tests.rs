@@ -1,12 +1,12 @@
-// Integration tests validating zone parser handling of canonical IANA root files:
+// Tests validating zone parser handling of canonical IANA root files:
 // - named.root (Root Hints)
 // - root.zone (Authoritative Root Zone)
 //
 // If fixture files are not available locally, tests gracefully skip with instructions
 // on how to download them via scripts/fetch_root_fixtures.sh.
 
-#![cfg(feature = "zones")]
-
+use crate::zones::File;
+use crate::{Class, Resource, Type};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -50,7 +50,7 @@ fn test_parse_root_hints() {
 
     assert!(!contents.is_empty(), "named.root fixture must not be empty");
 
-    let zone_file = rustdns::zones::File::from_str(&contents)
+    let zone_file = File::from_str(&contents)
         .unwrap_or_else(|e| panic!("failed to parse named.root zone file: {}", e));
 
     let records = zone_file
@@ -75,7 +75,7 @@ fn test_parse_root_hints() {
     for r in &records {
         assert_eq!(
             r.class,
-            rustdns::Class::Internet,
+            Class::Internet,
             "all records should default to Class::IN"
         );
         assert_eq!(
@@ -85,7 +85,7 @@ fn test_parse_root_hints() {
         );
 
         match &r.resource {
-            rustdns::Resource::NS(ns) => {
+            Resource::NS(ns) => {
                 assert!(
                     r.name.is_empty() || r.name == ".",
                     "NS record domain should be root, got {:?}",
@@ -93,10 +93,10 @@ fn test_parse_root_hints() {
                 );
                 ns_servers.insert(ns.to_ascii_lowercase());
             }
-            rustdns::Resource::A(_) => {
+            Resource::A(_) => {
                 a_servers.insert(r.name.to_ascii_lowercase());
             }
-            rustdns::Resource::AAAA(_) => {
+            Resource::AAAA(_) => {
                 aaaa_servers.insert(r.name.to_ascii_lowercase());
             }
             other => panic!("unexpected record in named.root: {:?}", other),
@@ -148,7 +148,7 @@ fn test_parse_root_zone() {
     );
 
     let content = fs::read_to_string(&zone_path).expect("read root.zone");
-    let zone_file = rustdns::zones::File::from_str(&content)
+    let zone_file = File::from_str(&content)
         .expect("File::from_str should parse entire root zone file");
     let records = zone_file
         .try_into_records()
@@ -165,7 +165,7 @@ fn test_parse_root_zone() {
         *type_counts.entry(record.resource.r#type()).or_insert(0) += 1;
 
         if record.name == "." || record.name.is_empty() {
-            if let rustdns::Resource::SOA(ref soa) = record.resource {
+            if let Resource::SOA(ref soa) = record.resource {
                 assert!(
                     soa.mname.contains("root-servers.net"),
                     "unexpected root SOA mname: {}",
@@ -173,15 +173,15 @@ fn test_parse_root_zone() {
                 );
                 found_root_soa = true;
             }
-            if let rustdns::Resource::DNSKEY(ref key) = record.resource {
+            if let Resource::DNSKEY(ref key) = record.resource {
                 dnskeys.push(key.clone());
             }
         }
         if record.name == "com." || record.name == "com" {
-            if let rustdns::Resource::DS(_) = record.resource {
+            if let Resource::DS(_) = record.resource {
                 found_com_ds = true;
             }
-            if let rustdns::Resource::NS(_) = record.resource {
+            if let Resource::NS(_) = record.resource {
                 found_com_ns = true;
             }
         }
@@ -196,16 +196,90 @@ fn test_parse_root_zone() {
     assert!(found_com_ds, "must find com. DS record");
     assert!(found_com_ns, "must find com. NS record");
     assert!(dnskeys.len() >= 2, "must find root DNSKEYs (KSK + ZSK)");
+
+    // Test DNSKEY key_tag calculation and trust anchor match
+    #[cfg(feature = "dnssec")]
+    {
+        let trust_store = crate::dnssec::TrustStore::default();
+        let root_anchors = trust_store.find_anchors(".");
+        assert!(!root_anchors.is_empty(), "must have root trust anchors");
+
+        let mut matched_ksk = false;
+        for dnskey in &dnskeys {
+            let tag = dnskey.key_tag();
+            if tag == 20326 || tag == 38696 {
+                // Verify calculated DS matches trust anchor
+                let calculated_ds =
+                    crate::resource::DS::from_dnskey(".", dnskey, crate::types::DigestType::Sha256)
+                        .expect("calculate DS");
+                for anchor in &root_anchors {
+                    if anchor.key_tag == tag {
+                        assert!(
+                            anchor.matches_ds(&calculated_ds),
+                            "calculated DS must match IANA trust anchor"
+                        );
+                        matched_ksk = true;
+                    }
+                }
+            }
+        }
+        assert!(
+            matched_ksk,
+            "must match at least one root KSK trust anchor in root.zone"
+        );
+    }
+
     assert!(
-        type_counts.contains_key(&rustdns::Type::RRSIG),
+        type_counts.contains_key(&Type::RRSIG),
         "must contain RRSIG records"
     );
     assert!(
-        type_counts.contains_key(&rustdns::Type::NSEC),
+        type_counts.contains_key(&Type::NSEC),
         "must contain NSEC records"
     );
     assert!(
-        type_counts.contains_key(&rustdns::Type::ZONEMD),
+        type_counts.contains_key(&Type::ZONEMD),
         "must contain ZONEMD records"
     );
+
+    // Verify RRSIG cryptographic signature over root DNSKEY RRset using root KSK
+    #[cfg(feature = "dnssec")]
+    {
+        let mut root_dnskeys = Vec::new();
+        let mut root_dnskey_rrsig: Option<crate::resource::RRSIG> = None;
+
+        for record in &records {
+            if record.name == "." || record.name.is_empty() {
+                if let Resource::DNSKEY(_) = &record.resource {
+                    root_dnskeys.push(record.clone());
+                } else if let Resource::RRSIG(rrsig) = &record.resource {
+                    if rrsig.type_covered == Type::DNSKEY
+                        && (rrsig.key_tag == 20326 || rrsig.key_tag == 38696)
+                    {
+                        root_dnskey_rrsig = Some(rrsig.clone());
+                    }
+                }
+            }
+        }
+
+        if let Some(rrsig) = root_dnskey_rrsig {
+            // Find matching KSK
+            let ksk = dnskeys
+                .iter()
+                .find(|k| k.key_tag() == rrsig.key_tag)
+                .expect("must find matching KSK in root zone");
+
+            let report = crate::dnssec::validate_rrset(
+                ".",
+                &root_dnskeys,
+                &rrsig,
+                ksk,
+                rrsig.inception + std::time::Duration::from_secs(10),
+            )
+            .expect("root DNSKEY RRset signature must be cryptographically valid");
+
+            assert_eq!(report.key_tag, rrsig.key_tag);
+            assert_eq!(report.records_count, root_dnskeys.len());
+        }
+    }
 }

@@ -12,17 +12,19 @@ FIXTURES_DIR="${WORKSPACE_ROOT}/tests/fixtures"
 NAMED_ROOT_URL="https://www.internic.net/domain/named.root"
 ROOT_ZONE_GZ_URL="https://www.internic.net/domain/root.zone.gz"
 ROOT_ZONE_URL="https://www.internic.net/domain/root.zone"
+ROOT_ANCHORS_URL="https://data.iana.org/root-anchors/root-anchors.xml"
 
 FORCE=false
 HINTS_ONLY=false
 ZONE_ONLY=false
+ANCHORS_ONLY=false
 MAX_AGE_DAYS=7
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS] [DEST_DIR]
 
-Downloads IANA root hints and root zone files for integration testing.
+Downloads IANA root hints, root zone, and root anchors XML files for integration testing.
 
 Arguments:
     DEST_DIR            Target directory for downloaded fixtures
@@ -33,6 +35,7 @@ Options:
     --max-age-days N    Re-download if file is older than N days (default: 7, 0 to disable)
     --hints-only        Only download named.root (~3.3 KB)
     --zone-only         Only download root.zone (~1 MB compressed, ~2.2 MB uncompressed)
+    --anchors-only      Only download root-anchors.xml (~2 KB)
     --help, -h          Show this help message
 EOF
     exit 0
@@ -54,6 +57,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --zone-only)
             ZONE_ONLY=true
+            shift
+            ;;
+        --anchors-only)
+            ANCHORS_ONLY=true
             shift
             ;;
         --help|-h)
@@ -175,12 +182,49 @@ fetch_root_zone() {
     echo "Saved root zone to ${target} ($(wc -c < "${target}" | tr -d ' ') bytes, $(wc -l < "${target}" | tr -d ' ') lines)."
 }
 
-if [[ "${ZONE_ONLY}" != "true" ]]; then
-    fetch_named_root
-fi
+fetch_root_anchors() {
+    local target="${FIXTURES_DIR}/root-anchors.xml"
+    if [[ -f "${target}" ]] && [[ "${FORCE}" != "true" ]]; then
+        if is_file_fresh "${target}" "${MAX_AGE_DAYS}"; then
+            echo "Root anchors XML already present and fresh at ${target} (use --force to re-download)."
+            return 0
+        else
+            echo "Root anchors XML at ${target} is older than ${MAX_AGE_DAYS} days; re-downloading..."
+        fi
+    fi
 
-if [[ "${HINTS_ONLY}" != "true" ]]; then
+    echo "Downloading root anchors XML from ${ROOT_ANCHORS_URL}..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "${ROOT_ANCHORS_URL}" -o "${target}.tmp"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q "${ROOT_ANCHORS_URL}" -O "${target}.tmp"
+    else
+        echo "Error: Neither curl nor wget is available." >&2
+        exit 1
+    fi
+
+    # Verify download is non-empty and contains TrustAnchor
+    if ! grep -q "TrustAnchor" "${target}.tmp" 2>/dev/null; then
+        echo "Error: Downloaded root-anchors.xml did not match expected XML content." >&2
+        rm -f "${target}.tmp"
+        exit 1
+    fi
+
+    mv "${target}.tmp" "${target}"
+    DOWNLOADED=true
+    echo "Saved root anchors XML to ${target} ($(wc -c < "${target}" | tr -d ' ') bytes)."
+}
+
+if [[ "${ANCHORS_ONLY}" == "true" ]]; then
+    fetch_root_anchors
+elif [[ "${ZONE_ONLY}" == "true" ]]; then
     fetch_root_zone
+elif [[ "${HINTS_ONLY}" == "true" ]]; then
+    fetch_named_root
+else
+    fetch_named_root
+    fetch_root_zone
+    fetch_root_anchors
 fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
