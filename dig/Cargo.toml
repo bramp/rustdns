@@ -10,6 +10,7 @@ rust-version = "1.85"
 rustdns = { path = "../", default-features = false, features = [
     "clients",
     "resolver",
+    "dnssec",
     "do53",
     "dot",
     "doh",

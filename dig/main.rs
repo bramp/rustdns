@@ -55,7 +55,48 @@ enum DigError {
     RustDnsError(#[from] rustdns::Error),
 }
 
-const USAGE: &str = "Usage: dig [@server] [+udp|+tcp|+dot|+doh|+json] [+ignore|+noignore] [+tries=N] [+retry=N] [+time=secs] [+verbose] [+nsid] [+subnet=addr/source[/scope]] [+cookie=hex[:hex]] [+tcp-keepalive[=seconds]] [+padding=bytes] [+ednsopt=code:hex] {domain} {type}";
+const USAGE: &str = "Usage: dig [@server] [options] <domain> [type]\n\
+Use 'dig -h' for detailed help.";
+
+const HELP: &str = "\
+Usage: dig [@server] [options] <domain> [type]
+
+Arguments:
+  @server                        DNS server to query (IP address, hostname, or URL)
+  <domain>                       Domain name to query (default: '.')
+  [type]                         Record type to query (A, AAAA, MX, TXT, DNSKEY, etc.)
+
+Transport Options:
+  +udp                           Query using standard UDP DNS (default, port 53)
+  +tcp                           Query using TCP DNS (port 53)
+  +dot                           Query using DNS-over-TLS (DoT, port 853)
+  +doh                           Query using DNS-over-HTTPS (DoH, RFC 8484)
+  +json                          Query using DNS-over-HTTPS JSON API
+
+Query Options:
+  +time=secs                     Network timeout per try in seconds (default: 5)
+  +tries=N                       Total number of query attempts (default: 3)
+  +retry=N                       Number of retries (sets tries to N+1)
+  +ignore / +noignore            Ignore UDP truncation; do not retry over TCP (default: +noignore)
+  +verbose                       Print query details, hexdumps, and transport tracing
+
+DNSSEC Options:
+  +dnssec / +do                  Request DNSSEC records (sets EDNS DO bit)
+  +nodnssec / +nodo              Do not request DNSSEC records (default)
+  +ad / +noad                    Set/clear the Authentic Data (AD) query bit (default: +ad)
+  +cd / +nocd                    Set/clear the Checking Disabled (CD) query bit (default: +nocd)
+  +validate / +strict            Perform local cryptographic DNSSEC validation to root anchors
+
+EDNS(0) Options:
+  +nsid                          Request Name Server Identifier (RFC 5001)
+  +subnet=addr/source[/scope]    Send EDNS Client Subnet (ECS) option (RFC 7871)
+  +cookie=hex[:hex]              Send EDNS Cookie with 8-byte client cookie (RFC 7873)
+  +tcp-keepalive[=secs]          Send EDNS TCP Keepalive option (RFC 7828)
+  +padding=bytes                 Send EDNS Padding option with N bytes (RFC 7830)
+  +ednsopt=code:hex              Send arbitrary EDNS option with numeric code and hex data
+
+Help:
+  -h, --help, +help              Print this help message";
 
 struct Args {
     help: bool,
@@ -65,6 +106,18 @@ struct Args {
     tries: u32,
     timeout: Duration,
     ignore_truncation: bool,
+
+    /// Set DNSSEC OK (DO) bit in EDNS extension
+    dnssec_ok: bool,
+
+    /// Authentic Data (AD) bit in query header
+    ad: bool,
+
+    /// Checking Disabled (CD) bit in query header
+    cd: bool,
+
+    /// Enable local cryptographic DNSSEC validation
+    validate: bool,
 
     /// Query this types
     r#type: rustdns::Type,
@@ -182,6 +235,11 @@ impl Default for Args {
             tries: 3,
             timeout: Duration::from_secs(5),
             ignore_truncation: false,
+
+            dnssec_ok: false,
+            ad: true,
+            cd: false,
+            validate: false,
 
             r#type: Type::A,
             domains: Vec::new(),
@@ -440,11 +498,38 @@ fn test_parse_ignore_truncation_flags() {
 }
 
 #[test]
+fn test_parse_dnssec_flags() {
+    let args = parse_args(
+        ["+dnssec", "+cd", "+noad", "example.com"]
+            .iter()
+            .map(|arg| arg.to_string()),
+    )
+    .expect("dnssec flags should parse");
+    assert!(args.dnssec_ok);
+    assert!(args.cd);
+    assert!(!args.ad);
+    assert!(!args.validate);
+
+    let args_strict = parse_args(
+        ["+validate", "example.com"]
+            .iter()
+            .map(|arg| arg.to_string()),
+    )
+    .expect("validate should parse");
+    assert!(args_strict.validate);
+    assert!(args_strict.dnssec_ok);
+}
+
+#[test]
 fn test_parse_help_flags() {
     for flag in ["-h", "--help", "+help"] {
         let args = parse_args([flag].iter().map(|arg| arg.to_string())).expect("should parse");
         assert!(args.help, "failed to parse help for {flag}");
     }
+    assert!(HELP.contains("Transport Options:"));
+    assert!(HELP.contains("DNSSEC Options:"));
+    assert!(HELP.contains("EDNS(0) Options:"));
+    assert!(USAGE.starts_with("Usage: dig"));
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
@@ -465,6 +550,16 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "+ignore" => result.ignore_truncation = true,
             "+noignore" => result.ignore_truncation = false,
             "+verbose" => result.verbose = true,
+            "+dnssec" | "+do" => result.dnssec_ok = true,
+            "+nodnssec" | "+nodo" => result.dnssec_ok = false,
+            "+ad" | "+adflag" => result.ad = true,
+            "+noad" | "+noadflag" => result.ad = false,
+            "+cd" | "+cdflag" => result.cd = true,
+            "+nocd" | "+nocdflag" => result.cd = false,
+            "+validate" | "+strict" => {
+                result.validate = true;
+                result.dnssec_ok = true;
+            }
 
             _ => {
                 if let Some(val) = arg.strip_prefix("+tries=") {
@@ -597,7 +692,7 @@ async fn main() -> Result<(), DigError> {
     };
 
     if args.help {
-        println!("{USAGE}");
+        println!("{HELP}");
         return Ok(());
     }
 
@@ -605,13 +700,18 @@ async fn main() -> Result<(), DigError> {
         init_verbose_logging();
     }
 
-    let mut query = Message::default();
+    let mut query = Message {
+        ad: args.ad,
+        cd: args.cd,
+        ..Default::default()
+    };
+
     for domain in &args.domains {
         query.try_add_question(domain, args.r#type, Class::Internet)?;
     }
     let mut extension = Extension {
         payload_size: rustdns::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE,
-
+        dnssec_ok: args.dnssec_ok,
         ..Default::default()
     };
     for option in &args.edns_options {
@@ -625,10 +725,21 @@ async fn main() -> Result<(), DigError> {
     // println!();
     println!("{}", query);
 
+    let dnssec_mode = if args.validate {
+        rustdns::types::DnssecMode::ValidateLocal
+    } else if args.dnssec_ok {
+        rustdns::types::DnssecMode::TrustUpstream {
+            require_secure: false,
+        }
+    } else {
+        rustdns::types::DnssecMode::Off
+    };
+
     let mut builder = Resolver::builder()
         .retries(args.tries.saturating_sub(1))
         .timeout(args.timeout)
-        .backoff(Backoff::None);
+        .backoff(Backoff::None)
+        .dnssec_mode(dnssec_mode);
 
     match args.client {
         Client::Udp => {
