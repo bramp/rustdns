@@ -1,7 +1,9 @@
 use crate::FromStrError;
 use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
-use crate::types::*;
+use crate::types::{
+    Algorithm, Class, DigestType, Message, Nsec3HashAlgorithm, Record, Resource, Type,
+};
 use byteorder::{BE, ReadBytesExt};
 use std::convert::TryFrom;
 use std::io;

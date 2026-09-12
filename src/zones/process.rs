@@ -1,6 +1,6 @@
 // Process a Zone File turning it into actual Records.
 
-use crate::resource::*;
+use crate::resource::{MX, NSEC, RRSIG, SOA, SRV};
 use crate::zones::Entry;
 use crate::zones::File;
 use crate::Class;
@@ -109,7 +109,7 @@ impl File {
 
                     last_class = Some(class);
 
-                    results.push(crate::Record {
+                    results.push(Record {
                         name: full_name,
                         class,
                         ttl: *ttl,

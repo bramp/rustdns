@@ -2,7 +2,10 @@ pub use crate::edns::{
     EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID, EDNS_OPTION_PADDING,
     EDNS_OPTION_TCP_KEEPALIVE, EdnsClientSubnet, EdnsCookie, EdnsOption,
 };
-use crate::resource::*;
+use crate::resource::{
+    A, AAAA, CNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, PTR, RRSIG, RawResource, SOA, SRV,
+    TXT, ZONEMD,
+};
 use std::time::Duration;
 use strum_macros::{Display, EnumString};
 

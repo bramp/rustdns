@@ -1,8 +1,9 @@
 use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::limits;
-use crate::types::Record;
-use crate::types::*;
+use crate::types::{
+    Class, EdnsOption, Extension, Message, Opcode, QR, Question, Rcode, Record, Type,
+};
 use byteorder::{BE, ReadBytesExt};
 use num_traits::FromPrimitive;
 use rand::RngExt;
@@ -479,7 +480,7 @@ impl Extension {
 
         let option_data_len =
             u16::try_from(option_data.len()).map_err(|_| EncodeError::OptionDataTooLong {
-                max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
+                max: limits::MAX_EDNS_OPTION_DATA_LEN,
             })?;
         buf.extend_from_slice(&option_data_len.to_be_bytes());
         buf.extend_from_slice(&option_data);
