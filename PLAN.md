@@ -26,7 +26,7 @@ The current baseline is `0.7.0`.
 - [ ] Add explicit DNS encoding options API (opt-in name compression).
 - [ ] Complete removal of input-dependent `expect`, `unwrap`, and assertions in production paths.
 - [ ] Final public API and semver compatibility audit.
-- [ ] Switch the features tcp/udp and async-tcp/async-udp. The default tcp should be async like all the others.
+- [x] Switch the features tcp/udp and async-tcp/async-udp. The default tcp should be async like all the others.
 - [ ] Let's move the EDNS types into a edns submodule (e.g EdnsCookie -> edns::Cookie)
 - [ ] Change the API to have getters and setters (encapsulate struct fields where appropriate). - Is this a good idea?
 
