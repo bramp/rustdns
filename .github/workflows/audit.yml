@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - 'Cargo.lock'
+      - 'deny.toml'
   pull_request:
     branches: [ main ]
     paths:
       - 'Cargo.lock'
+      - 'deny.toml'
   schedule:
     - cron: '0 0 * * 1' # Every Monday at 00:00 UTC
   workflow_dispatch:
@@ -32,5 +34,13 @@ jobs:
         with:
           tool: cargo-audit
 
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
       - name: Run cargo audit
         run: cargo audit
+
+      - name: Run cargo deny (licenses and sources)
+        run: cargo deny check licenses sources
