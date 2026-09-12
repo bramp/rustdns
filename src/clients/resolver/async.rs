@@ -500,8 +500,10 @@ impl Resolver {
     /// - Validates all the way to configured local trust anchors (e.g. the IANA root anchors).
     ///
     /// On success, updates `response.meta.security_status` with the cryptographic validation outcome
-    /// ([`SecurityStatus::Secure`] or [`SecurityStatus::Insecure`] for unsigned zones per RFC 4035 §5.2).
+    /// ([`SecurityStatus::Secure`] or [`SecurityStatus::Insecure`] for unsigned zones per [RFC 4035 §5.2]).
     /// On failure, updates `response.meta.security_status` to [`SecurityStatus::Bogus`] and returns an error.
+    ///
+    /// [RFC 4035 §5.2]: https://datatracker.ietf.org/doc/html/rfc4035#section-5.2
     #[cfg(feature = "dnssec")]
     async fn validate_local(
         &self,

@@ -55,11 +55,11 @@ type TlsStream = StreamOwned<ClientConnection, TcpStream>;
 /// }
 /// ```
 ///
-/// See [rfc7858].
+/// See [RFC 7858].
 ///
 /// See the `clients` module docs for the `try_new`/`try_from_host_port` convention.
 ///
-/// [rfc7858]: https://datatracker.ietf.org/doc/html/rfc7858
+/// [RFC 7858]: https://datatracker.ietf.org/doc/html/rfc7858
 pub struct Client {
     /// TLS server name used for SNI and certificate validation.
     server_name: String,

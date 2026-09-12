@@ -13,7 +13,7 @@ use crate::resource::{NSEC, NSEC3};
 use crate::types::Type;
 use std::cmp::Ordering;
 
-/// Checks whether an NSEC record's interval covers `name` in canonical DNS name order (RFC 4035 §5.4).
+/// Checks whether an NSEC record's interval covers `name` in canonical DNS name order ([RFC 4035 §5.4]).
 ///
 /// An NSEC record with owner $O$ and next domain $N$ covers target $T$ if:
 /// - In the standard non-wrapping case ($O < N$): $O < T < N$.
@@ -32,7 +32,7 @@ pub fn nsec_covers(owner: &str, next_domain: &str, name: &str) -> bool {
     }
 }
 
-/// Verifies an NSEC No Data (NODATA) proof per RFC 4035 §5.4.
+/// Verifies an NSEC No Data (NODATA) proof per [RFC 4035 §5.4].
 ///
 /// Proves that the queried `qname` exists but has no records of type `qtype`.
 /// Requires that:
@@ -47,7 +47,7 @@ pub fn verify_nsec_nodata(nsec: &NSEC, nsec_owner: &str, qname: &str, qtype: Typ
     !nsec.types.contains(&qtype) && !nsec.types.contains(&Type::CNAME)
 }
 
-/// Verifies an NSEC Name Error (NXDOMAIN) proof per RFC 4035 §5.4.
+/// Verifies an NSEC Name Error (NXDOMAIN) proof per [RFC 4035 §5.4].
 ///
 /// Proves that `qname` does not exist and could not have been synthesized by a wildcard.
 /// Requires:
@@ -70,7 +70,7 @@ pub fn verify_nsec_nxdomain(nsecs: &[(&str, &NSEC)], qname: &str, zone: &str) ->
         .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, &wildcard))
 }
 
-/// Computes the NSEC3 hashed owner name for a domain name per RFC 5155 §5.
+/// Computes the NSEC3 hashed owner name for a domain name per [RFC 5155 §5].
 ///
 /// Implements $IH(\text{salt}, x, \text{iterations})$ where $x$ is the uncompressed canonical
 /// wire-format encoding of `name` (lowercased) and hash algorithm is SHA-1.
@@ -99,10 +99,12 @@ pub fn nsec3_hash(name: &str, salt: &[u8], iterations: u16) -> Result<Vec<u8>, E
     Ok(digest.as_ref().to_vec())
 }
 
-/// Checks whether an NSEC3 record covers a target hash in the circular NSEC3 hash ring (RFC 5155 §8.4).
+/// Checks whether an NSEC3 record covers a target hash in the circular NSEC3 hash ring ([RFC 5155 §8.4]).
 ///
 /// - If `owner_hash < next_hash`: covers $T$ where $\text{owner\_hash} < T < \text{next\_hash}$.
 /// - If `owner_hash \ge next_hash` (wrap-around): covers $T$ where $T > \text{owner\_hash}$ or $T < \text{next\_hash}$.
+///
+/// [RFC 5155 §8.4]: https://datatracker.ietf.org/doc/html/rfc5155#section-8.4
 #[must_use]
 pub fn nsec3_covers(owner_hash: &[u8], next_hash: &[u8], target_hash: &[u8]) -> bool {
     let cmp_on = owner_hash.cmp(next_hash);
@@ -117,9 +119,11 @@ pub fn nsec3_covers(owner_hash: &[u8], next_hash: &[u8], target_hash: &[u8]) -> 
     }
 }
 
-/// Verifies an NSEC3 No Data (NODATA) proof per RFC 5155 §8.5.
+/// Verifies an NSEC3 No Data (NODATA) proof per [RFC 5155 §8.5].
 ///
 /// Proves that `qname_hash` exists, but has no records of type `qtype`.
+///
+/// [RFC 5155 §8.5]: https://datatracker.ietf.org/doc/html/rfc5155#section-8.5
 #[must_use]
 pub fn verify_nsec3_nodata(
     nsec3: &NSEC3,

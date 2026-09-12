@@ -200,9 +200,9 @@ pub struct MX {
 }
 
 /// Start of Authority (SOA) record containing administrative information
-/// about the zone. See [rfc1035].
+/// about the zone. See [RFC 1035].
 ///
-/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -216,7 +216,7 @@ pub struct SOA {
     /// an `rname` from an email address.
     pub rname: String,
 
-    /// Unsigned 32-bit version number of the original copy of the zone (RFC 1982).
+    /// Unsigned 32-bit version number of the original copy of the zone ([RFC 1982]).
     pub serial: u32,
 
     /// Time interval before the zone should be refreshed by secondary servers.
@@ -228,13 +228,16 @@ pub struct SOA {
     /// Upper limit on the time interval that can elapse before the zone is no longer authoritative.
     pub expire: Duration,
 
-    /// Minimum TTL exported with any RR from this zone, or negative caching TTL (RFC 2308).
+    /// Minimum TTL exported with any RR from this zone, or negative caching TTL ([RFC 2308]).
     pub minimum: Duration,
 }
 
-/// Service (SRV) record, containg hostname and port number information of specified services. See [rfc2782].
+/// Service (SRV) record, containg hostname and port number information of specified services. See [RFC 2782].
 ///
-/// [rfc2782]: <https://datatracker.ietf.org/doc/html/rfc2782>
+/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982
+/// [RFC 2308]: https://datatracker.ietf.org/doc/html/rfc2308
+/// [RFC 2782]: https://datatracker.ietf.org/doc/html/rfc2782
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -272,9 +275,9 @@ pub struct DS {
 }
 
 impl DS {
-    /// Constructs a DS record for a given DNSKEY owner name and DNSKEY record (RFC 4034 §5.1.4).
+    /// Constructs a DS record for a given DNSKEY owner name and DNSKEY record ([RFC 4034 §5.1.4]).
     ///
-    /// Digest types (RFC 4034 §5.1.4, RFC 4509, RFC 6605):
+    /// Digest types ([RFC 4034 §5.1.4], [RFC 4509], [RFC 6605]):
     /// - `DigestType::Sha1`: SHA-1 (legacy)
     /// - `DigestType::Sha256`: SHA-256
     /// - `DigestType::Sha384`: SHA-384
@@ -283,6 +286,10 @@ impl DS {
     ///
     /// Returns [`EncodeError`] if canonical owner serialization fails, or
     /// [`crate::DnssecError`] if the digest type is unsupported.
+    ///
+    /// [RFC 4034 §5.1.4]: https://datatracker.ietf.org/doc/html/rfc4034#section-5.1.4
+    /// [RFC 4509]: https://datatracker.ietf.org/doc/html/rfc4509
+    /// [RFC 6605]: https://datatracker.ietf.org/doc/html/rfc6605
     #[cfg(feature = "dnssec")]
     pub fn from_dnskey(
         owner: &str,
@@ -578,10 +585,14 @@ pub struct NSEC {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct NSEC3 {
-    /// The cryptographic hash algorithm used to hash owner names (RFC 5155 §11.4).
+    /// The cryptographic hash algorithm used to hash owner names ([RFC 5155 §11.4]).
+    ///
+    /// [RFC 5155 §11.4]: https://datatracker.ietf.org/doc/html/rfc5155#section-11.4
     pub hash_algorithm: Nsec3HashAlgorithm,
 
-    /// Bit flags (e.g. 0x01 = Opt-Out per RFC 5155 §3.1.2).
+    /// Bit flags (e.g. 0x01 = Opt-Out per [RFC 5155 §3.1.2]).
+    ///
+    /// [RFC 5155 §3.1.2]: https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.2
     pub flags: u8,
 
     /// The number of additional times the hash function has been performed.
@@ -639,7 +650,9 @@ impl NSEC3 {
         })
     }
 
-    /// Flag bit indicating that this NSEC3 record covers delegations that may not have DNSKEY/DS (RFC 5155 §3.1.2).
+    /// Flag bit indicating that this NSEC3 record covers delegations that may not have DNSKEY/DS ([RFC 5155 §3.1.2]).
+    ///
+    /// [RFC 5155 §3.1.2]: https://datatracker.ietf.org/doc/html/rfc5155#section-3.1.2
     pub const FLAG_OPT_OUT: u8 = 0x01;
 
     /// Returns `true` if the Opt-Out flag is set.
@@ -655,10 +668,14 @@ impl NSEC3 {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct NSEC3PARAM {
-    /// The cryptographic hash algorithm used (RFC 5155 §11.4).
+    /// The cryptographic hash algorithm used ([RFC 5155 §11.4]).
+    ///
+    /// [RFC 5155 §11.4]: https://datatracker.ietf.org/doc/html/rfc5155#section-11.4
     pub hash_algorithm: Nsec3HashAlgorithm,
 
-    /// Bit flags (must be zero when created, per RFC 5155 §4.1.2).
+    /// Bit flags (must be zero when created, per [RFC 5155 §4.1.2]).
+    ///
+    /// [RFC 5155 §4.1.2]: https://datatracker.ietf.org/doc/html/rfc5155#section-4.1.2
     pub flags: u8,
 
     /// The number of iterations.
@@ -970,7 +987,7 @@ impl SOA {
         Ok(())
     }
 
-    /// Converts the `rname` domain name to an email address per RFC 1035 §8.
+    /// Converts the `rname` domain name to an email address per [RFC 1035 §8].
     ///
     /// For example, `"dns-admin.google.com."` becomes `"dns-admin@google.com."`.
     ///
@@ -978,13 +995,16 @@ impl SOA {
     ///
     /// Returns [`FromStrError::InvalidRname`] if `rname` does not contain an
     /// unescaped dot separating the mailbox local-part from the domain.
+    ///
+    /// [RFC 1035 §8]: https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub fn email(&self) -> Result<String, FromStrError> {
         Self::rname_to_email(&self.rname)
     }
 
     /// Converts rnames to email address, for example, "admin.example.com" is
-    /// converted to "admin@example.com", per the rules in
-    /// <https://datatracker.ietf.org/doc/html/rfc1035#section-8>
+    /// converted to "admin@example.com", per the rules in [RFC 1035 §8].
+    ///
+    /// [RFC 1035 §8]: https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub fn rname_to_email(domain: &str) -> Result<String, FromStrError> {
         // Find the first unescaped dot and replace with '@'.
         // RFC 1035 §8: only '\.' is an escaped dot in the mailbox local-part.
@@ -1017,7 +1037,7 @@ impl SOA {
 
     /// Converts an email address into an SOA responsible person mailbox domain name (`rname`).
     ///
-    /// Per RFC 1035 §8, periods in the mailbox name preceding the `@` symbol are escaped
+    /// Per [RFC 1035 §8], periods in the mailbox name preceding the `@` symbol are escaped
     /// with backslashes, and the `@` separator is replaced with an unescaped `.`.
     ///
     /// # Errors
@@ -1034,6 +1054,8 @@ impl SOA {
     /// assert_eq!(rname, "dns-admin.google.com");
     /// # Ok::<(), rustdns::FromStrError>(())
     /// ```
+    ///
+    /// [RFC 1035 §8]: https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub fn email_to_rname(email: &str) -> Result<String, FromStrError> {
         match email.split_once('@') {
             None => Err(FromStrError::InvalidRname {

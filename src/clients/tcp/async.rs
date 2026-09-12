@@ -44,12 +44,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// }
 /// ```
 ///
-/// See [rfc1035] and [rfc7766].
+/// See [RFC 1035 §4.2.2] and [RFC 7766].
 ///
 /// See the `clients` module docs for the `new`/`try_from_host_port` convention.
 ///
-/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.2
-/// [rfc7766]: https://datatracker.ietf.org/doc/html/rfc7766
+/// [RFC 1035 §4.2.2]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.2
+/// [RFC 7766]: https://datatracker.ietf.org/doc/html/rfc7766
 pub struct Client {
     /// The DNS server this client queries.
     server: SocketAddr,

@@ -8,6 +8,8 @@
 //!   4. Otherwise, query the parent zone for `Z`'s DS record.
 //!   5. Verify that `Z`'s KSK matches the parent's DS record (key tag, algorithm, digest).
 //!   6. Recurse upward until a trust anchor is reached.
+//!
+//! [RFC 4035 §5]: https://datatracker.ietf.org/doc/html/rfc4035#section-5
 
 use crate::clients::AsyncResolver;
 use crate::dnssec::anchor::TrustStore;

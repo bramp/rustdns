@@ -419,11 +419,14 @@ pub enum DnssecError {
 impl DnssecError {
     /// Returns the corresponding [`SecurityStatus`] for this DNSSEC error.
     ///
-    /// Per RFC 4035 §5.2 and RFC 6840 §5.1:
+    /// Per [RFC 4035 §5.2] and [RFC 6840 §5.1]:
     /// - An unsigned zone, unanchored zone, or unsupported cryptographic algorithm/digest
     ///   means the chain cannot be authenticated, so it is treated as [`SecurityStatus::Insecure`].
     /// - Responses claiming `AD=1` over an untrusted plaintext transport are [`SecurityStatus::Indeterminate`].
     /// - Mismatched, missing, expired, or cryptographically invalid signatures are [`SecurityStatus::Bogus`].
+    ///
+    /// [RFC 4035 §5.2]: https://datatracker.ietf.org/doc/html/rfc4035#section-5.2
+    /// [RFC 6840 §5.1]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.1
     #[must_use]
     pub fn security_status(&self) -> SecurityStatus {
         match self {

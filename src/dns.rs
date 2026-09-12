@@ -186,14 +186,14 @@ impl Message {
     /// Adds a question to the message, returning an error if the domain is invalid.
     ///
     /// Note: DNS servers typically do not support more than one question. There is ambiguity in how to handle
-    /// rcode, etc. See [§4.1.2 of rfc1035] or <https://datatracker.ietf.org/doc/html/draft-bellis-dnsext-multi-qtypes-03>
+    /// rcode, etc. See [RFC 1035 §4.1.2] or <https://datatracker.ietf.org/doc/html/draft-bellis-dnsext-multi-qtypes-03>
     ///
     /// # Errors
     ///
     /// Returns an error when `domain` cannot be normalized, converted to ASCII,
     /// or exceeds DNS name limits.
     ///
-    /// [§4.1.2 of rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2.
+    /// [RFC 1035 §4.1.2]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2
     pub fn try_add_question(
         &mut self,
         domain: &str,
@@ -216,7 +216,7 @@ impl Message {
         Ok(())
     }
 
-    /// Sets the EDNS(0) extension record, as defined by [rfc6891].
+    /// Sets the EDNS(0) extension record, as defined by [RFC 6891].
     ///
     /// Use this when a query should advertise EDNS support, a larger UDP payload
     /// size, DNSSEC OK, or EDNS options. DNS messages can contain at most one
@@ -241,13 +241,13 @@ impl Message {
     /// );
     /// ```
     ///
-    /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+    /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
     pub fn set_extension(&mut self, ext: Extension) {
         // Don't allow if self.additionals.len() + 1 > 255
         self.extension = Some(ext);
     }
 
-    /// Encodes this DNS [`Message`] as a [`Vec<u8>`] ready to be sent, as defined by [rfc1035].
+    /// Encodes this DNS [`Message`] as a [`Vec<u8>`] ready to be sent, as defined by [RFC 1035].
     ///
     /// # Errors
     ///
@@ -258,7 +258,7 @@ impl Message {
     /// write. Oversized records and EDNS(0) options produce the corresponding
     /// `*TooLong` variants.
     ///
-    /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+    /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
     pub fn to_vec(&self) -> Result<Vec<u8>, EncodeError> {
         let mut req = Vec::<u8>::with_capacity(512);
         self.append_to_vec(&mut req)?;

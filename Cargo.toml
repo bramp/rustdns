@@ -43,7 +43,7 @@ resolver = ["dep:tokio", "dnssec"]
 # DNSSEC cryptographic verification and chain-of-trust resolution.
 dnssec = ["dep:ring"]
 
-# DNS over HTTPS (DoH) client (rfc8484).
+# DNS over HTTPS (DoH) client (RFC 8484).
 doh  = ["http_deps"]
 
 # DNS over HTTPS JSON parsing and serialization (WASM compatible, no network/HTTP dependencies).
@@ -52,7 +52,7 @@ json = ["dep:serde", "dep:serde_json"]
 # DNS over HTTPS JSON client (Google / Cloudflare format, requires Tokio and Hyper).
 doh-json = ["json", "http_deps"]
 
-# DNS over TLS client (DoT, rfc7858).
+# DNS over TLS client (DoT, RFC 7858).
 dot = ["dep:tokio", "dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 # Enable the Zone Parser

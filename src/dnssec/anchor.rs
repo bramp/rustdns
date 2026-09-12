@@ -1,7 +1,7 @@
 //! Built-in and user-configured DNSSEC trust anchors.
 //!
-//! Trust anchors form the cryptographic root of the chain of trust (RFC 4033 §2).
-//! By default, this embeds the official IANA Root Zone Trust Anchors (RFC 7958):
+//! Trust anchors form the cryptographic root of the chain of trust ([RFC 4033 §2]).
+//! By default, this embeds the official IANA Root Zone Trust Anchors ([RFC 7958]):
 //! - KSK 19036 (Key Tag 19036, Algorithm 8, Digest Type 2: SHA-256)
 //! - KSK 20326 (Key Tag 20326, Algorithm 8, Digest Type 2: SHA-256)
 //! - KSK 38696 (Key Tag 38696, Algorithm 8, Digest Type 2: SHA-256)
@@ -10,6 +10,9 @@
 //! ```sh
 //! ./scripts/fetch_root_fixtures.sh --anchors-only
 //! ```
+//!
+//! [RFC 4033 §2]: https://datatracker.ietf.org/doc/html/rfc4033#section-2
+//! [RFC 7958]: https://datatracker.ietf.org/doc/html/rfc7958
 
 use crate::resource::DS;
 use crate::types::{Algorithm, DigestType};

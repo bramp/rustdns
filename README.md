@@ -10,9 +10,9 @@ with domain name services at a high or low level.
 
 ## Features
 * Parsing and generating record types: A, AAAA, CNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, OPT, PTR, RRSIG, SOA, SPF, SRV, TXT, and ZONEMD (plus raw/unrecognized record fallback).
-* Multiple client transports ([`clients::Exchanger`] / [`clients::AsyncExchanger`]): UDP, TCP, combined Do53, DNS-over-TLS (DoT, [rfc7858]), DNS-over-HTTPS (DoH, [rfc8484]), and DNS-over-HTTPS JSON.
+* Multiple client transports ([`clients::Exchanger`] / [`clients::AsyncExchanger`]): UDP, TCP, combined Do53, DNS-over-TLS (DoT, [RFC 7858]), DNS-over-HTTPS (DoH, [RFC 8484]), and DNS-over-HTTPS JSON.
 * High-level asynchronous [`Resolver`] with multi-upstream failover, exponential backoff, deadline budgets, and concurrent dual-stack address lookups.
-* Full DNSSEC cryptographic validation ([rfc4034], [rfc4035], [rfc5155], [rfc6840]) with built-in IANA root trust anchors and delegation chain verification.
+* Full DNSSEC cryptographic validation ([RFC 4034], [RFC 4035], [RFC 5155], [RFC 6840]) with built-in IANA root trust anchors and delegation chain verification.
 * Extension Mechanisms for DNS ([EDNS(0)]).
 * Support [International Domain Names (IDNA)](https://en.wikipedia.org/wiki/Internationalized_domain_name) - Different scripts, alphabets, and even emojis!
 * WebAssembly (WASM) support: message encoding/decoding, JSON DoH parsing, and the [`clients::Exchanger`]/[`clients::AsyncExchanger`] traits compile to `wasm32-unknown-unknown`. Try the [live in-browser dig demo](https://dig.bramp.net).
@@ -150,8 +150,8 @@ The following optional features are available:
 
 - `clients`: Enables high-level clients and transports (Do53, DoT, DoH, DoH JSON, and Resolver).
   - `do53`: Classic DNS (Do53) asynchronous UDP and TCP clients with automatic TCP retry on truncation.
-  - `dot`: DNS-over-TLS (DoT) client ([rfc7858]).
-  - `doh`: DNS-over-HTTPS (DoH) binary wire client ([rfc8484]).
+  - `dot`: DNS-over-TLS (DoT) client ([RFC 7858]).
+  - `doh`: DNS-over-HTTPS (DoH) binary wire client ([RFC 8484]).
   - `doh-json`: DNS-over-HTTPS JSON client (Google / Cloudflare JSON schema).
   - `resolver`: High-level asynchronous [`Resolver`] with multi-upstream failover, retries, and DNSSEC validation.
   - `dnssec`: Local DNSSEC cryptographic signature and chain-of-trust verification using `ring`.
@@ -297,31 +297,31 @@ $ git commit -am "Release v0.6.0" && git push
 $ git tag v0.6.0 && git push origin v0.6.0
 ```
 
-### Reference
+## Reference
 
-* [rfc1034]: DOMAIN NAMES - CONCEPTS AND FACILITIES
-* [rfc1035]: DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION
-* [rfc4034]: Resource Records for the DNS Security Extensions
-* [rfc4035]: Protocol Modifications for the DNS Security Extensions
-* [rfc5155]: DNS Security (DNSSEC) Hashed Authenticated Denial of Existence
-* [rfc6840]: Clarifications and Implementation Notes for DNS Security (DNSSEC)
-* [rfc6895]: Domain Name System (DNS) IANA Considerations
-* [rfc7858]: Specification for DNS over Transport Layer Security (TLS)
-* [rfc8484]: DNS Queries over HTTPS (DoH)
+* [RFC 1034]: DOMAIN NAMES - CONCEPTS AND FACILITIES
+* [RFC 1035]: DOMAIN NAMES - IMPLEMENTATION AND SPECIFICATION
+* [RFC 4034]: Resource Records for the DNS Security Extensions
+* [RFC 4035]: Protocol Modifications for the DNS Security Extensions
+* [RFC 5155]: DNS Security (DNSSEC) Hashed Authenticated Denial of Existence
+* [RFC 6840]: Clarifications and Implementation Notes for DNS Security (DNSSEC)
+* [RFC 6895]: Domain Name System (DNS) IANA Considerations
+* [RFC 7858]: Specification for DNS over Transport Layer Security (TLS)
+* [RFC 8484]: DNS Queries over HTTPS (DoH)
 * [IANA Domain Name System (DNS) Parameters](https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml)
 * [Computer Networks CPS365 FALL 2016](https://courses.cs.duke.edu//fall16/compsci356/DNS/DNS-primer.pdf)
 * [miekg's Go DNS Library](https://github.com/miekg/dns)
 
 [EDNS(0)]: https://en.wikipedia.org/wiki/Extension_Mechanisms_for_DNS
-[rfc1034]: https://datatracker.ietf.org/doc/html/rfc1034
-[rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
-[rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
-[rfc4035]: https://datatracker.ietf.org/doc/html/rfc4035
-[rfc5155]: https://datatracker.ietf.org/doc/html/rfc5155
-[rfc6840]: https://datatracker.ietf.org/doc/html/rfc6840
-[rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
-[rfc7858]: https://datatracker.ietf.org/doc/html/rfc7858
-[rfc8484]: https://datatracker.ietf.org/doc/html/rfc8484
+[RFC 1034]: https://datatracker.ietf.org/doc/html/rfc1034
+[RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+[RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034
+[RFC 4035]: https://datatracker.ietf.org/doc/html/rfc4035
+[RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
+[RFC 6840]: https://datatracker.ietf.org/doc/html/rfc6840
+[RFC 6895]: https://datatracker.ietf.org/doc/html/rfc6895
+[RFC 7858]: https://datatracker.ietf.org/doc/html/rfc7858
+[RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 
 ## License: Apache-2.0
 

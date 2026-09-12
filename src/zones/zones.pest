@@ -1,6 +1,6 @@
 //! DNS Zone file parsing
 //!
-//! Format is defined in rfc1035 Section 5, extended rfc2308 Section 4.
+//! Format is defined in RFC 1035 §5, extended RFC 2308 §4.
 //!
 //! ```text
 //! <domain-name><rr> [<comment>]

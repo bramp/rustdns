@@ -40,6 +40,17 @@ Prefer rich, idiomatic Rust types over raw primitive integers in resource record
 - Use strongly-typed enums for protocol codes (`Type`, `Class`, `Algorithm`, `DigestType`, `Nsec3HashAlgorithm`) with `Unknown(u8|u16)` fallback variants.
 - Provide helper methods (such as `expiration_seconds(&self) -> Result<u32, EncodeError>`) when wire or protocol operations require converted primitives.
 
+## RFC Citation And Link Style Guide
+
+When citing RFCs and RFC sections across documentation, code comments, and guides:
+- Standardize on uppercase with a space: `"RFC 1234"` (never `"rfc1234"` or `"rfc 1234"`).
+- When referencing a specific section, use `"§"` directly attached or spaced with the section number: e.g. `"RFC 1035 §4.1.2"`, `"[RFC 1035 §4.1.2]"`.
+- For appendices, use `"Appendix"`: e.g. `"[RFC 4034 Appendix B]"`.
+- All RFC references in documentation must link directly to the official IETF Datatracker:
+  - RFC root: `https://datatracker.ietf.org/doc/html/rfc1234`
+  - Specific section: `https://datatracker.ietf.org/doc/html/rfc1234#section-4.1.2`
+  - Specific appendix: `https://datatracker.ietf.org/doc/html/rfc1234#appendix-B`
+
 ## Testing Fixtures
 
 Root hint (`named.root`), root zone (`root.zone`), and IANA trust anchor (`root-anchors.xml`) test fixtures can be downloaded or updated using `./scripts/fetch_root_fixtures.sh`:

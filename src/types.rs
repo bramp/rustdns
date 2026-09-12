@@ -90,16 +90,16 @@ pub struct Message {
     /// Response code.
     pub rcode: Rcode,
 
-    /// Checking Disabled. See [RFC4035] and [RFC6840].
+    /// Checking Disabled. See [RFC 4035] and [RFC 6840].
     ///
-    /// [rfc4035]: https://datatracker.ietf.org/doc/html/rfc4035
-    /// [rfc6840]: https://datatracker.ietf.org/doc/html/rfc6840
+    /// [RFC 4035]: https://datatracker.ietf.org/doc/html/rfc4035
+    /// [RFC 6840]: https://datatracker.ietf.org/doc/html/rfc6840
     pub cd: bool,
 
-    /// Authentic Data. See [RFC4035] and [RFC6840].
+    /// Authentic Data. See [RFC 4035] and [RFC 6840].
     ///
-    /// [rfc4035]: https://datatracker.ietf.org/doc/html/rfc4035
-    /// [rfc6840]: https://datatracker.ietf.org/doc/html/rfc6840
+    /// [RFC 4035]: https://datatracker.ietf.org/doc/html/rfc4035
+    /// [RFC 6840]: https://datatracker.ietf.org/doc/html/rfc6840
     pub ad: bool,
 
     /// Z Reserved for future use. You must set this field to 0.
@@ -181,7 +181,7 @@ impl Record {
     }
 }
 
-/// EDNS(0) extension record as defined in [rfc2671] and [rfc6891].
+/// EDNS(0) extension record as defined in [RFC 2671] and [RFC 6891].
 ///
 /// Use [`Message::set_extension`](crate::Message::set_extension) to attach an
 /// extension to a DNS message. Use [`Extension::add_option`] when mutating an
@@ -201,8 +201,8 @@ impl Record {
 /// );
 /// ```
 ///
-/// [rfc2671]: https://datatracker.ietf.org/doc/html/rfc2671
-/// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+/// [RFC 2671]: https://datatracker.ietf.org/doc/html/rfc2671
+/// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
 //
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -230,14 +230,14 @@ pub struct Extension {
     /// unsupported versions with the appropriate extended response code.
     pub version: u8,
 
-    /// DNSSEC OK bit as defined by [rfc3225].
+    /// DNSSEC OK bit as defined by [RFC 3225].
     ///
     /// Set this to `true` when the sender wants DNSSEC records such as RRSIG,
     /// DNSKEY, and related authentication data to be included in responses when
     /// available. Leave it `false` for ordinary queries that do not request
     /// DNSSEC data.
     ///
-    /// [rfc3225]: https://datatracker.ietf.org/doc/html/rfc3225
+    /// [RFC 3225]: https://datatracker.ietf.org/doc/html/rfc3225
     pub dnssec_ok: bool,
 
     /// EDNS(0) options carried by this extension record.
@@ -423,10 +423,10 @@ impl From<QR> for bool {
     }
 }
 
-/// Specifies kind of query in this message. See [rfc1035], [rfc6895] and [DNS Parameters].
+/// Specifies kind of query in this message. See [RFC 1035], [RFC 6895] and [DNS Parameters].
 ///
-/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
-/// [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
+/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [RFC 6895]: https://datatracker.ietf.org/doc/html/rfc6895
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, Hash, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
@@ -436,27 +436,27 @@ pub enum Opcode {
     /// Query.
     Query = 0,
 
-    /// Inverse Query (OBSOLETE). See [rfc3425].
+    /// Inverse Query (OBSOLETE). See [RFC 3425].
     ///
-    /// [rfc3425]: https://datatracker.ietf.org/doc/html/rfc3425
+    /// [RFC 3425]: https://datatracker.ietf.org/doc/html/rfc3425
     IQuery = 1,
 
     /// Server status request.
     Status = 2,
 
-    /// See [rfc1996]
+    /// See [RFC 1996].
     ///
-    /// [rfc1996]: https://datatracker.ietf.org/doc/html/rfc1996
+    /// [RFC 1996]: https://datatracker.ietf.org/doc/html/rfc1996
     Notify = 4,
 
-    /// See [rfc2136]
+    /// See [RFC 2136].
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
     Update = 5,
 
-    /// DNS Stateful Operations (DSO). See [rfc8490]
+    /// DNS Stateful Operations (DSO). See [RFC 8490].
     ///
-    /// [rfc8490]: https://datatracker.ietf.org/doc/html/rfc8490
+    /// [RFC 8490]: https://datatracker.ietf.org/doc/html/rfc8490
     DSO = 6,
     // 3 and 7-15 Remain unassigned.
 }
@@ -469,9 +469,9 @@ impl Default for Opcode {
 }
 
 /// Response Codes.
-/// See [rfc1035] and [DNS Parameters].
+/// See [RFC 1035] and [DNS Parameters].
 ///
-/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, Hash, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
@@ -496,42 +496,42 @@ pub enum Rcode {
     /// Query Refused
     Refused = 5,
 
-    /// Name Exists when it should not. See [rfc2136] and [rfc6672].
+    /// Name Exists when it should not. See [RFC 2136] and [RFC 6672].
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
-    /// [rfc6672]: https://datatracker.ietf.org/doc/html/rfc6672
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 6672]: https://datatracker.ietf.org/doc/html/rfc6672
     YXDomain = 6,
 
-    /// RR Set Exists when it should not. See [rfc2136].
+    /// RR Set Exists when it should not. See [RFC 2136].
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
     YXRRSet = 7,
 
-    /// RR Set that should exist does not. See [rfc2136].
+    /// RR Set that should exist does not. See [RFC 2136].
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
     NXRRSet = 8,
 
     /// Note on error number 9 (NotAuth): This error number means either
-    /// "Not Authoritative" [rfc2136] or "Not Authorized" [rfc2845].
+    /// "Not Authoritative" [RFC 2136] or "Not Authorized" [RFC 2845].
     /// If 9 appears as the RCODE in the header of a DNS response without a
     /// TSIG RR or with a TSIG RR having a zero error field, then it means
     /// "Not Authoritative".  If 9 appears as the RCODE in the header of a
     /// DNS response that includes a TSIG RR with a non-zero error field,
     /// then it means "Not Authorized".
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
-    /// [rfc2845]: https://datatracker.ietf.org/doc/html/rfc2845
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 2845]: https://datatracker.ietf.org/doc/html/rfc2845
     NotAuth = 9,
 
-    /// Name not contained in zone. See [rfc2136].
+    /// Name not contained in zone. See [RFC 2136].
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
     NotZone = 10,
 
-    /// DSO-TYPE Not Implemented. See [rfc8490].
+    /// DSO-TYPE Not Implemented. See [RFC 8490].
     ///
-    /// [rfc8490]: https://datatracker.ietf.org/doc/html/rfc8490
+    /// [RFC 8490]: https://datatracker.ietf.org/doc/html/rfc8490
     DSOTYPENI = 11,
     // 12-15 Unassigned
 }
@@ -543,20 +543,21 @@ impl Default for Rcode {
     }
 }
 /*
+// TODO Implement this?
 pub enum ExtendedRcode {
     Rcode,
-    BADVERS_or_BADSIG = 16  //  Bad OPT Version [RFC6891] or TSIG Signature Failure  [RFC8945]
-    BADKEY = 17  //   Key not recognized  [RFC8945]
-    BADTIME = 18  //  Signature out of time window    [RFC8945]
-    BADMODE = 19  //  Bad TKEY Mode   [RFC2930]
-    BADNAME = 20  //  Duplicate key name  [RFC2930]
-    BADALG = 21  //   Algorithm not supported [RFC2930]
-    BADTRUNC = 22  //     Bad Truncation  [RFC8945]
-    BADCOOKIE = 23  //    Bad/missing Server Cookie   [RFC7873]
+    BADVERS_or_BADSIG = 16  //  Bad OPT Version [RFC 6891] or TSIG Signature Failure  [RFC 8945]
+    BADKEY = 17  //   Key not recognized  [RFC 8945]
+    BADTIME = 18  //  Signature out of time window    [RFC 8945]
+    BADMODE = 19  //  Bad TKEY Mode   [RFC 2930]
+    BADNAME = 20  //  Duplicate key name  [RFC 2930]
+    BADALG = 21  //   Algorithm not supported [RFC 2930]
+    BADTRUNC = 22  //     Bad Truncation  [RFC 8945]
+    BADCOOKIE = 23  //    Bad/missing Server Cookie   [RFC 7873]
     // 24-3840  Unassigned
-    // 3841-4095     Reserved for Private Use        [RFC6895]
+    // 3841-4095     Reserved for Private Use        [RFC 6895]
     // 4096-65534    Unassigned
-    // 65535 = Reserved Can be allocated by Standards Action      [RFC6895]
+    // 65535 = Reserved Can be allocated by Standards Action      [RFC 6895]
 }
 */
 
@@ -598,52 +599,52 @@ pub enum Type {
     /// Server Selection
     SRV,
 
-    /// EDNS(0) Opt type. See [rfc3225] and [rfc6891].
+    /// EDNS(0) Opt type. See [RFC 3225] and [RFC 6891].
     ///
-    /// [rfc3225]: https://datatracker.ietf.org/doc/html/rfc3225
-    /// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+    /// [RFC 3225]: https://datatracker.ietf.org/doc/html/rfc3225
+    /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
     OPT,
 
-    /// Delegation Signer. See [rfc4034].
+    /// Delegation Signer. See [RFC 4034].
     ///
-    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    /// [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034
     DS,
 
-    /// Signature for an RRset. See [rfc4034].
+    /// Signature for an RRset. See [RFC 4034].
     ///
-    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    /// [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034
     RRSIG,
 
-    /// Next Secure name. See [rfc4034].
+    /// Next Secure name. See [RFC 4034].
     ///
-    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    /// [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034
     NSEC,
 
-    /// DNS Key. See [rfc4034].
+    /// DNS Key. See [RFC 4034].
     ///
-    /// [rfc4034]: https://datatracker.ietf.org/doc/html/rfc4034
+    /// [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034
     DNSKEY,
 
     /// Next Secure version 3 (NSEC3). See [RFC 5155].
     ///
-    /// [rfc5155]: https://datatracker.ietf.org/doc/html/rfc5155
+    /// [RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
     NSEC3,
 
     /// Next Secure version 3 Parameters (NSEC3PARAM). See [RFC 5155].
     ///
-    /// [rfc5155]: https://datatracker.ietf.org/doc/html/rfc5155
+    /// [RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
     NSEC3PARAM,
 
-    /// Message Digest for DNS Zones. See [rfc8976].
+    /// Message Digest for DNS Zones. See [RFC 8976].
     ///
-    /// [rfc8976]: https://datatracker.ietf.org/doc/html/rfc8976
+    /// [RFC 8976]: https://datatracker.ietf.org/doc/html/rfc8976
     ZONEMD,
 
-    /// Sender Policy Framework. See [rfc4408]
-    /// Discontinued in [rfc7208] due to widespread lack of support.
+    /// Sender Policy Framework. See [RFC 4408].
+    /// Discontinued in [RFC 7208] due to widespread lack of support.
     ///
-    /// [rfc4408]: https://datatracker.ietf.org/doc/html/rfc4408
-    /// [rfc7208]: https://datatracker.ietf.org/doc/html/rfc7208
+    /// [RFC 4408]: https://datatracker.ietf.org/doc/html/rfc4408
+    /// [RFC 7208]: https://datatracker.ietf.org/doc/html/rfc7208
     SPF,
 
     /// Any record type.
@@ -1012,12 +1013,16 @@ impl std::str::FromStr for DigestType {
     }
 }
 
-/// Cryptographic hash algorithm used for NSEC3 hashed owner names (RFC 5155 §11.4).
+/// Cryptographic hash algorithm used for NSEC3 hashed owner names ([RFC 5155 §11.4]).
+///
+/// [RFC 5155 §11.4]: https://datatracker.ietf.org/doc/html/rfc5155#section-11.4
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Nsec3HashAlgorithm {
     /// SHA-1 [RFC 5155] - Currently the only standardized NSEC3 hash algorithm.
+    ///
+    /// [RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
     Sha1,
 
     /// Unassigned, reserved, or private hash algorithm.
@@ -1081,14 +1086,14 @@ impl std::str::FromStr for Nsec3HashAlgorithm {
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)]
 pub enum Class {
-    /// Reserved per [RFC6895]
+    /// Reserved per [RFC 6895].
     ///
-    /// [rfc6895]: https://datatracker.ietf.org/doc/html/rfc6895
+    /// [RFC 6895]: https://datatracker.ietf.org/doc/html/rfc6895
     Reserved = 0,
 
-    /// (Default) The Internet (IN), see [rfc1035].
+    /// (Default) The Internet (IN), see [RFC 1035].
     ///
-    /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+    /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
     #[strum(serialize = "IN")]
     Internet = 1,
 
@@ -1104,20 +1109,20 @@ pub enum Class {
     #[strum(serialize = "HS")]
     Hesiod = 4,
 
-    /// No class specified, see [rfc2136]
+    /// No class specified, see [RFC 2136].
     ///
-    /// [rfc2136]: https://datatracker.ietf.org/doc/html/rfc2136
+    /// [RFC 2136]: https://datatracker.ietf.org/doc/html/rfc2136
     None = 254,
 
-    /// * (ANY) See [rfc1035]
+    /// * (ANY) See [RFC 1035].
     ///
-    /// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035
+    /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
     #[strum(serialize = "*")]
     Any = 255,
     //     5-253     Unassigned
     //   256-65279   Unassigned
-    // 65280-65534   Reserved for Private Use    [RFC6895]
-    // 65535         Reserved    [RFC6895]
+    // 65280-65534   Reserved for Private Use    [RFC 6895]
+    // 65535         Reserved    [RFC 6895]
 }
 
 /// Defaults to [`Class::Internet`].

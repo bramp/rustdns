@@ -21,7 +21,7 @@ use super::{CONTENT_TYPE_APPLICATION_DNS_MESSAGE, DNS_QUERY_PARAM, GOOGLE};
 
 const MAX_DOH_BODY_SIZE: usize = MAX_DNS_MESSAGE_LEN;
 
-/// A DNS over HTTPS (DoH) Client (rfc8484).
+/// A DNS over HTTPS (DoH) Client ([RFC 8484]).
 ///
 /// # Example
 ///
@@ -46,7 +46,9 @@ const MAX_DOH_BODY_SIZE: usize = MAX_DNS_MESSAGE_LEN;
 /// }
 /// ```
 ///
-/// See <https://datatracker.ietf.org/doc/html/rfc8484>
+/// See [RFC 8484].
+///
+/// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 pub struct Client {
     /// HTTPS endpoint used for DNS queries.
     server: Url,

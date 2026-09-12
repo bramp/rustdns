@@ -1,4 +1,4 @@
-// Parses a Zone File following RFC 1035 (section 5).
+// Parses a Zone File following [RFC 1035 §5](https://datatracker.ietf.org/doc/html/rfc1035#section-5).
 
 use crate::zones::Entry;
 use crate::zones::Record;

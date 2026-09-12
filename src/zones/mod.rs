@@ -1,9 +1,11 @@
 //! Zone file parsing, directive handling, and record resolution.
 //!
-//! Provides types and parsers for RFC 1035 zone file master format, supporting:
+//! Provides types and parsers for [RFC 1035] zone file master format, supporting:
 //! - Parsing zone files with `$ORIGIN` and `$TTL` directives ([`File`]).
 //! - Converting loose, uncontextualized zone entries into fully resolved [`crate::Record`] lists ([`File::try_into_records`]).
 //! - Parsing individual zone file record lines ([`Record::from_str`]).
+//!
+//! [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
 
 use crate::zones::preprocessor::preprocess;
 use crate::zones::parser::Rule;

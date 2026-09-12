@@ -1,8 +1,10 @@
 //! WebAssembly DNS dig client using `rustdns`.
 //!
-//! Provides browser-based DNS resolution using DNS-over-HTTPS (RFC 8484)
+//! Provides browser-based DNS resolution using DNS-over-HTTPS ([RFC 8484])
 //! or DNS-over-HTTPS JSON (Google / Cloudflare format), wrapping each
 //! in a transport client and formatting results like traditional `dig`.
+//!
+//! [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 
 #[cfg(target_arch = "wasm32")]
 pub mod exchangers;
@@ -72,7 +74,9 @@ pub async fn dig_with_exchanger(
 /// - `domain`: domain name to query (e.g. "example.com").
 /// - `rtype`: record type (e.g. "A", "AAAA", "MX", "TXT").
 /// - `server`: DoH HTTPS endpoint URL (e.g. `<https://cloudflare-dns.com/dns-query>`).
-/// - `protocol`: "doh" (RFC 8484 binary wire POST), "doh-get" (RFC 8484 binary wire GET with base64url), or "json" (DNS-over-HTTPS JSON GET).
+/// - `protocol`: "doh" ([RFC 8484] binary wire POST), "doh-get" ([RFC 8484] binary wire GET with base64url), or "json" (DNS-over-HTTPS JSON GET).
+///
+/// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn dig(

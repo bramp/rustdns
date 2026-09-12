@@ -23,7 +23,9 @@ pub struct ValidationReport {
     pub records_count: usize,
 }
 
-/// The temporal validity status of an RRSIG signature (RFC 4034 §3.1.5).
+/// The temporal validity status of an RRSIG signature ([RFC 4034 §3.1.5]).
+///
+/// [RFC 4034 §3.1.5]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ValidityPeriod {
     /// The signature is currently valid within the inception and expiration window.
@@ -53,7 +55,7 @@ pub const DEFAULT_CLOCK_SKEW_SECONDS: u64 = 300;
 
 impl RRSIG {
     /// Evaluates an RRSIG signature's temporal validity window against `now` using
-    /// [RFC 1982] Serial Number Arithmetic with the specified `clock_skew` tolerance (RFC 4034 §3.1.5).
+    /// [RFC 1982] Serial Number Arithmetic with the specified `clock_skew` tolerance ([RFC 4034 §3.1.5]).
     ///
     /// Returns:
     /// - [`ValidityPeriod::Valid`] if `now + clock_skew >= inception` and `expiration >= now - clock_skew`.
@@ -66,6 +68,7 @@ impl RRSIG {
     /// be converted to 32-bit seconds fields.
     ///
     /// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
+    /// [RFC 4034 §3.1.5]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
     pub fn check_validity(
         &self,
         now: SystemTime,
@@ -102,7 +105,7 @@ impl RRSIG {
     }
 
     /// Checks whether this signature is within its validity period at `now` using
-    /// [RFC 1982] Serial Number Arithmetic with the specified `clock_skew` tolerance (RFC 4034 §3.1.5).
+    /// [RFC 1982] Serial Number Arithmetic with the specified `clock_skew` tolerance ([RFC 4034 §3.1.5]).
     ///
     /// Equivalent to `self.check_validity(now, clock_skew).map(|v| v.is_valid())`.
     ///
@@ -112,6 +115,7 @@ impl RRSIG {
     /// be converted to 32-bit seconds fields.
     ///
     /// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
+    /// [RFC 4034 §3.1.5]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
     pub fn is_valid_at(&self, now: SystemTime, clock_skew: Duration) -> Result<bool, DnssecError> {
         Ok(self.check_validity(now, clock_skew)?.is_valid())
     }

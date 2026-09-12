@@ -14,11 +14,11 @@ use std::time::Duration;
 ///
 /// This is the blocking counterpart of [`crate::clients::do53::Client`].
 /// Queries are sent over UDP; a truncated (`TC=1`) response is re-sent over TCP
-/// to the *same* server, as required by [rfc2181] and [rfc7766]. Because both
+/// to the *same* server, as required by [RFC 2181 §9] and [RFC 7766 §5]. Because both
 /// transports are built from a single [`SocketAddr`], that requirement holds by
 /// construction.
 ///
-/// The truncated response is never returned to the caller: per [rfc7766] a
+/// The truncated response is never returned to the caller: per [RFC 7766 §5] a
 /// client must not rely on anything in a truncated response except the fact
 /// that it was truncated. If the TCP retry fails, that failure is returned.
 ///
@@ -42,12 +42,12 @@ use std::time::Duration;
 /// }
 /// ```
 ///
-/// See [rfc2181] and [rfc7766].
+/// See [RFC 2181 §9] and [RFC 7766 §5].
 ///
 /// See the `clients` module docs for the `new`/`try_from_host_port` convention.
 ///
-/// [rfc2181]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
-/// [rfc7766]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
+/// [RFC 2181 §9]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
+/// [RFC 7766 §5]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
 #[derive(Debug)]
 pub struct Client {
     /// The DNS server this client queries over both transports.

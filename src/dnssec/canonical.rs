@@ -13,8 +13,10 @@ use std::time::Duration;
 /// Appends a domain name to `buf` in canonical DNSSEC wire format
 /// (all labels converted to lowercase, uncompressed length-prefixed octets).
 ///
-/// Per RFC 4034 §6.1, for the purpose of DNSSEC calculations, all uppercase US-ASCII letters
+/// Per [RFC 4034 §6.1], for the purpose of DNSSEC calculations, all uppercase US-ASCII letters
 /// in domain names are converted to lowercase.
+///
+/// [RFC 4034 §6.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-6.1
 pub(crate) fn append_canonical_name_to_vec(
     buf: &mut Vec<u8>,
     name: &str,
@@ -33,11 +35,13 @@ pub(crate) fn count_labels(name: &str) -> u8 {
     crate::names::count_labels(name)
 }
 
-/// Adjusts an owner name for wildcard expansion if necessary (RFC 4035 §5.3.2).
+/// Adjusts an owner name for wildcard expansion if necessary ([RFC 4035 §5.3.2]).
 ///
 /// If `rrsig.labels < count_labels(record_name)`, the signature was generated via
 /// wildcard expansion (e.g. from a `*.example.com.` RRset). The reconstructed owner
 /// name replaces the leftmost excess labels with `*`.
+///
+/// [RFC 4035 §5.3.2]: https://datatracker.ietf.org/doc/html/rfc4035#section-5.3.2
 ///
 /// # Examples
 ///
@@ -102,11 +106,13 @@ pub(crate) fn append_canonical_record_to_vec(
     Ok(())
 }
 
-/// Appends the canonical signed data octets for an RRset covered by `rrsig` to `buf` (RFC 4034 §3.1.8).
+/// Appends the canonical signed data octets for an RRset covered by `rrsig` to `buf` ([RFC 4034 §3.1.8]).
 ///
 /// The signed data consists of:
 /// 1. The RRSIG RDATA fields up to the signature field (excluding the signature itself).
 /// 2. Canonical wire format representations of each record in the RRset, sorted in canonical RDATA order.
+///
+/// [RFC 4034 §3.1.8]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8
 pub(crate) fn append_signed_data_to_vec(
     buf: &mut Vec<u8>,
     owner_name: &str,
@@ -152,9 +158,11 @@ pub(crate) fn append_signed_data_to_vec(
     Ok(())
 }
 
-/// Constructs the canonical signed data octets for an RRset covered by `rrsig` (RFC 4034 §3.1.8).
+/// Constructs the canonical signed data octets for an RRset covered by `rrsig` ([RFC 4034 §3.1.8]).
 ///
 /// Convenience wrapper allocating a new `Vec<u8>` via [`append_signed_data_to_vec`].
+///
+/// [RFC 4034 §3.1.8]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8
 #[cfg(test)]
 pub(crate) fn signed_data_to_vec(
     owner_name: &str,

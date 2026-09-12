@@ -5,32 +5,32 @@ use std::io::{Cursor, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
-/// EDNS(0) NSID option code as defined in [rfc5001].
+/// EDNS(0) NSID option code as defined in [RFC 5001].
 ///
-/// [rfc5001]: https://datatracker.ietf.org/doc/html/rfc5001
+/// [RFC 5001]: https://datatracker.ietf.org/doc/html/rfc5001
 pub const EDNS_OPTION_NSID: u16 = 3;
 
-/// EDNS(0) Client Subnet option code as defined in [rfc7871].
+/// EDNS(0) Client Subnet option code as defined in [RFC 7871].
 ///
-/// [rfc7871]: https://datatracker.ietf.org/doc/html/rfc7871
+/// [RFC 7871]: https://datatracker.ietf.org/doc/html/rfc7871
 pub const EDNS_OPTION_CLIENT_SUBNET: u16 = 8;
 
-/// EDNS(0) COOKIE option code as defined in [rfc7873].
+/// EDNS(0) COOKIE option code as defined in [RFC 7873].
 ///
-/// [rfc7873]: https://datatracker.ietf.org/doc/html/rfc7873
+/// [RFC 7873]: https://datatracker.ietf.org/doc/html/rfc7873
 pub const EDNS_OPTION_COOKIE: u16 = 10;
 
-/// EDNS(0) TCP keepalive option code as defined in [rfc7828].
+/// EDNS(0) TCP keepalive option code as defined in [RFC 7828].
 ///
-/// [rfc7828]: https://datatracker.ietf.org/doc/html/rfc7828
+/// [RFC 7828]: https://datatracker.ietf.org/doc/html/rfc7828
 pub const EDNS_OPTION_TCP_KEEPALIVE: u16 = 11;
 
-/// EDNS(0) Padding option code as defined in [rfc7830].
+/// EDNS(0) Padding option code as defined in [RFC 7830].
 ///
-/// [rfc7830]: https://datatracker.ietf.org/doc/html/rfc7830
+/// [RFC 7830]: https://datatracker.ietf.org/doc/html/rfc7830
 pub const EDNS_OPTION_PADDING: u16 = 12;
 
-/// EDNS(0) option data as defined in [rfc6891].
+/// EDNS(0) option data as defined in [RFC 6891].
 ///
 /// Use typed constructors such as [`EdnsOption::nsid`],
 /// [`EdnsOption::client_subnet`], [`EdnsOption::cookie`],
@@ -38,41 +38,41 @@ pub const EDNS_OPTION_PADDING: u16 = 12;
 /// a query. Use [`EdnsOption::unknown`] for options that do not yet have a typed
 /// variant.
 ///
-/// [rfc6891]: https://datatracker.ietf.org/doc/html/rfc6891
+/// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum EdnsOption {
-    /// Name Server Identifier option as defined in [rfc5001].
+    /// Name Server Identifier option as defined in [RFC 5001].
     ///
-    /// [rfc5001]: https://datatracker.ietf.org/doc/html/rfc5001
+    /// [RFC 5001]: https://datatracker.ietf.org/doc/html/rfc5001
     Nsid(Vec<u8>),
 
-    /// Client Subnet option as defined in [rfc7871].
+    /// Client Subnet option as defined in [RFC 7871].
     ///
-    /// [rfc7871]: https://datatracker.ietf.org/doc/html/rfc7871
+    /// [RFC 7871]: https://datatracker.ietf.org/doc/html/rfc7871
     ClientSubnet(EdnsClientSubnet),
 
-    /// COOKIE option as defined in [rfc7873].
+    /// COOKIE option as defined in [RFC 7873].
     ///
-    /// [rfc7873]: https://datatracker.ietf.org/doc/html/rfc7873
+    /// [RFC 7873]: https://datatracker.ietf.org/doc/html/rfc7873
     Cookie(EdnsCookie),
 
-    /// TCP keepalive option as defined in [rfc7828].
+    /// TCP keepalive option as defined in [RFC 7828].
     ///
     /// The duration is encoded in units of 100 milliseconds. `None` encodes an
     /// empty option, which requests TCP keepalive support without suggesting a
     /// timeout.
     ///
-    /// [rfc7828]: https://datatracker.ietf.org/doc/html/rfc7828
+    /// [RFC 7828]: https://datatracker.ietf.org/doc/html/rfc7828
     TcpKeepalive(Option<Duration>),
 
-    /// Padding option as defined in [rfc7830].
+    /// Padding option as defined in [RFC 7830].
     ///
     /// [`EdnsOption::padding`] creates zero-filled padding bytes. Parsed padding
     /// data is preserved as received.
     ///
-    /// [rfc7830]: https://datatracker.ietf.org/doc/html/rfc7830
+    /// [RFC 7830]: https://datatracker.ietf.org/doc/html/rfc7830
     Padding(Vec<u8>),
 
     /// Unknown EDNS(0) option, preserved as raw option data.
@@ -272,12 +272,12 @@ fn display_duration(duration: Duration) -> String {
     }
 }
 
-/// EDNS(0) COOKIE option data as defined in [rfc7873].
+/// EDNS(0) COOKIE option data as defined in [RFC 7873].
 ///
 /// Use [`EdnsOption::cookie`] for client-only cookies and
 /// [`EdnsOption::cookie_with_server`] when a server cookie is available.
 ///
-/// [rfc7873]: https://datatracker.ietf.org/doc/html/rfc7873
+/// [RFC 7873]: https://datatracker.ietf.org/doc/html/rfc7873
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct EdnsCookie {
@@ -367,13 +367,13 @@ fn append_tcp_keepalive_to_vec(
     Ok(())
 }
 
-/// EDNS(0) Client Subnet option data as defined in [rfc7871].
+/// EDNS(0) Client Subnet option data as defined in [RFC 7871].
 ///
 /// Use [`EdnsOption::client_subnet`] for normal construction. Use this type
 /// directly when matching parsed EDNS options or when the address, source prefix,
 /// and scope prefix need to be inspected separately.
 ///
-/// [rfc7871]: https://datatracker.ietf.org/doc/html/rfc7871
+/// [RFC 7871]: https://datatracker.ietf.org/doc/html/rfc7871
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]

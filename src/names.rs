@@ -3,8 +3,10 @@
 //! Provides utilities for:
 //! - Normalizing domain names into canonical FQDN representation ([`normalise`]).
 //! - Converting between Unicode and ASCII (Punycode / IDNA) formats ([`to_ascii`], [`to_unicode`]).
-//! - Comparing domain names according to Canonical DNS Name Order (RFC 4034 §6.1, [`canonical_cmp`]).
+//! - Comparing domain names according to Canonical DNS Name Order ([RFC 4034 §6.1], [`canonical_cmp`]).
 //! - Inspecting domain hierarchy ([`count_labels`], [`parent_zone`], [`parent`], [`is_subdomain_of`]).
+//!
+//! [RFC 4034 §6.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-6.1
 
 use crate::errors::EncodeError;
 use crate::limits;
@@ -134,7 +136,7 @@ pub fn canonical_key(name: &str) -> String {
     ascii.trim_end_matches('.').to_ascii_lowercase()
 }
 
-/// Compares two domain names according to Canonical DNS Name Order (RFC 4034 §6.1).
+/// Compares two domain names according to Canonical DNS Name Order ([RFC 4034 §6.1]).
 ///
 /// Ordering rules:
 /// 1. Labels are ordered from right-to-left (most significant to least significant).
@@ -155,6 +157,8 @@ pub fn canonical_key(name: &str) -> String {
 /// assert_eq!(canonical_cmp("example.com", "a.example.com"), Ordering::Less);
 /// assert_eq!(canonical_cmp("🍕.ws", "xn--vi8h.ws"), Ordering::Equal);
 /// ```
+///
+/// [RFC 4034 §6.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-6.1
 #[must_use]
 pub fn canonical_cmp(a: &str, b: &str) -> Ordering {
     let a_cow = if a.is_ascii() {

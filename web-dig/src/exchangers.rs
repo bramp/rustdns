@@ -8,17 +8,23 @@ use rustdns::types::ChannelSecurity;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// HTTP method used for DNS-over-HTTPS (DoH, RFC 8484) requests.
+/// HTTP method used for DNS-over-HTTPS (DoH, [RFC 8484]) requests.
+///
+/// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DohMethod {
     /// HTTP POST with `application/dns-message` request body.
     #[default]
     Post,
-    /// HTTP GET with base64url-encoded `?dns=...` query parameter per RFC 8484 §4.1.
+    /// HTTP GET with base64url-encoded `?dns=...` query parameter per [RFC 8484 §4.1].
+    ///
+    /// [RFC 8484 §4.1]: https://datatracker.ietf.org/doc/html/rfc8484#section-4.1
     Get,
 }
 
-/// An in-browser DNS-over-HTTPS (DoH, RFC 8484) client implementing [`AsyncExchanger`].
+/// An in-browser DNS-over-HTTPS (DoH, [RFC 8484]) client implementing [`AsyncExchanger`].
+///
+/// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 pub struct BrowserDohClient {
     endpoint: Arc<str>,
     method: DohMethod,
@@ -195,7 +201,9 @@ impl AsyncExchanger for BrowserJsonClient {
 
 /// An enum representing the available in-browser DNS transports without dynamic dispatch.
 pub enum BrowserClient {
-    /// DNS-over-HTTPS (RFC 8484 binary wire format).
+    /// DNS-over-HTTPS ([RFC 8484] binary wire format).
+    ///
+    /// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
     Doh(BrowserDohClient),
     /// DNS-over-HTTPS JSON API format (Google / Cloudflare).
     Json(BrowserJsonClient),

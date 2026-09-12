@@ -16,8 +16,8 @@ use std::time::Duration;
 /// servers, and does not follow a truncated (`TC=1`) response over TCP.
 ///
 /// Prefer [`sync::do53::Client`](crate::clients::sync::do53::Client), which
-/// pairs UDP with TCP and performs the truncation retry required by [rfc2181]
-/// and [rfc7766].
+/// pairs UDP with TCP and performs the truncation retry required by [RFC 2181 §9]
+/// and [RFC 7766 §5].
 ///
 /// # Example
 ///
@@ -39,13 +39,13 @@ use std::time::Duration;
 /// }
 /// ```
 ///
-/// See [rfc1035].
+/// See [RFC 1035 §4.2.1].
 ///
 /// See the `clients` module docs for the `new`/`try_from_host_port` convention.
 ///
-/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
-/// [rfc2181]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
-/// [rfc7766]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
+/// [RFC 1035 §4.2.1]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.2.1
+/// [RFC 2181 §9]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
+/// [RFC 7766 §5]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
 #[derive(Debug)]
 pub struct Client {
     /// The DNS server this client queries.

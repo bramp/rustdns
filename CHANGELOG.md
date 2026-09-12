@@ -71,8 +71,8 @@ All notable changes to rustdns are documented here.
 - Added a classic DNS ("Do53") client under the new `do53` feature, combining
   UDP and TCP for a single server. Queries go out over UDP; a truncated
   (`TC=1`) response is re-sent over TCP to the *same* server, as required by
-  [rfc2181](https://datatracker.ietf.org/doc/html/rfc2181#section-9) and
-  [rfc7766](https://datatracker.ietf.org/doc/html/rfc7766#section-5). Because
+  [RFC 2181 §9](https://datatracker.ietf.org/doc/html/rfc2181#section-9) and
+  [RFC 7766 §5](https://datatracker.ietf.org/doc/html/rfc7766#section-5). Because
   both transports are built from one `SocketAddr`, the "same server"
   requirement holds by construction. The truncated response is never returned
   to the caller: if the TCP retry fails, that failure is returned instead.

@@ -1,8 +1,12 @@
 //! Protocol limits, packet length bounds, and validation constants.
 //!
-//! Defines DNS wire-format limits established by RFC 1035, RFC 6891, and RFC 8900,
+//! Defines DNS wire-format limits established by [RFC 1035], [RFC 6891], and [RFC 8900],
 //! along with helper functions for validating message, section, and label lengths
 //! prior to encoding.
+//!
+//! [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+//! [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
+//! [RFC 8900]: https://datatracker.ietf.org/doc/html/rfc8900
 
 use crate::errors::EncodeError;
 
@@ -49,10 +53,11 @@ pub const EDNS_SAFE_UDP_PAYLOAD_SIZE: u16 = 1232;
 /// Recommended EDNS(0) payload size (4096 bytes) for DNS-over-HTTPS (DoH) queries,
 /// per [RFC 8484 §4.2.1] and [RFC 6891 §6.2.3].
 ///
-/// In DoH (RFC 8484), transport occurs over HTTPS/TCP where IP fragmentation is
+/// In DoH ([RFC 8484]), transport occurs over HTTPS/TCP where IP fragmentation is
 /// not a concern. Using a standardized, fixed payload size of 4096 bytes in every
 /// query maximizes HTTP cache friendliness and cache-key alignment across clients.
 ///
+/// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
 /// [RFC 8484 §4.2.1]: https://datatracker.ietf.org/doc/html/rfc8484#section-4.2.1
 /// [RFC 6891 §6.2.3]: https://datatracker.ietf.org/doc/html/rfc6891#section-6.2.3
 pub const EDNS_DOH_PAYLOAD_SIZE: u16 = 4096;

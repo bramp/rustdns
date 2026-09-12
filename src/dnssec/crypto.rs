@@ -1,11 +1,16 @@
 //! Cryptographic signature verification and public key handling for DNSSEC.
 //!
-//! Supported DNSSEC algorithms (RFC 4034, 5702, 6605, 8080):
+//! Supported DNSSEC algorithms ([RFC 4034], [RFC 5702], [RFC 6605], [RFC 8080]):
 //! - Algorithm 8: RSA/SHA-256
 //! - Algorithm 10: RSA/SHA-512
 //! - Algorithm 13: ECDSA Curve P-256 with SHA-256
 //! - Algorithm 14: ECDSA Curve P-384 with SHA-384
 //! - Algorithm 15: Ed25519
+//!
+//! [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034
+//! [RFC 5702]: https://datatracker.ietf.org/doc/html/rfc5702
+//! [RFC 6605]: https://datatracker.ietf.org/doc/html/rfc6605
+//! [RFC 8080]: https://datatracker.ietf.org/doc/html/rfc8080
 
 use crate::DnssecError;
 use crate::resource::DNSKEY;

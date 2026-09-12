@@ -13,7 +13,7 @@ use std::net::IpAddr::V6;
 use pretty_assertions::assert_eq;
 
 /// Returns the reverse DNS name for this IP address. Suitable for use with
-/// [`Type::PTR`] records. See [rfc1035] and [rfc3596] for IPv4 and IPv6 respectively.
+/// [`Type::PTR`] records. See [RFC 1035 §3.5] and [RFC 3596 §2.5] for IPv4 and IPv6 respectively.
 ///
 /// # Example
 ///
@@ -28,8 +28,8 @@ use pretty_assertions::assert_eq;
 /// ```
 ///
 /// [`Type::PTR`]: crate::Type::PTR
-/// [rfc1035]: https://datatracker.ietf.org/doc/html/rfc1035#section-3.5
-/// [rfc3596]: https://datatracker.ietf.org/doc/html/rfc3596#section-2.5
+/// [RFC 1035 §3.5]: https://datatracker.ietf.org/doc/html/rfc1035#section-3.5
+/// [RFC 3596 §2.5]: https://datatracker.ietf.org/doc/html/rfc3596#section-2.5
 pub fn reverse(ip: IpAddr) -> String {
     match ip {
         V4(ipv4) => {
@@ -59,17 +59,21 @@ pub fn reverse(ip: IpAddr) -> String {
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 
-/// Encodes binary data to standard base64 (RFC 4648).
+/// Encodes binary data to standard base64 ([RFC 4648]).
+///
+/// [RFC 4648]: https://datatracker.ietf.org/doc/html/rfc4648
 #[must_use]
 pub(crate) fn base64_encode(data: &[u8]) -> String {
     BASE64_STANDARD.encode(data)
 }
 
-/// Decodes standard base64 data (RFC 4648), ignoring ASCII whitespace.
+/// Decodes standard base64 data ([RFC 4648]), ignoring ASCII whitespace.
 ///
 /// # Errors
 ///
 /// Returns an error message if the input contains invalid base64 characters or has an invalid length.
+///
+/// [RFC 4648]: https://datatracker.ietf.org/doc/html/rfc4648
 pub(crate) fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     let clean: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     BASE64_STANDARD.decode(&clean).map_err(|e| e.to_string())
@@ -93,9 +97,12 @@ pub(crate) fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
 
 const BASE32_HEX_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
-/// Encodes binary data to an unpadded uppercase Base32 Extended Hex string (RFC 4648 §7 / RFC 5155).
+/// Encodes binary data to an unpadded uppercase Base32 Extended Hex string ([RFC 4648 §7] / [RFC 5155]).
 ///
 /// Implemented directly in-tree to avoid pulling in an external dependency (e.g. `data-encoding`).
+///
+/// [RFC 4648 §7]: https://datatracker.ietf.org/doc/html/rfc4648#section-7
+/// [RFC 5155]: https://datatracker.ietf.org/doc/html/rfc5155
 #[must_use]
 pub(crate) fn base32hex_encode(data: &[u8]) -> String {
     let mut s = String::new();
@@ -117,9 +124,11 @@ pub(crate) fn base32hex_encode(data: &[u8]) -> String {
     s
 }
 
-/// Decodes an unpadded Base32 Extended Hex string (case-insensitive, ignoring whitespace) per RFC 4648 §7.
+/// Decodes an unpadded Base32 Extended Hex string (case-insensitive, ignoring whitespace) per [RFC 4648 §7].
 ///
 /// Implemented directly in-tree to avoid pulling in an external dependency.
+///
+/// [RFC 4648 §7]: https://datatracker.ietf.org/doc/html/rfc4648#section-7
 #[allow(dead_code)]
 pub(crate) fn base32hex_decode(input: &str) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();

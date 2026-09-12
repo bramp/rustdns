@@ -12,11 +12,11 @@ use std::time::Duration;
 ///
 /// Queries are sent over UDP. When the server sets the truncation bit (`TC=1`),
 /// the query is re-sent over TCP to the *same* server, as required by
-/// [rfc2181] and [rfc7766]. Because both transports are built from a single
+/// [RFC 2181 §9] and [RFC 7766 §5]. Because both transports are built from a single
 /// [`SocketAddr`], the "same server" requirement holds by construction.
 ///
 /// The truncated UDP response is never returned to the caller: per
-/// [rfc7766#section-5] a client must not rely on anything in a truncated
+/// [RFC 7766 §5] a client must not rely on anything in a truncated
 /// response except the fact that it was truncated. If the TCP retry fails, that
 /// failure is returned rather than the truncated response.
 ///
@@ -25,9 +25,8 @@ use std::time::Duration;
 ///
 /// See the `clients` module docs for the `new`/`try_from_host_port` convention.
 ///
-/// [rfc2181]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
-/// [rfc7766]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
-/// [rfc7766#section-5]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
+/// [RFC 2181 §9]: https://datatracker.ietf.org/doc/html/rfc2181#section-9
+/// [RFC 7766 §5]: https://datatracker.ietf.org/doc/html/rfc7766#section-5
 #[derive(Debug)]
 pub struct Client {
     /// The DNS server this client queries over both transports.

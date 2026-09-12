@@ -127,6 +127,9 @@ impl ResolverBuilder {
     /// Defaults to [`crate::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE`] (1232 bytes),
     /// which eliminates IP packet fragmentation over IPv6 links ([RFC 8200 §5],
     /// [RFC 8900], and DNS Flag Day 2020).
+    ///
+    /// [RFC 8200 §5]: https://datatracker.ietf.org/doc/html/rfc8200#section-5
+    /// [RFC 8900]: https://datatracker.ietf.org/doc/html/rfc8900
     pub fn payload_size(mut self, size: u16) -> Self {
         self.payload_size = size;
         self
