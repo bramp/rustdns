@@ -1,3 +1,5 @@
+//! Integration tests verifying DNS message encoding and decoding against YAML test fixtures.
+
 // TODO Switch this to use datatest after 0.6.3 (which is broken):
 // https://github.com/commure/datatest/pull/30
 // and custom_test_frameworks is supported https://github.com/rust-lang/rust/issues/50297

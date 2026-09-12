@@ -1,3 +1,5 @@
+//! Integration tests for the asynchronous DNS resolver.
+
 #[cfg(test)]
 #[cfg(feature = "resolver")]
 mod tests {

@@ -1,3 +1,5 @@
+//! Integration tests for DNS client transports.
+
 #[cfg(any(
     feature = "doh",
     feature = "dot",
