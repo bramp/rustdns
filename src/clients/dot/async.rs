@@ -16,7 +16,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
+/// Default Google Public DNS-over-TLS endpoint (`dns.google:853`).
 pub const GOOGLE: &str = "dns.google:853";
+/// Default Cloudflare DNS-over-TLS endpoint (`cloudflare-dns.com:853`).
 pub const CLOUDFLARE: &str = "cloudflare-dns.com:853";
 
 /// An asynchronous DNS-over-TLS (DoT) client.

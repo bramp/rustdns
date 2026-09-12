@@ -1,3 +1,5 @@
+//! Synchronous DNS-over-TLS (DoT) client.
+
 use crate::Message;
 use crate::clients::common::framing::encode_tcp_frame;
 use crate::clients::common::stats::WireResponseBuilder;

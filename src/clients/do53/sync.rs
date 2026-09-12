@@ -1,3 +1,5 @@
+//! Synchronous classic DNS ("Do53") client combining UDP with TCP retry on truncation.
+
 use crate::Message;
 use crate::clients::sync::tcp::Client as TcpClient;
 use crate::clients::sync::udp::Client as UdpClient;

@@ -1,3 +1,5 @@
+//! Synchronous DNS-over-TCP client.
+
 use crate::Message;
 use crate::clients::common::stats::WireResponseBuilder;
 use crate::clients::{Exchanger, WireResponse};

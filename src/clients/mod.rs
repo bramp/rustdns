@@ -63,6 +63,12 @@ use crate::types::ChannelSecurity;
 
 /// Exchanger takes a query and returns a low-level [`WireResponse`].
 pub trait Exchanger {
+    /// Sends a DNS query to the upstream server and returns the raw wire response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encoding the query fails, network I/O fails, or the
+    /// response is truncated or malformed.
     fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
@@ -91,8 +97,15 @@ pub trait Exchanger {
 
 use async_trait::async_trait;
 
+/// Asynchronous exchanger that takes a query and returns a low-level [`WireResponse`].
 #[async_trait]
 pub trait AsyncExchanger {
+    /// Asynchronously sends a DNS query to the upstream server and returns the raw wire response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encoding the query fails, network I/O fails, or the
+    /// response is truncated or malformed.
     async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
