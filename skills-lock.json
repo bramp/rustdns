@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "documenting-rust-code": {
+      "source": "hashintel/hash",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/documenting-rust-code/SKILL.md",
+      "computedHash": "5f8a06bfc68cbb36461b1db3a781e520e6548e7a7de5a506e8ff0bd81c977397"
+    }
+  }
+}
