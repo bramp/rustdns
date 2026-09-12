@@ -12,7 +12,7 @@ pub(crate) struct WireResponseBuilder {
 
 impl WireResponseBuilder {
     /// Call just before the request is sent, with the payload size.
-    pub fn start(bytes_sent: usize) -> WireResponseBuilder {
+    pub(crate) fn start(bytes_sent: usize) -> WireResponseBuilder {
         WireResponseBuilder {
             timer: Instant::now(),
             bytes_sent,
@@ -20,7 +20,7 @@ impl WireResponseBuilder {
     }
 
     /// Call just after the response is received. Consumes the builder and returns a [`WireResponse`].
-    pub fn finish(
+    pub(crate) fn finish(
         self,
         message: Message,
         server: Option<SocketAddr>,

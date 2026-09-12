@@ -11,7 +11,7 @@ use std::io::SeekFrom;
 
 const MAX_QNAME_POINTER_DEPTH: usize = 255;
 
-pub trait SeekExt: io::Seek {
+pub(crate) trait SeekExt: io::Seek {
     /// Returns the number of bytes remaining to be consumed.
     /// This is used as a way to check for malformed input.
     fn remaining(&mut self) -> io::Result<u64> {
@@ -31,7 +31,7 @@ pub trait SeekExt: io::Seek {
 }
 
 impl<'a> SeekExt for Cursor<&'a [u8]> {
-    fn remaining(self: &mut std::io::Cursor<&'a [u8]>) -> io::Result<u64> {
+    fn remaining(self: &mut Cursor<&'a [u8]>) -> io::Result<u64> {
         let pos = usize::try_from(self.position()).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -51,18 +51,18 @@ impl<'a> SeekExt for Cursor<&'a [u8]> {
     }
 }
 
-pub trait CursorExt<T> {
+pub(crate) trait CursorExt<T> {
     /// Return a cursor that is bounded over the original cursor by start-end.
     ///
     /// The returned cursor contains all values with start <= x < end. It is empty if start >= end.
     ///
     /// Similar to `Take` but allows the start-end range to be specified, instead of just the next
     /// N values.
-    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<T>>;
+    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<Cursor<T>>;
 }
 
 impl<'a> CursorExt<&'a [u8]> for Cursor<&'a [u8]> {
-    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<std::io::Cursor<&'a [u8]>> {
+    fn sub_cursor(&mut self, start: usize, end: usize) -> io::Result<Cursor<&'a [u8]>> {
         let buf = self.get_ref();
 
         if start > end || end > buf.len() {
@@ -82,7 +82,7 @@ impl<'a> CursorExt<&'a [u8]> for Cursor<&'a [u8]> {
 impl<R: io::Read + ?Sized + io::Seek> DNSReadExt for R {}
 
 /// Extensions to io::Read to add some DNS specific types.
-pub trait DNSReadExt: io::Read + io::Seek {
+pub(crate) trait DNSReadExt: io::Read + io::Seek {
     /// Reads a puny encoded domain name from a byte array.
     ///
     /// Used for extracting a encoding ASCII domain name from a DNS message. Will
@@ -193,9 +193,8 @@ pub trait DNSReadExt: io::Read + io::Seek {
     /// Reads a DNS Class.
     fn read_class(&mut self) -> Result<Class, DecodeError> {
         let class = self.read_u16::<BE>()?;
-        let class = match FromPrimitive::from_u16(class) {
-            Some(t) => t,
-            None => return Err(DecodeError::InvalidClass(class)),
+        let Some(class) = FromPrimitive::from_u16(class) else {
+            return Err(DecodeError::InvalidClass(class));
         };
 
         Ok(class)
