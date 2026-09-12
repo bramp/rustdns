@@ -1,3 +1,12 @@
+//! Core DNS protocol types, packet structures, and enums.
+//!
+//! Defines the foundational types for DNS messages:
+//! - [`Message`]: Top-level DNS message header and sections (questions, answers, authorities, additionals).
+//! - [`Question`]: Query specification containing domain name, [`Type`], and [`Class`].
+//! - [`Record`]: Concrete resource record associating a domain name, class, TTL, and [`Resource`] data.
+//! - [`Extension`]: EDNS(0) pseudo-record options and UDP buffer size parameters.
+//! - Protocol code enums: [`Type`], [`Class`], [`Opcode`], [`Rcode`], [`Algorithm`], [`DigestType`].
+
 pub use crate::edns::{
     EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID, EDNS_OPTION_PADDING,
     EDNS_OPTION_TCP_KEEPALIVE, EdnsClientSubnet, EdnsCookie, EdnsOption,
@@ -122,19 +131,20 @@ pub struct Message {
 pub struct Question {
     /// The domain name in question. Must be a valid UTF-8 encoded domain name.
     ///
-    /// Prefer calling ascii_name() to get the ASCII representation of the name, that is typically used in DNS queries.
+    /// Prefer calling [`Question::ascii_name`] to get the ASCII (Punycode / IDNA) representation
+    /// of the name, which is typically used in DNS wire-format queries.
     pub name: String,
 
     /// The question's type.
     ///
-    /// All Type's are valid, including the pseudo types (e.g [`Type::ANY`]).
+    /// All [`Type`] variants are valid, including pseudo types (e.g. [`Type::ANY`]).
     pub r#type: Type,
 
     /// The question's class.
     pub class: Class,
 }
 
-/// Resource Record (RR) returned by DNS servers containing a answer to the question.
+/// Resource Record (RR) returned by DNS servers containing an answer to the question.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Record {
@@ -155,6 +165,7 @@ pub struct Record {
 }
 
 impl Record {
+    /// Creates a new resource record from components.
     pub fn new(name: &str, class: Class, ttl: Duration, resource: Resource) -> Self {
         Self {
             name: name.to_owned(),
@@ -164,6 +175,7 @@ impl Record {
         }
     }
 
+    /// Returns the record [`Type`] of this resource record.
     pub fn r#type(&self) -> Type {
         self.resource.r#type()
     }
@@ -380,7 +392,9 @@ pub enum UpstreamTrustPolicy {
 #[derive(Copy, Clone, Debug, EnumString, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum QR {
+    /// A DNS query message (0).
     Query = 0,
+    /// A DNS response message (1).
     Response = 1,
 }
 
@@ -426,6 +440,8 @@ pub enum Opcode {
     ///
     /// [rfc3425]: https://datatracker.ietf.org/doc/html/rfc3425
     IQuery = 1,
+
+    /// Server status request.
     Status = 2,
 
     /// See [rfc1996]
@@ -550,12 +566,19 @@ pub enum ExtendedRcode {
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Type {
+    /// Reserved type code (0).
     Reserved,
 
     /// (Default) IPv4 Address.
     A,
+
+    /// Authoritative name server.
     NS,
+
+    /// Canonical name for an alias.
     CNAME,
+
+    /// Start of a zone of authority.
     SOA,
 
     /// Domain name pointer. See [`util::reverse()`] to create a valid domain name from a IP address.
@@ -1161,6 +1184,7 @@ pub enum Resource {
 }
 
 impl Resource {
+    /// Returns the record [`Type`] associated with this resource record payload.
     pub fn r#type(&self) -> Type {
         // This should be kept in sync with Type.
         // TODO Determine if I can generate this with a macro.

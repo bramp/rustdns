@@ -1,3 +1,10 @@
+//! Typed DNS resource records (RR data models).
+//!
+//! Provides typed representations for standard DNS resource record types (e.g.
+//! [`A`], [`AAAA`], [`CNAME`], [`MX`], [`NS`], [`PTR`], [`SOA`], [`SRV`],
+//! and DNSSEC types [`DNSKEY`], [`DS`], [`RRSIG`], [`NSEC`], [`NSEC3`], [`NSEC3PARAM`], [`ZONEMD`]),
+//! as well as [`RawResource`] for unknown or unparsed record types.
+
 use crate::FromStrError;
 use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
@@ -209,11 +216,19 @@ pub struct SOA {
     /// an `rname` from an email address.
     pub rname: String,
 
+    /// Unsigned 32-bit version number of the original copy of the zone (RFC 1982).
     pub serial: u32,
 
+    /// Time interval before the zone should be refreshed by secondary servers.
     pub refresh: Duration,
+
+    /// Time interval that should elapse before a failed refresh is retried.
     pub retry: Duration,
+
+    /// Upper limit on the time interval that can elapse before the zone is no longer authoritative.
     pub expire: Duration,
+
+    /// Minimum TTL exported with any RR from this zone, or negative caching TTL (RFC 2308).
     pub minimum: Duration,
 }
 
@@ -224,9 +239,16 @@ pub struct SOA {
 #[allow(clippy::upper_case_acronyms)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SRV {
+    /// Priority of this target host; lower values indicate higher priority.
     pub priority: u16,
+
+    /// Relative weight for records with the same priority.
     pub weight: u16,
+
+    /// TCP or UDP port on which the service is offered.
     pub port: u16,
+
+    /// Canonical domain name of the host providing the service.
     pub name: String,
 }
 
@@ -993,6 +1015,25 @@ impl SOA {
         Ok(result)
     }
 
+    /// Converts an email address into an SOA responsible person mailbox domain name (`rname`).
+    ///
+    /// Per RFC 1035 §8, periods in the mailbox name preceding the `@` symbol are escaped
+    /// with backslashes, and the `@` separator is replaced with an unescaped `.`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FromStrError::InvalidRname`] if `email` lacks an `@` character or has an
+    /// empty local-part or domain.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rustdns::resource::SOA;
+    ///
+    /// let rname = SOA::email_to_rname("dns-admin@google.com")?;
+    /// assert_eq!(rname, "dns-admin.google.com");
+    /// # Ok::<(), rustdns::FromStrError>(())
+    /// ```
     pub fn email_to_rname(email: &str) -> Result<String, FromStrError> {
         match email.split_once('@') {
             None => Err(FromStrError::InvalidRname {

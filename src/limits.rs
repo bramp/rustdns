@@ -1,3 +1,9 @@
+//! Protocol limits, packet length bounds, and validation constants.
+//!
+//! Defines DNS wire-format limits established by RFC 1035, RFC 6891, and RFC 8900,
+//! along with helper functions for validating message, section, and label lengths
+//! prior to encoding.
+
 use crate::errors::EncodeError;
 
 /// Length in bytes of a DNS message header.

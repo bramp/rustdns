@@ -284,9 +284,11 @@ impl From<EncodeError> for std::io::Error {
     }
 }
 
+/// The unified top-level error type for `rustdns` operations.
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
+    /// An invalid argument was provided to an API method.
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
@@ -305,12 +307,15 @@ pub enum Error {
         expected: &'static str,
     },
 
+    /// A wire-format decoding error.
     #[error(transparent)]
     Decode(#[from] DecodeError),
 
+    /// A wire-format encoding error.
     #[error(transparent)]
     Encode(#[from] EncodeError),
 
+    /// A text parsing error.
     #[error(transparent)]
     FromStr(#[from] FromStrError),
 
@@ -318,26 +323,32 @@ pub enum Error {
     #[error(transparent)]
     Dnssec(#[from] DnssecError),
 
+    /// A DNS-over-HTTPS JSON parsing error.
     #[cfg(feature = "json")]
     #[error(transparent)]
     Json(#[from] JsonError),
 
+    /// An HTTP protocol error.
     #[cfg(feature = "http")]
     #[error(transparent)]
     Http(#[from] http::Error),
 
+    /// A Hyper client error.
     #[cfg(feature = "hyper")]
     #[error(transparent)]
     Hyper(#[from] hyper::Error),
 
+    /// A legacy Hyper client connector error.
     #[cfg(feature = "hyper-util")]
     #[error(transparent)]
     HyperLegacy(#[from] hyper_util::client::legacy::Error),
 
+    /// An invalid URI error.
     #[cfg(feature = "http")]
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
 
+    /// An underlying I/O error.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

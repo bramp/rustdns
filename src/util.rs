@@ -1,3 +1,9 @@
+//! DNS helper utilities, reverse address translation, and binary encoding.
+//!
+//! Provides utilities for:
+//! - Generating reverse DNS lookup domain names ([`reverse`]) for IPv4 and IPv6 addresses.
+//! - Encoding and decoding binary data in Base64, Hex, and Base32Hex representations.
+
 use std::fmt::Write;
 use std::net::IpAddr;
 use std::net::IpAddr::V4;

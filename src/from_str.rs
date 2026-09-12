@@ -19,21 +19,32 @@ use std::net::AddrParseError;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+/// An error encountered when parsing human-readable DNS text representations.
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum FromStrError {
+    /// The specified resource record type has no standard textual format.
     #[error("that resource type doesn't have a text representation")]
     UnsupportedType,
 
+    /// The input string does not match the expected field pattern for the record type.
     #[error("string doesn't match expected format")]
     InvalidFormat,
 
+    /// The mailbox domain name (`rname`) in an SOA record is malformed.
     #[error("invalid rname '{rname}': {reason}")]
-    InvalidRname { rname: String, reason: &'static str },
+    InvalidRname {
+        /// The invalid rname string.
+        rname: String,
+        /// Description of the validation failure.
+        reason: &'static str,
+    },
 
+    /// An integer field could not be parsed.
     #[error(transparent)]
     Int(#[from] ParseIntError),
 
+    /// An IP address field could not be parsed.
     #[error(transparent)]
     Addr(#[from] AddrParseError),
 }

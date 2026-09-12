@@ -76,7 +76,12 @@ pub enum EdnsOption {
     Padding(Vec<u8>),
 
     /// Unknown EDNS(0) option, preserved as raw option data.
-    Unknown { code: u16, data: Vec<u8> },
+    Unknown {
+        /// The 16-bit option code.
+        code: u16,
+        /// The raw option data payload.
+        data: Vec<u8>,
+    },
 }
 
 impl EdnsOption {
