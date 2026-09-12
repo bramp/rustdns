@@ -5,8 +5,8 @@
     clippy::result_large_err
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-// TODO #![deny(missing_docs)]
-// TODO #![deny(missing_debug_implementations)]
+#![deny(missing_docs)]
+#![deny(missing_debug_implementations)]
 //! # rustdns
 //!
 //! rustdns is a simple, fast, and fully fledged DNS library for interacting
@@ -19,6 +19,7 @@
 //! * Full DNSSEC cryptographic validation ([rfc4034], [rfc4035], [rfc5155], [rfc6840]) with built-in IANA root trust anchors and delegation chain verification.
 //! * Extension Mechanisms for DNS ([EDNS(0)]).
 //! * Support [International Domain Names (IDNA)](https://en.wikipedia.org/wiki/Internationalized_domain_name) - Different scripts, alphabets, and even emojis!
+//! * WebAssembly (WASM) support: message encoding/decoding, JSON DoH parsing, and the [`clients::Exchanger`]/[`clients::AsyncExchanger`] traits compile to `wasm32-unknown-unknown`. Try the [live in-browser dig demo](https://dig.bramp.net).
 //! * Sample `dig` and `nslookup` style [command line tools](#usage-cli).
 //! * Fully [tested](#testing), and [fuzzed](#fuzzing).
 //!
@@ -159,19 +160,30 @@
 //! # Features
 //! The following optional features are available:
 //!
-//! - `clients`: Enables the following clients:
-//!   - `doh`: DNS over HTTPS (DoH) client (rfc8484).
-//!   - `dot`: DNS over TLS (DoT) client (rfc7858).
-//!   - `json`: DNS over HTTPS JSON client
-//!   - `tcp`: Enables the DNS over TCP client
-//!   - `udp`: Enables the DNS over UDP client
-//!   - `async-tcp`: Enables the asynchronous DNS over TCP client
-//!   - `async-udp`: Enables the asynchronous DNS over UDP client
-//! - `zones`: Enable a Zone File Parser
+//! - `clients`: Enables high-level clients and transports (Do53, DoT, DoH, DoH JSON, and Resolver).
+//!   - `do53`: Classic DNS (Do53) asynchronous UDP and TCP clients with automatic TCP retry on truncation.
+//!   - `dot`: DNS-over-TLS (DoT) client ([rfc7858]).
+//!   - `doh`: DNS-over-HTTPS (DoH) binary wire client ([rfc8484]).
+//!   - `doh-json`: DNS-over-HTTPS JSON client (Google / Cloudflare JSON schema).
+//!   - `resolver`: High-level asynchronous [`Resolver`] with multi-upstream failover, retries, and DNSSEC validation.
+//!   - `dnssec`: Local DNSSEC cryptographic signature and chain-of-trust verification using `ring`.
+//!   - `exchanger`: Generic [`clients::Exchanger`] and [`clients::AsyncExchanger`] traits without Tokio/HTTP dependencies (WASM compatible).
+//!   - `sync`: Synchronous blocking variants of enabled clients under `rustdns::clients::sync`.
+//! - `json`: DNS-over-HTTPS JSON parsing and serialization (WASM compatible, no network/HTTP dependencies).
+//! - `zones`: RFC 1035 zone file master format parser.
+//!
+//! # WebAssembly (WASM) & In-Browser Support
+//!
+//! `rustdns` core message encoding, decoding, JSON format serialization, and the [`clients::AsyncExchanger`] trait are compatible with the `wasm32-unknown-unknown` target without requiring Tokio or OS sockets.
+//!
+//! An in-browser DNS lookup web app powered by `rustdns` compiled to WebAssembly is running live:
+//!
+//! - **Live Demo:** <https://dig.bramp.net>
+//! - **Source Code:** [web-dig/](https://github.com/bramp/rustdns/tree/main/web-dig)
 //!
 //! # Usage (cli)
 //!
-//! To use the [demo CLI](https://github.com/bramp/rustdns/blob/main/src/rustdns/dig/main.rs):
+//! To use the [demo CLI](https://github.com/bramp/rustdns/blob/main/dig/main.rs):
 //!
 //! ```shell
 //! $ cargo run -p dig -- A www.google.com
