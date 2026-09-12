@@ -70,8 +70,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 1.85 is the MSRV declared by rust-version in Cargo.toml.
-        rust: ["1.85", "stable"]
+        # 1.86 is the MSRV declared by rust-version in Cargo.toml.
+        rust: ["1.86", "stable"]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master

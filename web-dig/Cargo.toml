@@ -2,7 +2,7 @@
 name = "web-dig"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 description = "WebAssembly DNS dig tool using rustdns"
 authors = ["Andrew Brampton <me@bramp.net>"]
 license = "Apache-2.0"

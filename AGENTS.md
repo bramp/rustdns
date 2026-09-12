@@ -23,6 +23,9 @@ These instructions apply to all development work in this repository.
 
 - Preserve existing public APIs, defaults, feature behavior, and data-shape
   compatibility unless a breaking change is explicitly planned.
+- Adhere to the MSRV policy: maintain compatibility with the declared MSRV
+  (currently 1.86); MSRV increases require a minor version bump and must never
+  occur in a patch release.
 - Add new behavior through new methods, types, modules, or opt-in builders.
 - Keep fallible APIs as the preferred path for caller-provided or untrusted input.
 - Preserve useful error context, including source, entry, record, and parse data.
@@ -39,6 +42,8 @@ These instructions apply to all development work in this repository.
   - focused tests, then `cargo test --workspace`
   - `cargo test --workspace --no-default-features`
   - `cargo test --workspace --all-features`
+  - `cargo check --workspace --all-targets --all-features`
+  - `cargo +1.86 check --workspace --all-targets --all-features` (or via CI)
   - `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`
 - Run `cargo check --workspace --all-targets --all-features` for release and CI
   changes.

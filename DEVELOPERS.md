@@ -55,3 +55,23 @@ Root hint (`named.root`), root zone (`root.zone`), and IANA trust anchor (`root-
   ```sh
   ./scripts/fetch_root_fixtures.sh --force
   ```
+
+## Minimum Supported Rust Version (MSRV) Policy
+
+`rustdns` targets a modern and predictable Rust baseline:
+
+- **Current MSRV**: Rust **1.86.0**.
+- **Scope**: Applies to the `rustdns` library crate and all workspace crates (`dig`, `nslookup`, `generate_tests`, `web-dig`).
+- **SemVer Policy**:
+  - An MSRV increase is treated as a breaking change for versioning purposes.
+  - MSRV will **never** be increased in a patch release (`0.x.Y` or `X.Y.Z`).
+  - MSRV increases require at least a **minor version bump** (`0.X.0` pre-1.0, or `X.Y.0` post-1.0) and must be accompanied by an entry in `CHANGELOG.md`.
+- **Adherence and Enforcement**:
+  - **Manifests**: Every package in the workspace must specify `rust-version = "..."` matching the declared MSRV in its `Cargo.toml`.
+  - **CI Validation**: The GitHub Actions workflow (`.github/workflows/rust.yml`) tests against the declared MSRV in its matrix (`matrix.rust: ["1.86", "stable"]`) across all feature flags (`--no-default-features`, default, and `--all-features`) as well as `cargo check --workspace --all-targets --all-features`.
+  - **Dependency Additions**: Any new dependency or version bump must compile on the declared MSRV. Check dependency MSRV impact before adopting new crates or versions.
+  - **Verification**: Verify compatibility prior to release by testing against the MSRV toolchain:
+    ```sh
+    cargo +1.86 test --workspace --all-features
+    cargo +1.86 check --workspace --all-targets --all-features
+    ```

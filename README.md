@@ -263,6 +263,14 @@ To aid in testing features, I have a set of pre-configured records setup:
 | ns.bramp.net          | Single NS record pointing at a.bramp.net |
 | txt.bramp.net         | Single TXT Record "A TXT record!" |
 
+## Minimum Supported Rust Version (MSRV)
+
+This crate requires Rust **1.86.0** or later.
+
+Increasing the MSRV is considered a breaking change and will only be done in
+a minor version bump (or major version bump after 1.0.0), never in a patch
+release.
+
 ## Releasing
 
 Releases are published by GitHub Actions when a `v*` tag is pushed. The
