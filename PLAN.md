@@ -179,7 +179,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 - [ ] Replace `lazy_static` with `std::sync::LazyLock`.
 - [ ] Review necessity of `byteorder`, `num-derive`, `educe`, and `async-trait`.
 - [ ] Clean up duplicate dependency versions (`cargo tree --duplicates`).
-- [ ] Add dependency license and source auditing via `cargo-deny`.
+- [x] Add dependency license and source auditing via `cargo-deny`.
 - [ ] Enforce test coverage threshold in CI.
 - [ ] Run `cargo-semver-checks` against previous release.
 - [ ] Publish `1.0.0` release notes and tag.
