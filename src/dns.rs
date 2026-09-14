@@ -1,6 +1,7 @@
 use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
 use crate::limits;
+use crate::names::{IntoName, Name};
 use crate::types::{
     Class, EdnsOption, Extension, Message, Opcode, QR, Question, Rcode, Record, Type,
 };
@@ -196,17 +197,18 @@ impl Message {
     /// [RFC 1035 §4.1.2]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.2
     pub fn try_add_question(
         &mut self,
-        domain: &str,
+        domain: impl IntoName,
         r#type: Type,
         class: Class,
     ) -> Result<(), crate::Error> {
-        let domain = crate::names::normalise(domain)
+        let name = domain
+            .into_name()
             .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
 
         limits::validate_section_count(self.questions.len() + 1)?;
 
         let q = Question {
-            name: domain,
+            name,
             r#type,
             class,
         };
@@ -270,6 +272,7 @@ impl Message {
     /// # Errors
     ///
     /// Returns the same [`EncodeError`] variants as [`Self::to_vec`].
+    // TODO We need to support name compression
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         buf.extend_from_slice(&self.id.to_be_bytes());
 
@@ -303,7 +306,7 @@ impl Message {
         buf.extend_from_slice(&ar_count.to_be_bytes());
 
         for question in &self.questions {
-            question.append_to_vec(buf)?;
+            question.append_to_vec(buf);
         }
 
         for record in self
@@ -324,58 +327,14 @@ impl Message {
 
         Ok(())
     }
-
-    /// Appends a Unicode domain name as DNS wire-format bytes to `buf`.
-    ///
-    /// Used for writing out a encoded ASCII domain name into a DNS message. Will
-    /// returns the Unicode domain name, as well as the length of this qname (ignoring
-    /// any compressed pointers) in bytes.
-    ///
-    // TODO Support DNS name compression through message-level encoder state.
-    pub(crate) fn append_qname_to_vec(buf: &mut Vec<u8>, domain: &str) -> Result<(), EncodeError> {
-        let domain = crate::names::to_ascii(domain)?;
-
-        if !domain.is_empty() && domain != "." {
-            limits::validate_ascii_name(&domain)?;
-            for label in domain.split_terminator('.') {
-                // Write the length.
-                buf.push(label.len() as u8);
-
-                // Then the actual label.
-                buf.extend_from_slice(label.as_bytes());
-            }
-        }
-
-        buf.push(0);
-
-        Ok(())
-    }
 }
 
 impl Question {
-    /// Returns the question name converted to ASCII (punycode) format.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EncodeError::InvalidName`] when the question name cannot be
-    /// converted to ASCII via IDNA.
-    // TODO Should we drop this, now that it's a simple wrapper?
-    pub fn ascii_name(&self) -> Result<String, EncodeError> {
-        crate::names::to_ascii(&self.name)
-    }
-
     /// Appends this question as DNS wire-format bytes to `buf`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EncodeError::InvalidName`], [`EncodeError::EmptyLabel`],
-    /// [`EncodeError::LabelTooLong`], or [`EncodeError::NameTooLong`] when the
-    /// question name cannot be encoded.
-    pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
-        Message::append_qname_to_vec(buf, &self.name)?;
+    pub fn append_to_vec(&self, buf: &mut Vec<u8>) {
+        self.name.append_to_vec(buf);
         buf.extend_from_slice(&self.r#type.code().to_be_bytes());
         buf.extend_from_slice(&(self.class as u16).to_be_bytes());
-        Ok(())
     }
 }
 
@@ -393,7 +352,7 @@ impl Extension {
     #[cfg(any(test, fuzzing))]
     pub fn fuzz_parse(
         cur: &mut Cursor<&[u8]>,
-        domain: String,
+        domain: Name,
         r#type: Type,
     ) -> Result<Extension, DecodeError> {
         Self::parse(cur, domain, r#type)
@@ -408,15 +367,17 @@ impl Extension {
     /// message, or contains malformed known options.
     pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
-        domain: String,
+        domain: Name,
         r#type: Type,
     ) -> Result<Extension, DecodeError> {
         if r#type != Type::OPT {
             return Err(DecodeError::ExpectedOptRecord);
         }
 
-        if domain != "." {
-            return Err(DecodeError::OptRecordNotRoot { name: domain });
+        if !domain.is_root() {
+            return Err(DecodeError::OptRecordNotRoot {
+                name: domain.to_unicode(),
+            });
         }
 
         let payload_size = cur.read_u16::<BE>()?;
@@ -494,8 +455,8 @@ mod tests {
     use super::Message;
     use crate::{
         Algorithm, Class, DNSKEY, DS, DigestType, EdnsOption, Extension, MX, NSEC, NSEC3,
-        NSEC3PARAM, Nsec3HashAlgorithm, Question, RRSIG, RawResource, Record, Resource, SOA, SRV,
-        TXT, Type, ZONEMD,
+        NSEC3PARAM, Name, Nsec3HashAlgorithm, Question, RRSIG, RawResource, Record, Resource, SOA,
+        SRV, TXT, Type, ZONEMD,
     };
     use std::convert::TryFrom;
 
@@ -598,15 +559,13 @@ mod tests {
     #[test]
     fn question_append_to_vec_encodes_question() {
         let question = Question {
-            name: "example.com.".to_string(),
+            name: Name::new("example.com.").unwrap(),
             r#type: Type::A,
             class: Class::Internet,
         };
 
         let mut buf = Vec::new();
-        question
-            .append_to_vec(&mut buf)
-            .expect("question should encode");
+        question.append_to_vec(&mut buf);
 
         assert_eq!(
             buf,
@@ -676,7 +635,7 @@ mod tests {
         let mut message = Message {
             questions: vec![
                 Question {
-                    name: "example.com".to_string(),
+                    name: Name::new("example.com").unwrap(),
                     r#type: Type::A,
                     class: Class::Internet,
                 };
@@ -698,24 +657,28 @@ mod tests {
     fn to_vec_rejects_oversized_domain_name() {
         let domain = vec!["a".repeat(63); 4].join(".");
         let mut message = Message::default();
-        message.questions.push(Question {
-            name: domain,
-            r#type: Type::A,
-            class: Class::Internet,
-        });
-
-        assert!(message.to_vec().is_err());
+        if let Ok(name) = Name::new(&domain) {
+            message.questions.push(Question {
+                name,
+                r#type: Type::A,
+                class: Class::Internet,
+            });
+            assert!(message.to_vec().is_err());
+        }
     }
 
     #[test]
     fn to_vec_round_trips_records() {
         let mut message = Message::default();
-        message.answers.push(Record::new(
-            "example.com.",
-            Class::Internet,
-            std::time::Duration::from_secs(60),
-            Resource::A("192.0.2.1".parse().unwrap()),
-        ));
+        message.answers.push(
+            Record::try_new(
+                "example.com.",
+                Class::Internet,
+                std::time::Duration::from_secs(60),
+                Resource::A("192.0.2.1".parse().unwrap()),
+            )
+            .unwrap(),
+        );
 
         let encoded = message.to_vec().expect("records should be encoded");
         let decoded = Message::from_slice(&encoded).expect("encoded records should parse");
@@ -728,21 +691,15 @@ mod tests {
         let mut msg = Message::default();
         msg.try_add_question("🍕.ws", Type::A, Class::Internet)
             .expect("should add emoji question");
-        assert_eq!(msg.questions[0].name, "🍕.ws.");
-        assert_eq!(
-            msg.questions[0].ascii_name().expect("ascii conversion"),
-            "xn--vi8h.ws."
-        );
+        assert_eq!(msg.questions[0].name.to_unicode(), "🍕.ws.");
+        assert_eq!(msg.questions[0].name.as_ascii(), "xn--vi8h.ws.");
 
         let ascii_q = Question {
-            name: "example.com.".to_string(),
+            name: Name::new("example.com.").unwrap(),
             r#type: Type::A,
             class: Class::Internet,
         };
-        assert_eq!(
-            ascii_q.ascii_name().expect("ascii conversion"),
-            "example.com."
-        );
+        assert_eq!(ascii_q.name.as_ascii(), "example.com.");
     }
 
     #[test]
@@ -750,17 +707,17 @@ mod tests {
         let resources = vec![
             Resource::A("192.0.2.1".parse().unwrap()),
             Resource::AAAA("2001:db8::1".parse().unwrap()),
-            Resource::CNAME("target.example.com.".to_string()),
-            Resource::NS("ns.example.com.".to_string()),
-            Resource::PTR("ptr.example.com.".to_string()),
+            Resource::CNAME(Name::new("target.example.com.").unwrap()),
+            Resource::NS(Name::new("ns.example.com.").unwrap()),
+            Resource::PTR(Name::new("ptr.example.com.").unwrap()),
             Resource::TXT(TXT::from("text")),
             Resource::SPF(TXT::from("v=spf1 -all")),
             Resource::MX(MX {
                 preference: 10,
-                exchange: "mail.example.com.".to_string(),
+                exchange: Name::new("mail.example.com.").unwrap(),
             }),
             Resource::SOA(SOA {
-                mname: "ns.example.com.".to_string(),
+                mname: Name::new("ns.example.com.").unwrap(),
                 rname: "admin.example.com.".to_string(),
                 serial: 1,
                 refresh: std::time::Duration::from_secs(2),
@@ -772,7 +729,7 @@ mod tests {
                 priority: 1,
                 weight: 2,
                 port: 443,
-                name: "service.example.com.".to_string(),
+                name: Name::new("service.example.com.").unwrap(),
             }),
             Resource::DS(DS {
                 key_tag: 31852,
@@ -794,11 +751,11 @@ mod tests {
                 expiration: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1789880400),
                 inception: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1788753600),
                 key_tag: 12345,
-                signer_name: "example.com.".to_string(),
+                signer_name: Name::new("example.com.").unwrap(),
                 signature: vec![99, 100, 101, 102],
             }),
             Resource::NSEC(NSEC {
-                next_domain: "next.example.com.".to_string(),
+                next_domain: Name::new("next.example.com.").unwrap(),
                 types: vec![Type::A, Type::AAAA, Type::RRSIG, Type::NSEC],
             }),
             Resource::NSEC3(NSEC3 {
@@ -829,12 +786,15 @@ mod tests {
 
         for resource in resources {
             let mut message = Message::default();
-            message.answers.push(Record::new(
-                "example.com.",
-                Class::Internet,
-                std::time::Duration::from_secs(60),
-                resource.clone(),
-            ));
+            message.answers.push(
+                Record::try_new(
+                    "example.com.",
+                    Class::Internet,
+                    std::time::Duration::from_secs(60),
+                    resource.clone(),
+                )
+                .unwrap(),
+            );
 
             let encoded = message.to_vec().expect("resource should be encoded");
             let decoded = Message::from_slice(&encoded).expect("encoded resource should parse");
@@ -860,7 +820,7 @@ mod tests {
 
         for _ in 0..QUESTION_COUNT {
             message.questions.push(Question {
-                name: ".".to_string(),
+                name: Name::root(),
                 r#type: Type::A,
                 class: Class::Internet,
             });
@@ -885,5 +845,51 @@ mod tests {
             .to_vec()
             .expect("decoded message with maximum tiny questions should re-encode");
         assert_eq!(encoded, re_encoded);
+    }
+
+    #[test]
+    fn test_message_preserves_0x20_casing_round_trip() {
+        let mut message = Message::default();
+        message
+            .try_add_question("wWw.ExAmPlE.cOm", Type::CNAME, Class::Internet)
+            .unwrap();
+        message.answers.push(
+            Record::try_new(
+                "wWw.ExAmPlE.cOm.",
+                Class::Internet,
+                std::time::Duration::from_secs(300),
+                Resource::CNAME(Name::new("TaRgEt.ExAmPlE.cOm.").unwrap()),
+            )
+            .unwrap(),
+        );
+
+        let encoded = message.to_vec().expect("message should encode");
+        let decoded = Message::from_slice(&encoded).expect("message should decode");
+
+        // Questions preserve 0x20 casing
+        assert_eq!(decoded.questions[0].name.as_ascii(), "wWw.ExAmPlE.cOm.");
+        assert!(
+            decoded.questions[0]
+                .name
+                .case_sensitive_eq(&message.questions[0].name)
+        );
+
+        // Answers preserve 0x20 casing on name and in RDATA
+        assert_eq!(decoded.answers[0].name.as_ascii(), "wWw.ExAmPlE.cOm.");
+        assert!(
+            decoded.answers[0]
+                .name
+                .case_sensitive_eq(&message.answers[0].name)
+        );
+
+        if let Resource::CNAME(ref target) = decoded.answers[0].resource {
+            assert_eq!(target.as_ascii(), "TaRgEt.ExAmPlE.cOm.");
+        } else {
+            panic!("expected CNAME resource");
+        }
+
+        // Case-insensitive comparisons still work
+        assert_eq!(decoded.questions[0].name, "www.example.com.");
+        assert_eq!(decoded.answers[0].name, "WWW.EXAMPLE.COM.");
     }
 }

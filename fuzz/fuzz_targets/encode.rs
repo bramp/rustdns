@@ -26,7 +26,7 @@ fuzz_target!(|input: FuzzInput| {
 
     // 2. Individual component serialization must never panic.
     let mut buf = Vec::new();
-    let _ = input.question.append_to_vec(&mut buf);
+    input.question.append_to_vec(&mut buf);
 
     buf.clear();
     let _ = input.record.append_to_vec(&mut buf);

@@ -70,7 +70,7 @@ fn main() -> std::io::Result<()> {
         }
 
         let r#type = Type::from_str(args[0]).expect("invalid Type");
-        let domain = &args[1];
+        let domain = args[1];
 
         let mut req = Message {
             id: 0xeccb, // randomise

@@ -370,6 +370,10 @@ pub enum JsonError {
     #[error("invalid record type: '{0}'")]
     InvalidType(u16),
 
+    /// The response contained a domain name that is invalid.
+    #[error("invalid domain name: '{0}'")]
+    InvalidName(String),
+
     /// The response contained resource text that is not valid for its type.
     #[error("invalid {0} resource")]
     InvalidResource(Type, #[source] FromStrError),

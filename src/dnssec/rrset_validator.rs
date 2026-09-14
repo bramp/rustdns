@@ -1,17 +1,18 @@
 //! RRset cryptographic validation against RRSIG and DNSKEY.
 
-use crate::DnssecError;
 use crate::dnssec::canonical::append_signed_data_to_vec;
 use crate::dnssec::crypto::verify_signature;
 use crate::resource::{DNSKEY, RRSIG};
 use crate::types::{Algorithm, Record};
+use crate::DnssecError;
+use crate::Name;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// A summary report describing the result of validating an RRset against an RRSIG.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidationReport {
     /// The signer name specified in the RRSIG.
-    pub signer: String,
+    pub signer: Name,
 
     /// Key tag of the DNSKEY used for validation.
     pub key_tag: u16,
@@ -133,12 +134,16 @@ impl RRSIG {
 ///
 /// Returns [`DnssecError::ValidationFailed`] if any check fails.
 pub fn validate_rrset(
-    owner_name: &str,
+    owner_name: impl crate::names::IntoName,
     rrset: &[Record],
     rrsig: &RRSIG,
     dnskey: &DNSKEY,
     now: SystemTime,
 ) -> Result<ValidationReport, DnssecError> {
+    let owner_name = owner_name.into_name().map_err(|e| {
+        DnssecError::ValidationFailed(format!("invalid owner name: {e}"))
+    })?;
+
     if rrset.is_empty() {
         return Err(DnssecError::ValidationFailed(
             "empty RRset cannot be validated".to_string(),
@@ -187,7 +192,7 @@ pub fn validate_rrset(
 
     // 3. Construct canonical signed data
     let mut signed_data = Vec::new();
-    append_signed_data_to_vec(&mut signed_data, owner_name, rrsig, rrset).map_err(|e| {
+    append_signed_data_to_vec(&mut signed_data, &owner_name, rrsig, rrset).map_err(|e| {
         DnssecError::ValidationFailed(format!("failed to serialize signed data: {e}"))
     })?;
 
@@ -230,17 +235,17 @@ mod tests {
             inception: UNIX_EPOCH + Duration::from_secs(1_000_000),
             expiration: UNIX_EPOCH + Duration::from_secs(2_000_000),
             key_tag: dnskey.key_tag(),
-            signer_name: "example.com.".to_string(),
+            signer_name: Name::new("example.com.").unwrap(),
             signature: vec![1, 2, 3],
         };
 
         // Synthesize an RRset with matching owner and type
-        let rrset = vec![Record::new(
+        let rrset = vec![Record::try_new(
             "example.com.",
             Class::Internet,
             Duration::from_secs(3600),
             Resource::A("192.0.2.1".parse().unwrap()),
-        )];
+        ).unwrap()];
 
         // 1. Time before inception -> fails with "not yet valid"
         let too_early = UNIX_EPOCH + Duration::from_secs(500_000);
@@ -265,7 +270,7 @@ mod tests {
             inception: UNIX_EPOCH + Duration::from_secs(1_000_000),
             expiration: UNIX_EPOCH + Duration::from_secs(2_000_000),
             key_tag: 1234,
-            signer_name: "example.com.".to_string(),
+            signer_name: Name::new("example.com.").unwrap(),
             signature: vec![1, 2, 3],
         };
 
@@ -324,7 +329,7 @@ mod tests {
             inception: UNIX_EPOCH + Duration::from_secs(4_294_967_000), // ~2^32 - 296
             expiration: UNIX_EPOCH + Duration::from_secs(10_000),       // Wrapped around 0
             key_tag: 5678,
-            signer_name: "example.com.".to_string(),
+            signer_name: Name::new("example.com.").unwrap(),
             signature: vec![4, 5, 6],
         };
         // Time 4_294_967_100 is between 4_294_967_000 and 10_000 in serial arithmetic

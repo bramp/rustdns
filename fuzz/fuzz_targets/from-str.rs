@@ -22,12 +22,12 @@ fuzz_target!(|input: FuzzInput<'_>| {
         let _ = format!("{resource:?}");
 
         // If parsed, wrapping in a Record and serializing must not panic.
-        let record = Record::new(
+        let record = Record::try_new(
             "example.com.",
             Class::Internet,
             Duration::from_secs(300),
             resource,
-        );
+        ).unwrap();
         let mut buf = Vec::new();
         let _ = record.append_to_vec(&mut buf);
     }

@@ -1,6 +1,7 @@
 //! Various traits to help parsing of DNS messages.
 
 use crate::errors::DecodeError;
+use crate::names::Name;
 use crate::types::{Class, Type};
 use byteorder::{BE, ReadBytesExt};
 use num_traits::FromPrimitive;
@@ -85,103 +86,15 @@ impl<R: io::Read + ?Sized + io::Seek> DNSReadExt for R {}
 pub(crate) trait DNSReadExt: io::Read + io::Seek {
     /// Reads a puny encoded domain name from a byte array.
     ///
-    /// Used for extracting a encoding ASCII domain name from a DNS message. Will
-    /// returns the Unicode domain name, as well as the length of this name (ignoring
-    /// any compressed pointers) in bytes.
+    /// Extracts an encoded ASCII domain name from a DNS message, returning a validated [`Name`].
     ///
     /// # Errors
     ///
     /// Returns a [`DecodeError`] when the name is malformed, uses unsupported
     /// compression, or runs past the end of the message.
-    fn read_qname(&mut self) -> Result<String, DecodeError> {
-        self.read_qname_at_depth(0)
-    }
-
-    fn read_qname_at_depth(&mut self, depth: usize) -> Result<String, DecodeError> {
-        if depth > MAX_QNAME_POINTER_DEPTH {
-            return Err(DecodeError::NamePointerDepthExceeded {
-                max: MAX_QNAME_POINTER_DEPTH,
-            });
-        }
-
-        let mut qname = String::new();
-        let start = self.stream_position()?;
-
-        // Read each label one at a time, to build up the full domain name.
-        loop {
-            // Length of the first label
-            let len = self.read_u8()?;
-            if len == 0 {
-                if qname.is_empty() {
-                    qname.push('.') // Root domain
-                }
-                break;
-            }
-
-            match len & 0xC0 {
-                // No compression
-                0x00 => {
-                    let mut label = vec![0; len.into()];
-                    self.read_exact(&mut label)?;
-
-                    // Really this is meant to be ASCII, but we read as utf8
-                    // (as that what Rust provides).
-                    let label = match std::str::from_utf8(&label) {
-                        Err(e) => return Err(DecodeError::LabelNotUtf8(e)),
-                        Ok(s) => s,
-                    };
-
-                    if !label.is_ascii() {
-                        return Err(DecodeError::LabelNotAscii {
-                            label: label.to_string(),
-                        });
-                    }
-
-                    // Now puny decode this label returning its original unicode.
-                    let label = match idna::domain_to_unicode(label) {
-                        (label, Err(_)) => return Err(DecodeError::LabelNotIdna { label }),
-                        (label, Ok(_)) => label,
-                    };
-
-                    qname.push_str(&label);
-                    qname.push('.');
-                }
-
-                // Compression
-                0xC0 => {
-                    // Read the 14 bit pointer.
-                    let b2 = self.read_u8()? as u16;
-                    let ptr = ((len as u16 & !0xC0) << 8 | b2) as u64;
-
-                    // Make sure we don't get into a loop.
-                    if ptr >= start {
-                        return Err(DecodeError::NamePointerNotBackwards);
-                    }
-
-                    // We are going to jump backwards, so record where we
-                    // currently are. So we can reset it later.
-                    let current = self.stream_position()?;
-
-                    // Jump and start reading the qname again.
-                    self.seek(SeekFrom::Start(ptr))?;
-                    qname.push_str(&self.read_qname_at_depth(depth + 1)?);
-
-                    // Reset ourselves.
-                    self.seek(SeekFrom::Start(current))?;
-
-                    break;
-                }
-
-                // Unknown
-                _ => {
-                    return Err(DecodeError::UnsupportedNameCompression {
-                        bits: (len & 0xC0) >> 6,
-                    });
-                }
-            }
-        }
-
-        Ok(qname)
+    fn read_qname(&mut self) -> Result<Name, DecodeError> {
+        let name_str = read_qname_at_depth(self, 0)?;
+        Name::new(&name_str).map_err(|_| DecodeError::LabelNotIdna { label: name_str })
     }
 
     /// Reads a DNS Type.
@@ -199,6 +112,99 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
 
         Ok(class)
     }
+}
+
+fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
+    reader: &mut R,
+    depth: usize,
+) -> Result<String, DecodeError> {
+    if depth > MAX_QNAME_POINTER_DEPTH {
+        return Err(DecodeError::NamePointerDepthExceeded {
+            max: MAX_QNAME_POINTER_DEPTH,
+        });
+    }
+
+    let mut qname = String::new();
+    let start = reader.stream_position()?;
+
+    // Read each label one at a time, to build up the full domain name.
+    loop {
+        // Length of the first label
+        let len = reader.read_u8()?;
+        if len == 0 {
+            if qname.is_empty() {
+                qname.push('.') // Root domain
+            }
+            break;
+        }
+
+        match len & 0xC0 {
+            // No compression
+            0x00 => {
+                let mut label = vec![0; len.into()];
+                reader.read_exact(&mut label)?;
+
+                // Really this is meant to be ASCII, but we read as utf8
+                // (as that what Rust provides).
+                let label = match std::str::from_utf8(&label) {
+                    Err(e) => return Err(DecodeError::LabelNotUtf8(e)),
+                    Ok(s) => s,
+                };
+
+                if !label.is_ascii() {
+                    return Err(DecodeError::LabelNotAscii {
+                        label: label.to_string(),
+                    });
+                }
+
+                let label = if label.to_ascii_lowercase().starts_with("xn--") {
+                    match idna::domain_to_unicode(label) {
+                        (label, Err(_)) => return Err(DecodeError::LabelNotIdna { label }),
+                        (label, Ok(_)) => label,
+                    }
+                } else {
+                    label.to_string()
+                };
+
+                qname.push_str(&label);
+                qname.push('.');
+            }
+
+            // Compression
+            0xC0 => {
+                // Read the 14 bit pointer.
+                let b2 = reader.read_u8()? as u16;
+                let ptr = ((len as u16 & !0xC0) << 8 | b2) as u64;
+
+                // Make sure we don't get into a loop.
+                if ptr >= start {
+                    return Err(DecodeError::NamePointerNotBackwards);
+                }
+
+                // We are going to jump backwards, so record where we
+                // currently are. So we can reset it later.
+                let current = reader.stream_position()?;
+
+                // Jump and start reading the qname again.
+                reader.seek(SeekFrom::Start(ptr))?;
+                qname.push_str(&read_qname_at_depth(reader, depth + 1)?);
+
+                // Reset ourselves.
+                reader.seek(SeekFrom::Start(current))?;
+
+                break;
+            }
+
+            // Unknown
+            _ => {
+                return Err(DecodeError::UnsupportedNameCompression {
+                    bits: (len & 0xC0) >> 6,
+                });
+            }
+        }
+    }
+
+    Ok(qname)
 }
 
 #[cfg(test)]

@@ -374,6 +374,7 @@ mod tests {
     use crate::MX;
     use crate::Message;
     use crate::NSEC;
+    use crate::Name;
     use crate::RRSIG;
     use crate::Resource;
     use crate::SOA;
@@ -396,17 +397,17 @@ mod tests {
                     "2607:f8b0:4005:805::2004",
                 ),
                 (
-                    Resource::CNAME("code.l.google.com.".to_string()),
+                    Resource::CNAME(Name::new("code.l.google.com.").unwrap()),
                     "code.l.google.com.",
                 ),
                 (
-                    Resource::NS("ns4.google.com.".to_string()),
+                    Resource::NS(Name::new("ns4.google.com.").unwrap()),
                     "ns4.google.com.",
                 ),
-                (Resource::PTR("dns.google.".to_string()), "dns.google."),
+                (Resource::PTR(Name::new("dns.google.").unwrap()), "dns.google."),
                 (
                     Resource::SOA(SOA {
-                        mname: "ns1.google.com.".to_string(),
+                        mname: crate::Name::new("ns1.google.com.").unwrap(),
                         rname: "dns-admin.google.com.".to_string(),
 
                         serial: 379031418,
@@ -421,7 +422,7 @@ mod tests {
                 (
                     Resource::MX(MX {
                         preference: 10,
-                        exchange: "aspmx.l.google.com.".to_string(),
+                        exchange: crate::Name::new("aspmx.l.google.com.").unwrap(),
                     }),
                     "10 aspmx.l.google.com.",
                 ),
@@ -430,7 +431,7 @@ mod tests {
                         priority: 5,
                         weight: 0,
                         port: 389,
-                        name: "ldap.google.com.".to_string(),
+                        name: crate::Name::new("ldap.google.com.").unwrap(),
                     }),
                     "5 0 389 ldap.google.com.",
                 ),
@@ -473,14 +474,14 @@ mod tests {
                         expiration: UNIX_EPOCH + Duration::from_secs(1789880400),
                         inception: UNIX_EPOCH + Duration::from_secs(1788753600),
                         key_tag: 12345,
-                        signer_name: "example.com.".to_string(),
+                        signer_name: crate::Name::new("example.com.").unwrap(),
                         signature: vec![10, 20, 30, 40],
                     }),
                     "A 8 2 3600 20260920050000 20260907040000 12345 example.com. ChQeKA==",
                 ),
                 (
                     Resource::NSEC(NSEC {
-                        next_domain: "next.example.com.".to_string(),
+                        next_domain: crate::Name::new("next.example.com.").unwrap(),
                         types: vec![Type::A, Type::NS, Type::SOA],
                     }),
                     "next.example.com. A NS SOA",

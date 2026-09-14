@@ -11,6 +11,7 @@ pub use crate::edns::{
     EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID, EDNS_OPTION_PADDING,
     EDNS_OPTION_TCP_KEEPALIVE, EdnsClientSubnet, EdnsCookie, EdnsOption,
 };
+use crate::names::Name;
 use crate::resource::{
     A, AAAA, CNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, PTR, RRSIG, RawResource, SOA, SRV,
     TXT, ZONEMD,
@@ -129,11 +130,8 @@ pub struct Message {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
-    /// The domain name in question. Must be a valid UTF-8 encoded domain name.
-    ///
-    /// Prefer calling [`Question::ascii_name`] to get the ASCII (Punycode / IDNA) representation
-    /// of the name, which is typically used in DNS wire-format queries.
-    pub name: String,
+    /// The domain name in question.
+    pub name: Name,
 
     /// The question's type.
     ///
@@ -148,8 +146,8 @@ pub struct Question {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Record {
-    /// A valid UTF-8 encoded domain name.
-    pub name: String,
+    /// The owner domain name of this resource record.
+    pub name: Name,
 
     /// The resource's class.
     pub class: Class,
@@ -165,14 +163,36 @@ pub struct Record {
 }
 
 impl Record {
-    /// Creates a new resource record from components.
-    pub fn new(name: &str, class: Class, ttl: Duration, resource: Resource) -> Self {
+    /// Creates a new resource record with a validated [`Name`].
+    ///
+    /// Construction is infallible and will never panic. Use [`Record::try_new`]
+    /// when converting from caller-provided or untrusted domain name inputs.
+    pub fn new(name: Name, class: Class, ttl: Duration, resource: Resource) -> Self {
         Self {
-            name: name.to_owned(),
+            name,
             class,
             ttl,
             resource,
         }
+    }
+
+    /// Creates a new resource record, converting `name` into a [`Name`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::EncodeError`] if `name` fails domain name conversion or validation.
+    pub fn try_new(
+        name: impl crate::names::IntoName,
+        class: Class,
+        ttl: Duration,
+        resource: Resource,
+    ) -> Result<Self, crate::EncodeError> {
+        Ok(Self {
+            name: name.into_name()?,
+            class,
+            ttl,
+            resource,
+        })
     }
 
     /// Returns the record [`Type`] of this resource record.

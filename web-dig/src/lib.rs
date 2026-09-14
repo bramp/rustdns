@@ -125,13 +125,8 @@ mod tests {
     fn test_create_query_unicode_domain() {
         let msg = create_query("🍕.ws", "A").expect("create query should succeed");
         assert_eq!(msg.questions.len(), 1);
-        assert_eq!(msg.questions[0].name, "🍕.ws.");
-        assert_eq!(
-            msg.questions[0]
-                .ascii_name()
-                .expect("ascii name conversion"),
-            "xn--vi8h.ws."
-        );
+        assert_eq!(msg.questions[0].name.to_unicode(), "🍕.ws.");
+        assert_eq!(msg.questions[0].name.as_ascii(), "xn--vi8h.ws.");
     }
 
     #[test]

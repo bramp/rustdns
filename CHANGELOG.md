@@ -110,9 +110,30 @@ All notable changes to rustdns are documented here.
   `Resource`, wire-format encoding/decoding, text parsing (`Resource::parse_text`), presentation formatting (`Display`),
   and zone grammar (`zones.pest`).
 - Integrated standard `base64` and `hex` ecosystem crates for base64 and hexadecimal encoding and decoding.
+- Added strongly-typed, case-preserving canonical domain `Name` struct in
+  `rustdns::names` and `rustdns::Name` implementing RFC 1035 wire limits ($\le 63$ octet
+  labels, $\le 255$ octets total), RFC 4034 §6.1 canonical ordering via `Ord`/`PartialOrd`,
+  case-insensitive equality/hashing, and explicit canonical lowercasing (`Name::to_canonical`).
+- Added 0x20-bit case randomization methods on `Name` (`to_0x20()`, `to_0x20_with_rng()`)
+  and exact case comparison (`case_sensitive_eq()`) supporting RFC 5452 §9 and
+  draft-vixie-dnsext-dns0x20-00 anti-spoofing transaction entropy.
+- Added AST types (`zones::Resource`, `zones::Record`, `zones::MX`, `zones::SOA`,
+  `zones::SRV`, `zones::RRSIG`, `zones::NSEC`) in `rustdns::zones` preserving unprocessed
+  relative domain names, `@`, and author casing until origin resolution in `File::try_into_records`.
 
 ### Changed
 
+- Migrated all domain name fields in protocol types from stringly-typed representations
+  to `Name`: `Question.name`, `Record.name`, `NS`, `CNAME`, `PTR`, `MX.exchange`,
+  `SOA.mname`, `SRV.name`, `RRSIG.signer_name`, `NSEC.next_domain`, and `TrustAnchor.zone`.
+- Changed `Record::new` to be infallible and require a pre-validated `Name`, while
+  `Record::try_new` accepts `impl IntoName` and returns `Result<Record, EncodeError>` for caller-provided input.
+- Migrated DNSSEC denial of existence and validation APIs (`nsec_covers`, `verify_nsec_nodata`,
+  `verify_nsec_nxdomain`, `nsec3_hash`, `validate_rrset`) to accept `&Name` or `impl IntoName`.
+- Converted wire serialization methods (`append_rdata_to_vec`) on `MX`, `SRV`, `DS`,
+  `DNSKEY`, `NSEC`, and `ZONEMD` to be infallible.
+- Fixed an $O(N^2)$ parsing performance bottleneck on large zone files (`root.zone`)
+  by deferring error formatting in `pest_consume`.
 - Dispatched `A` and `AAAA` queries concurrently in `Resolver::lookup_with_deadline`
   instead of sequentially.
 - Decoupled `json` Cargo feature into pure serde parsing and serialization (`serde`,

@@ -15,6 +15,7 @@ use crate::clients::AsyncResolver;
 use crate::dnssec::anchor::TrustStore;
 use crate::dnssec::rrset_validator::{ValidationReport, validate_rrset};
 use crate::errors::DnssecError;
+use crate::names::Name;
 use crate::resource::{DNSKEY, DS, RRSIG};
 use crate::types::{Class, Message, Record, Resource, SecurityStatus, Type};
 use std::collections::HashMap;
@@ -25,35 +26,41 @@ use std::time::{Instant, SystemTime};
 // TODO Consider merging this with a more general cache.
 #[derive(Clone, Debug, Default)]
 pub struct DnssecCache {
-    dnskeys: Arc<Mutex<HashMap<String, Vec<Record>>>>,
-    ds_records: Arc<Mutex<HashMap<String, Vec<Record>>>>,
+    dnskeys: Arc<Mutex<HashMap<Name, Vec<Record>>>>,
+    ds_records: Arc<Mutex<HashMap<Name, Vec<Record>>>>,
 }
 
 impl DnssecCache {
     /// Inserts validated DNSKEY records for a zone.
-    pub fn insert_dnskeys(&self, zone: &str, records: Vec<Record>) {
-        let mut map = self.dnskeys.lock().unwrap();
-        map.insert(crate::names::canonical_key(zone), records);
+    pub fn insert_dnskeys(&self, zone: impl crate::names::IntoName, records: Vec<Record>) {
+        if let Ok(name) = zone.into_name() {
+            let mut map = self.dnskeys.lock().unwrap();
+            map.insert(name, records);
+        }
     }
 
     /// Gets cached DNSKEY records for a zone.
     #[must_use]
-    pub fn get_dnskeys(&self, zone: &str) -> Option<Vec<Record>> {
+    pub fn get_dnskeys(&self, zone: impl crate::names::IntoName) -> Option<Vec<Record>> {
+        let name = zone.into_name().ok()?;
         let map = self.dnskeys.lock().unwrap();
-        map.get(&crate::names::canonical_key(zone)).cloned()
+        map.get(&name).cloned()
     }
 
     /// Inserts validated DS records for a zone.
-    pub fn insert_ds(&self, zone: &str, records: Vec<Record>) {
-        let mut map = self.ds_records.lock().unwrap();
-        map.insert(crate::names::canonical_key(zone), records);
+    pub fn insert_ds(&self, zone: impl crate::names::IntoName, records: Vec<Record>) {
+        if let Ok(name) = zone.into_name() {
+            let mut map = self.ds_records.lock().unwrap();
+            map.insert(name, records);
+        }
     }
 
     /// Gets cached DS records for a zone.
     #[must_use]
-    pub fn get_ds(&self, zone: &str) -> Option<Vec<Record>> {
+    pub fn get_ds(&self, zone: impl crate::names::IntoName) -> Option<Vec<Record>> {
+        let name = zone.into_name().ok()?;
         let map = self.ds_records.lock().unwrap();
-        map.get(&crate::names::canonical_key(zone)).cloned()
+        map.get(&name).cloned()
     }
 }
 
@@ -94,11 +101,11 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
 
         // Partition answer records into RRsets and their covering RRSIGs keyed by (owner, type).
         // Using Entry API allows a single pass partition without redundant lookups.
-        let mut rrsets: HashMap<(String, Type), Vec<Record>> = HashMap::new();
-        let mut rrsigs: HashMap<(String, Type), Vec<RRSIG>> = HashMap::new();
+        let mut rrsets: HashMap<(Name, Type), Vec<Record>> = HashMap::new();
+        let mut rrsigs: HashMap<(Name, Type), Vec<RRSIG>> = HashMap::new();
 
         for record in &message.answers {
-            let canonical_name = crate::names::canonical_key(&record.name);
+            let canonical_name = record.name.clone(); // TODO Change to a canonical key
             match &record.resource {
                 Resource::RRSIG(rrsig) => {
                     rrsigs
@@ -165,7 +172,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
     /// Validates an RRset and recursively verifies its chain of trust up to an anchor.
     pub async fn validate_rrset_chain(
         &self,
-        owner_name: &str,
+        owner_name: impl crate::names::IntoName,
         rrset: &[Record],
         rrsig: &RRSIG,
         now: SystemTime,
@@ -234,7 +241,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
     /// Verifies that a zone's KSK matches a trust anchor or the parent zone's DS record.
     fn verify_key_against_parent_or_anchor<'b>(
         &'b self,
-        zone: &'b str,
+        zone: &'b Name,
         ksk: &'b DNSKEY,
         now: SystemTime,
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), crate::Error>> + Send + 'b>> {
@@ -255,10 +262,10 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
             }
 
             // Zone is not an anchor; walk to parent zone
-            let parent = crate::names::parent_zone(zone);
-            if parent.is_empty() && zone == "." {
+            let parent_name = zone.parent();
+            let Some(parent) = parent_name else {
                 return Err(crate::Error::Dnssec(DnssecError::NoTrustAnchor(zone.to_string())));
-            }
+            };
 
             let (ds_records, ds_rrsigs) = self.get_zone_ds(zone).await?;
             let matching_ds = ds_records.iter().find(|r| {
@@ -282,7 +289,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
             // Validate DS RRset using parent zone
             let covering_rrsig = ds_rrsigs.iter().find(|s| s.type_covered == Type::DS);
             if let Some(rrsig) = covering_rrsig {
-                self.validate_rrset_chain(zone, &ds_records, rrsig, now).await?;
+                self.validate_rrset_chain(&parent, &ds_records, rrsig, now).await?;
             }
 
             Ok(())
@@ -290,7 +297,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
     }
 
     /// Queries or fetches cached DNSKEY records for `zone`.
-    async fn get_zone_dnskeys(&self, zone: &str) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
+    async fn get_zone_dnskeys(&self, zone: &Name) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
         if let Some(cached) = self.cache.get_dnskeys(zone) {
             let mut keys = Vec::new();
             let mut sigs = Vec::new();
@@ -326,7 +333,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
         let mut all = keys.clone();
         for s in &sigs {
             all.push(Record::new(
-                zone, 
+                zone.clone(), 
                 Class::Internet, 
                 std::time::Duration::from_secs(300), 
                 Resource::RRSIG(s.clone())
@@ -338,7 +345,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
     }
 
     /// Queries or fetches cached DS records for `zone`.
-    async fn get_zone_ds(&self, zone: &str) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
+    async fn get_zone_ds(&self, zone: &Name) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
         if let Some(cached) = self.cache.get_ds(zone) {
             let mut ds = Vec::new();
             let mut sigs = Vec::new();
@@ -374,7 +381,12 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
 
         let mut all = ds.clone();
         for s in &sigs {
-            all.push(Record::new(zone, Class::Internet, std::time::Duration::from_secs(300), Resource::RRSIG(s.clone())));
+            all.push(Record::new(
+                zone.clone(),
+                Class::Internet,
+                std::time::Duration::from_secs(300),
+                Resource::RRSIG(s.clone()),
+            ));
         }
         self.cache.insert_ds(zone, all);
 

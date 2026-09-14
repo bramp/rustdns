@@ -5,6 +5,7 @@ use crate::DNSKEY;
 use crate::DS;
 use crate::MX;
 use crate::NSEC;
+use crate::Name;
 use crate::RRSIG;
 use crate::Resource;
 use crate::SOA;
@@ -47,6 +48,10 @@ pub enum FromStrError {
     /// An IP address field could not be parsed.
     #[error(transparent)]
     Addr(#[from] AddrParseError),
+
+    /// A domain name field could not be parsed or validated.
+    #[error(transparent)]
+    Name(#[from] crate::EncodeError),
 }
 
 impl Resource {
@@ -63,9 +68,9 @@ impl Resource {
             Type::AAAA => Resource::AAAA(s.parse()?),
 
             // Simple strings (domains)
-            Type::NS => Resource::NS(s.to_string()),
-            Type::CNAME => Resource::CNAME(s.to_string()),
-            Type::PTR => Resource::PTR(s.to_string()),
+            Type::NS => Resource::NS(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
+            Type::CNAME => Resource::CNAME(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
+            Type::PTR => Resource::PTR(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
 
             // Complex types
             Type::MX => Resource::MX(s.parse()?),
@@ -108,7 +113,7 @@ impl FromStr for SOA {
 
         if let Some(caps) = RE.captures(s) {
             Ok(SOA {
-                mname: caps[1].to_string(),
+                mname: Name::new(&caps[1])?,
                 rname: caps[2].to_string(),
                 serial: caps[3].parse()?,
                 refresh: Duration::from_secs(caps[4].parse()?),
@@ -139,7 +144,7 @@ impl FromStr for MX {
         if let Some(caps) = RE.captures(s) {
             Ok(MX {
                 preference: caps[1].parse()?,
-                exchange: caps[2].to_string(),
+                exchange: Name::new(&caps[2])?,
             })
         } else {
             Err(FromStrError::InvalidFormat)
@@ -166,7 +171,7 @@ impl FromStr for SRV {
                 priority: caps[1].parse()?,
                 weight: caps[2].parse()?,
                 port: caps[3].parse()?,
-                name: caps[4].to_string(),
+                name: Name::new(&caps[4])?,
             })
         } else {
             Err(FromStrError::InvalidFormat)
@@ -245,7 +250,7 @@ impl FromStr for RRSIG {
         let expiration = parse_rrsig_time(parts[4])?;
         let inception = parse_rrsig_time(parts[5])?;
         let key_tag = parts[6].parse()?;
-        let signer_name = parts[7].to_string();
+        let signer_name = Name::new(parts[7])?;
         let sig_b64 = parts[8..].join("");
         let signature =
             crate::util::base64_decode(&sig_b64).map_err(|_| FromStrError::InvalidFormat)?;
@@ -268,7 +273,7 @@ impl FromStr for NSEC {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.split_whitespace();
-        let next_domain = parts.next().ok_or(FromStrError::InvalidFormat)?.to_string();
+        let next_domain = Name::new(parts.next().ok_or(FromStrError::InvalidFormat)?)?;
         let mut types = Vec::new();
         for type_str in parts {
             if let Ok(t) = Type::from_str(type_str) {

@@ -1,11 +1,10 @@
 // Process a Zone File turning it into actual Records.
 
-use crate::resource::{MX, NSEC, RRSIG, SOA, SRV};
 use crate::zones::Entry;
 use crate::zones::File;
 use crate::Class;
+use crate::Name;
 use crate::Record;
-use crate::Resource;
 use core::time::Duration;
 use thiserror::Error;
 
@@ -95,7 +94,7 @@ impl File {
         let mut origin: Option<&str> = self.origin.as_deref();
         let mut default_ttl: Option<&Duration> = None;
 
-        let mut last_name: Option<String> = None;
+        let mut last_name: Option<Name> = None;
         let mut last_class: Option<Class> = None;
 
         for (entry_index, entry) in self.entries.iter().enumerate() {
@@ -113,14 +112,20 @@ impl File {
                 }
                 Entry::TTL(ttl) => default_ttl = Some(ttl),
                 Entry::Record(record) => {
-                    let full_name: String = match record.name.as_ref() {
-                        Some(name) => Self::resolve_name(name, origin, entry_index, name)?,
+                    let name = match record.name.as_ref() {
+                        Some(name_str) => {
+                            Self::resolve_name(name_str, origin, entry_index, name_str)?
+                        }
                         None => {
-                            last_name.clone().ok_or(ProcessError::MissingName { entry_index })?
+                            last_name
+                                .clone()
+                                .ok_or(ProcessError::MissingName { entry_index })?
                         }
                     };
-                    let record_name = full_name.clone();
-                    last_name = Some(full_name.to_owned());
+                    last_name = Some(name.clone());
+
+                    // Use the unadorned/resolved domain without trailing dot for error messages
+                    let error_record_name = name.as_ascii().trim_end_matches('.').to_string();
 
                     let ttl = record
                         .ttl
@@ -128,7 +133,7 @@ impl File {
                         .or(default_ttl)
                         .ok_or_else(|| ProcessError::MissingTtl {
                             entry_index,
-                            record_name: record_name.clone(),
+                            record_name: error_record_name.clone(),
                         })?;
 
                     // Per RFC 1035 §5.1: "The <class> and <ttl> fields are optional...
@@ -141,14 +146,14 @@ impl File {
                     last_class = Some(class);
 
                     results.push(Record {
-                        name: full_name,
+                        name,
                         class,
                         ttl: *ttl,
                         resource: Self::resolve_resource(
                             &record.resource,
                             origin,
                             entry_index,
-                            &record_name,
+                            &error_record_name,
                         )?,
                     })
                 }
@@ -163,13 +168,53 @@ impl File {
         origin: Option<&str>,
         entry_index: usize,
         record_name: &str,
+    ) -> Result<Name, ProcessError> {
+        // Absolute domain name
+        if let Some(stripped) = name.strip_suffix('.') {
+            let full = if stripped.is_empty() {
+                ".".to_string()
+            } else {
+                format!("{stripped}.")
+            };
+            return Name::new(&full).map_err(|_| ProcessError::RelativeNameWithoutOrigin {
+                entry_index,
+                record_name: record_name.to_string(),
+                name: full,
+            });
+        }
+
+        // Everything past here requires an origin
+        let origin = origin.ok_or_else(|| ProcessError::RelativeNameWithoutOrigin {
+            entry_index,
+            record_name: record_name.to_string(),
+            name: name.to_string(),
+        })?;
+
+        let full = if name == "@" {
+            format!("{origin}.")
+        } else {
+            format!("{name}.{origin}.")
+        };
+
+        Name::new(&full).map_err(|_| ProcessError::RelativeNameWithoutOrigin {
+            entry_index,
+            record_name: record_name.to_string(),
+            name: full,
+        })
+    }
+
+    fn resolve_rname(
+        name: &str,
+        origin: Option<&str>,
+        entry_index: usize,
+        record_name: &str,
     ) -> Result<String, ProcessError> {
         // Absolute domain name
         if let Some(name) = name.strip_suffix('.') {
             return Ok(name.to_string());
         }
 
-        // Everything past here requires a origin
+        // Everything past here requires an origin
         let origin = origin.ok_or_else(|| ProcessError::RelativeNameWithoutOrigin {
             entry_index,
             record_name: record_name.to_string(),
@@ -185,78 +230,87 @@ impl File {
     }
 
     fn resolve_resource(
-        resource: &Resource,
+        resource: &crate::zones::Resource,
         origin: Option<&str>,
         entry_index: usize,
         record_name: &str,
-    ) -> Result<Resource, ProcessError> {
+    ) -> Result<crate::Resource, ProcessError> {
         match resource {
-            // These types don't include a domain, so clone as is.
-            Resource::A(_)
-            | Resource::AAAA(_)
-            | Resource::TXT(_)
-            | Resource::SPF(_)
-            | Resource::DS(_)
-            | Resource::DNSKEY(_)
-            | Resource::NSEC3(_)
-            | Resource::NSEC3PARAM(_)
-            | Resource::ZONEMD(_)
-            | Resource::Raw(_)
-            | Resource::OPT
-            | Resource::ANY => Ok(resource.clone()),
+            crate::zones::Resource::A(a) => Ok(crate::Resource::A(*a)),
+            crate::zones::Resource::AAAA(aaaa) => Ok(crate::Resource::AAAA(*aaaa)),
+            crate::zones::Resource::TXT(txt) => Ok(crate::Resource::TXT(txt.clone())),
+            crate::zones::Resource::SPF(spf) => Ok(crate::Resource::SPF(spf.clone())),
+            crate::zones::Resource::DS(ds) => Ok(crate::Resource::DS(ds.clone())),
+            crate::zones::Resource::DNSKEY(dnskey) => Ok(crate::Resource::DNSKEY(dnskey.clone())),
+            crate::zones::Resource::NSEC3(nsec3) => Ok(crate::Resource::NSEC3(nsec3.clone())),
+            crate::zones::Resource::NSEC3PARAM(param) => Ok(crate::Resource::NSEC3PARAM(param.clone())),
+            crate::zones::Resource::ZONEMD(zonemd) => Ok(crate::Resource::ZONEMD(zonemd.clone())),
+            crate::zones::Resource::Raw(raw) => Ok(crate::Resource::Raw(raw.clone())),
+            crate::zones::Resource::OPT => Ok(crate::Resource::OPT),
+            crate::zones::Resource::ANY => Ok(crate::Resource::ANY),
 
-            // The rest need some kind of tweaking
-            Resource::CNAME(domain) => Ok(Resource::CNAME(Self::resolve_name(
-                domain, origin, entry_index, record_name,
-            )?)),
-            Resource::NS(domain) => Ok(Resource::NS(Self::resolve_name(
-                domain, origin, entry_index, record_name,
-            )?)),
-            Resource::PTR(domain) => Ok(Resource::PTR(Self::resolve_name(
-                domain, origin, entry_index, record_name,
-            )?)),
-            Resource::MX(mx) => Ok(Resource::MX(MX {
-                preference: mx.preference,
-                exchange: Self::resolve_name(
-                    &mx.exchange,
-                    origin,
-                    entry_index,
-                    record_name,
-                )?,
-            })),
-            Resource::SOA(soa) => Ok(Resource::SOA(SOA {
-                mname: Self::resolve_name(&soa.mname, origin, entry_index, record_name)?,
-                rname: Self::resolve_name(&soa.rname, origin, entry_index, record_name)?,
-                serial: soa.serial,
-                refresh: soa.refresh,
-                retry: soa.retry,
-                expire: soa.expire,
-                minimum: soa.minimum,
-            })),
-            Resource::SRV(srv) => Ok(Resource::SRV(SRV {
-                priority: srv.priority,
-                weight: srv.weight,
-                port: srv.port,
-                name: Self::resolve_name(&srv.name, origin, entry_index, record_name)?,
-            })),
-            Resource::RRSIG(rrsig) => Ok(Resource::RRSIG(RRSIG {
-                signer_name: Self::resolve_name(
-                    &rrsig.signer_name,
-                    origin,
-                    entry_index,
-                    record_name,
-                )?,
-                ..rrsig.clone()
-            })),
-            Resource::NSEC(nsec) => Ok(Resource::NSEC(NSEC {
-                next_domain: Self::resolve_name(
-                    &nsec.next_domain,
-                    origin,
-                    entry_index,
-                    record_name,
-                )?,
-                types: nsec.types.clone(),
-            })),
+            crate::zones::Resource::CNAME(domain) => {
+                let name = Self::resolve_name(domain, origin, entry_index, record_name)?;
+                Ok(crate::Resource::CNAME(name))
+            }
+            crate::zones::Resource::NS(domain) => {
+                let name = Self::resolve_name(domain, origin, entry_index, record_name)?;
+                Ok(crate::Resource::NS(name))
+            }
+            crate::zones::Resource::PTR(domain) => {
+                let name = Self::resolve_name(domain, origin, entry_index, record_name)?;
+                Ok(crate::Resource::PTR(name))
+            }
+            crate::zones::Resource::MX(mx) => {
+                let exchange = Self::resolve_name(&mx.exchange, origin, entry_index, record_name)?;
+                Ok(crate::Resource::MX(crate::resource::MX {
+                    preference: mx.preference,
+                    exchange,
+                }))
+            }
+            crate::zones::Resource::SOA(soa) => {
+                let mname = Self::resolve_name(&soa.mname, origin, entry_index, record_name)?;
+                let rname = Self::resolve_rname(&soa.rname, origin, entry_index, record_name)?;
+                Ok(crate::Resource::SOA(crate::resource::SOA {
+                    mname,
+                    rname,
+                    serial: soa.serial,
+                    refresh: soa.refresh,
+                    retry: soa.retry,
+                    expire: soa.expire,
+                    minimum: soa.minimum,
+                }))
+            }
+            crate::zones::Resource::SRV(srv) => {
+                let name = Self::resolve_name(&srv.name, origin, entry_index, record_name)?;
+                Ok(crate::Resource::SRV(crate::resource::SRV {
+                    priority: srv.priority,
+                    weight: srv.weight,
+                    port: srv.port,
+                    name,
+                }))
+            }
+            crate::zones::Resource::RRSIG(rrsig) => {
+                let signer_name = Self::resolve_name(&rrsig.signer_name, origin, entry_index, record_name)?;
+                Ok(crate::Resource::RRSIG(crate::resource::RRSIG {
+                    type_covered: rrsig.type_covered,
+                    algorithm: rrsig.algorithm,
+                    labels: rrsig.labels,
+                    original_ttl: rrsig.original_ttl,
+                    expiration: rrsig.expiration,
+                    inception: rrsig.inception,
+                    key_tag: rrsig.key_tag,
+                    signer_name,
+                    signature: rrsig.signature.clone(),
+                }))
+            }
+            crate::zones::Resource::NSEC(nsec) => {
+                let next_domain = Self::resolve_name(&nsec.next_domain, origin, entry_index, record_name)?;
+                Ok(crate::Resource::NSEC(crate::resource::NSEC {
+                    next_domain,
+                    types: nsec.types.clone(),
+                }))
+            }
         }
     }
 }
@@ -264,8 +318,9 @@ impl File {
 #[cfg(test)]
 mod tests {
     use crate::resource::*;
-    use crate::zones::{Entry, File, ProcessError, Record as ZoneRecord};
+    use crate::zones::{Entry, File, ProcessError, Record as ZoneRecord, Resource as ZoneResource};
     use crate::Class;
+    use crate::Name;
     use crate::Record;
     use crate::Resource;
     use core::time::Duration;
@@ -291,37 +346,43 @@ mod tests {
             www           IN  CNAME example.com.          ; www.example.com is an alias for example.com
             wwwtest       IN  CNAME www                   ; wwwtest.example.com is another alias for www.example.com
             ",
-            vec![
-            	Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::SOA(SOA {
-	                mname: "ns.example.com".to_string(),
-	                rname: "username.example.com".to_string(),
-	                serial: 2020091025,
-	                refresh: Duration::new(7200, 0),
-	                retry: Duration::new(3600, 0),
-	                expire: Duration::new(1209600, 0),
-	                minimum: Duration::new(3600, 0),
-	            })),
-            	Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::NS("ns.example.com".to_string())),
-            	Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::NS("ns.somewhere.example".to_string())),
-				Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::MX(MX{
-					preference: 10,
-					exchange: "mail.example.com".to_string()
-				})),
-				Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::MX(MX{
-					preference: 20,
-					exchange: "mail2.example.com".to_string()
-				})),
-				Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::MX(MX{
-					preference: 50,
-					exchange: "mail3.example.com".to_string()
-				})),
-				Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::A("192.0.2.1".parse().unwrap())),
-				Record::new("example.com", Class::Internet, Duration::new(3600, 0), Resource::AAAA("2001:db8:10::1".parse().unwrap())),
-				Record::new("ns.example.com", Class::Internet, Duration::new(3600, 0), Resource::A("192.0.2.2".parse().unwrap())),
-				Record::new("ns.example.com", Class::Internet, Duration::new(3600, 0), Resource::AAAA("2001:db8:10::2".parse().unwrap())),
-				Record::new("www.example.com", Class::Internet, Duration::new(3600, 0), Resource::CNAME("example.com".parse().unwrap())),
-				Record::new("wwwtest.example.com", Class::Internet, Duration::new(3600, 0), Resource::CNAME("www.example.com".to_string())),
-            ])
+            {
+                let example = Name::new("example.com").unwrap();
+                let ns_example = Name::new("ns.example.com").unwrap();
+                let www_example = Name::new("www.example.com").unwrap();
+                let wwwtest_example = Name::new("wwwtest.example.com").unwrap();
+                vec![
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::SOA(SOA {
+                        mname: ns_example.clone(),
+                        rname: "username.example.com".to_string(),
+                        serial: 2020091025,
+                        refresh: Duration::new(7200, 0),
+                        retry: Duration::new(3600, 0),
+                        expire: Duration::new(1209600, 0),
+                        minimum: Duration::new(3600, 0),
+                    })),
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::NS(ns_example.clone())),
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::NS(Name::new("ns.somewhere.example").unwrap())),
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::MX(MX{
+                        preference: 10,
+                        exchange: Name::new("mail.example.com").unwrap(),
+                    })),
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::MX(MX{
+                        preference: 20,
+                        exchange: Name::new("mail2.example.com").unwrap(),
+                    })),
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::MX(MX{
+                        preference: 50,
+                        exchange: Name::new("mail3.example.com").unwrap(),
+                    })),
+                    Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::A("192.0.2.1".parse().unwrap())),
+                    Record::new(example, Class::Internet, Duration::new(3600, 0), Resource::AAAA("2001:db8:10::1".parse().unwrap())),
+                    Record::new(ns_example.clone(), Class::Internet, Duration::new(3600, 0), Resource::A("192.0.2.2".parse().unwrap())),
+                    Record::new(ns_example, Class::Internet, Duration::new(3600, 0), Resource::AAAA("2001:db8:10::2".parse().unwrap())),
+                    Record::new(www_example.clone(), Class::Internet, Duration::new(3600, 0), Resource::CNAME(Name::new("example.com").unwrap())),
+                    Record::new(wwwtest_example, Class::Internet, Duration::new(3600, 0), Resource::CNAME(www_example)),
+                ]
+            })
     	];
 
         for (input, want) in tests {
@@ -343,7 +404,7 @@ mod tests {
                 name: Some("example.com.".to_string()),
                 ttl: None,
                 class: Some(Class::Internet),
-                resource: Resource::A("192.0.2.1".parse().unwrap()),
+                resource: ZoneResource::A("192.0.2.1".parse().unwrap()),
             })],
         };
 
@@ -364,7 +425,7 @@ mod tests {
                 name: None,
                 ttl: Some(Duration::from_secs(300)),
                 class: Some(Class::Internet),
-                resource: Resource::A("192.0.2.1".parse().unwrap()),
+                resource: ZoneResource::A("192.0.2.1".parse().unwrap()),
             })],
         };
 
@@ -382,7 +443,7 @@ mod tests {
                 name: Some("www".to_string()),
                 ttl: Some(Duration::from_secs(300)),
                 class: Some(Class::Internet),
-                resource: Resource::A("192.0.2.1".parse().unwrap()),
+                resource: ZoneResource::A("192.0.2.1".parse().unwrap()),
             })],
         };
 
@@ -406,7 +467,7 @@ mod tests {
                     name: Some("www".to_string()),
                     ttl: None,
                     class: None,
-                    resource: Resource::A("192.0.2.1".parse().unwrap()),
+                    resource: ZoneResource::A("192.0.2.1".parse().unwrap()),
                 }),
             ],
         };
@@ -424,7 +485,7 @@ mod tests {
                 name: Some("www".to_string()),
                 ttl: None,
                 class: None,
-                resource: Resource::A("192.0.2.1".parse().unwrap()),
+                resource: ZoneResource::A("192.0.2.1".parse().unwrap()),
             })],
         };
 
@@ -444,5 +505,23 @@ mod tests {
                 origin: "example.com".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn try_into_records_preserves_mixed_casing() {
+        let input = "$ORIGIN ExAmPlE.cOm.\n$TTL 300\nwWw  CNAME  TaRgEt.ExAmPlE.cOm.\n";
+        let records = File::from_str(input)
+            .expect("should parse")
+            .try_into_records()
+            .expect("should process");
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name.as_ascii(), "wWw.ExAmPlE.cOm.");
+        assert_eq!(records[0].name.to_canonical().as_ascii(), "www.example.com.");
+        if let Resource::CNAME(ref target) = records[0].resource {
+            assert_eq!(target.as_ascii(), "TaRgEt.ExAmPlE.cOm.");
+        } else {
+            panic!("expected CNAME");
+        }
     }
 }

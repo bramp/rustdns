@@ -14,6 +14,7 @@
 //! [RFC 4033 §2]: https://datatracker.ietf.org/doc/html/rfc4033#section-2
 //! [RFC 7958]: https://datatracker.ietf.org/doc/html/rfc7958
 
+use crate::names::{IntoName, Name};
 use crate::resource::DS;
 use crate::types::{Algorithm, DigestType};
 
@@ -21,7 +22,7 @@ use crate::types::{Algorithm, DigestType};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrustAnchor {
     /// Domain name this anchor applies to (e.g. `.` for the root zone).
-    pub zone: String,
+    pub zone: Name,
 
     /// Key tag of the anchored key.
     pub key_tag: u16,
@@ -76,7 +77,7 @@ impl TrustStore {
         // IANA Root Zone KSK-2010 (Key Tag 19036)
         // . IN DS 19036 8 2 49AAC11D7B6F6446702E54A1607371607A1A41855200FD2CE1CDDE32F24E8FB5
         store.add_anchor(TrustAnchor {
-            zone: ".".to_string(),
+            zone: Name::root(),
             key_tag: 19036,
             algorithm: Algorithm::RSASHA256,
             digest_type: DigestType::Sha256,
@@ -90,7 +91,7 @@ impl TrustStore {
         // IANA Root Zone KSK-2017 (Key Tag 20326)
         // . IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D
         store.add_anchor(TrustAnchor {
-            zone: ".".to_string(),
+            zone: Name::root(),
             key_tag: 20326,
             algorithm: Algorithm::RSASHA256,
             digest_type: DigestType::Sha256,
@@ -104,7 +105,7 @@ impl TrustStore {
         // IANA Root Zone KSK-2024 (Key Tag 38696)
         // . IN DS 38696 8 2 683D2D0ACB8C9B712A1948B27F741219298D0A450D612C483AF444A4C0FB2B16
         store.add_anchor(TrustAnchor {
-            zone: ".".to_string(),
+            zone: Name::root(),
             key_tag: 38696,
             algorithm: Algorithm::RSASHA256,
             digest_type: DigestType::Sha256,
@@ -125,12 +126,11 @@ impl TrustStore {
 
     /// Finds all trust anchors applicable to a specific zone.
     #[must_use]
-    pub fn find_anchors(&self, zone: &str) -> Vec<&TrustAnchor> {
-        let norm = crate::names::canonical_key(zone);
-        self.anchors
-            .iter()
-            .filter(|a| crate::names::canonical_key(&a.zone) == norm)
-            .collect()
+    pub fn find_anchors(&self, zone: impl IntoName) -> Vec<&TrustAnchor> {
+        let Ok(zone_name) = zone.into_name() else {
+            return Vec::new();
+        };
+        self.anchors.iter().filter(|a| a.zone == zone_name).collect()
     }
 
     /// Returns all registered trust anchors.

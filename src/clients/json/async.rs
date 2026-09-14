@@ -188,10 +188,10 @@ impl AsyncExchanger for Client {
             .first()
             .ok_or_else(|| Error::InvalidArgument("expected one DNS question".to_string()))?;
 
-        let ascii_name = question.ascii_name()?;
+        let ascii_name = question.name.as_ascii();
 
         let mut url = self.server.clone();
-        url.query_pairs_mut().append_pair("name", &ascii_name);
+        url.query_pairs_mut().append_pair("name", ascii_name);
         url.query_pairs_mut()
             .append_pair("type", &question.r#type.to_string());
 

@@ -5,39 +5,15 @@
 //! [RFC 4034 §3.1.8 & §6]: https://datatracker.ietf.org/doc/html/rfc4034#section-6
 //! [RFC 6840]: https://datatracker.ietf.org/doc/html/rfc6840
 
+use crate::names::Name;
 use crate::resource::RRSIG;
-use crate::types::Record;
-use crate::{EncodeError, Message};
+use crate::types::{Record, Resource};
+use crate::EncodeError;
 use std::time::Duration;
-
-/// Appends a domain name to `buf` in canonical DNSSEC wire format
-/// (all labels converted to lowercase, uncompressed length-prefixed octets).
-///
-/// Per [RFC 4034 §6.1], for the purpose of DNSSEC calculations, all uppercase US-ASCII letters
-/// in domain names are converted to lowercase.
-///
-/// [RFC 4034 §6.1]: https://datatracker.ietf.org/doc/html/rfc4034#section-6.1
-pub(crate) fn append_canonical_name_to_vec(
-    buf: &mut Vec<u8>,
-    name: &str,
-) -> Result<(), EncodeError> {
-    let lower = name.to_ascii_lowercase();
-    Message::append_qname_to_vec(buf, &lower)
-}
-
-/// Computes the number of labels in a domain name, excluding the root label.
-///
-/// Example: `"example.com."` -> 2, `"bramp.net"` -> 2, `"."` -> 0.
-// TODO Should we remove this simple wrapper?
-#[inline]
-#[must_use]
-pub(crate) fn count_labels(name: &str) -> u8 {
-    crate::names::count_labels(name)
-}
 
 /// Adjusts an owner name for wildcard expansion if necessary ([RFC 4035 §5.3.2]).
 ///
-/// If `rrsig.labels < count_labels(record_name)`, the signature was generated via
+/// If `rrsig.labels < record_name.count_labels()`, the signature was generated via
 /// wildcard expansion (e.g. from a `*.example.com.` RRset). The reconstructed owner
 /// name replaces the leftmost excess labels with `*`.
 ///
@@ -47,32 +23,81 @@ pub(crate) fn count_labels(name: &str) -> u8 {
 ///
 /// Direct match (no wildcard expansion):
 /// ```text
-/// canonical_owner_for_rrsig("sub.example.com.", 3) == "sub.example.com."
+/// canonical_owner_for_rrsig(&Name::new("sub.example.com.").unwrap(), 3) == Name::new("sub.example.com.").unwrap()
 /// ```
 ///
 /// Wildcard expansion:
 /// ```text
-/// canonical_owner_for_rrsig("a.b.example.com.", 2) == "*.example.com."
+/// canonical_owner_for_rrsig(&Name::new("a.b.example.com.").unwrap(), 2) == Name::new("*.example.com.").unwrap()
 /// ```
 #[must_use]
-pub(crate) fn canonical_owner_for_rrsig(record_name: &str, rrsig_labels: u8) -> String {
-    let current_count = count_labels(record_name);
+pub(crate) fn canonical_owner_for_rrsig(record_name: &Name, rrsig_labels: u8) -> Name {
+    let current_count = record_name.count_labels();
     if current_count == 0 {
-        return ".".to_string();
+        return Name::root();
     }
-    let trimmed = record_name.trim_matches('.');
-    let labels: Vec<&str> = trimmed.split('.').collect();
 
     if rrsig_labels < current_count {
         // Wildcard substitution: keep the rightmost `rrsig_labels` and prepend "*."
         let excess = (current_count - rrsig_labels) as usize;
+        let trimmed = record_name.as_ascii().trim_end_matches('.');
+        let labels: Vec<&str> = trimmed.split('.').collect();
         let suffix = labels[excess..].join(".");
-        format!("*.{suffix}.")
-    } else if record_name.ends_with('.') {
-        record_name.to_string()
+        Name::new(&format!("*.{suffix}.")).expect("valid wildcard domain name").to_canonical()
     } else {
-        format!("{record_name}.")
+        record_name.to_canonical()
     }
+}
+
+/// Appends RDATA in canonical DNSSEC wire format per [RFC 4034 §6.2].
+///
+/// Any domain names embedded inside RDATA (such as in CNAME, NS, PTR, MX, SOA, SRV,
+/// and NSEC records) are converted to lowercase canonical form without compression.
+fn append_canonical_rdata_to_vec(
+    resource: &Resource,
+    buf: &mut Vec<u8>,
+) -> Result<(), EncodeError> {
+    match resource {
+        Resource::CNAME(name) | Resource::NS(name) | Resource::PTR(name) => {
+            name.to_canonical().append_to_vec(buf);
+        }
+        Resource::MX(mx) => {
+            buf.extend_from_slice(&mx.preference.to_be_bytes());
+            mx.exchange.to_canonical().append_to_vec(buf);
+        }
+        Resource::SOA(soa) => {
+            soa.mname.to_canonical().append_to_vec(buf);
+            Name::new(&soa.rname)?.to_canonical().append_to_vec(buf);
+            let duration_to_u32 = |duration: Duration| {
+                u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
+                    max: u64::from(u32::MAX),
+                })
+            };
+            for value in [
+                soa.serial,
+                duration_to_u32(soa.refresh)?,
+                duration_to_u32(soa.retry)?,
+                duration_to_u32(soa.expire)?,
+                duration_to_u32(soa.minimum)?,
+            ] {
+                buf.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        Resource::SRV(srv) => {
+            buf.extend_from_slice(&srv.priority.to_be_bytes());
+            buf.extend_from_slice(&srv.weight.to_be_bytes());
+            buf.extend_from_slice(&srv.port.to_be_bytes());
+            srv.name.to_canonical().append_to_vec(buf);
+        }
+        Resource::NSEC(nsec) => {
+            nsec.next_domain.to_canonical().append_to_vec(buf);
+            crate::resource::NSEC::encode_type_bit_maps(&nsec.types, buf);
+        }
+        other => {
+            other.append_rdata_to_vec(buf)?;
+        }
+    }
+    Ok(())
 }
 
 /// Appends an individual RR in canonical DNSSEC wire format to `buf`:
@@ -81,11 +106,11 @@ pub(crate) fn canonical_owner_for_rrsig(record_name: &str, rrsig_labels: u8) -> 
 /// Name and RDATA domain names (if any) are canonicalized (lowercased) without compression.
 pub(crate) fn append_canonical_record_to_vec(
     buf: &mut Vec<u8>,
-    owner_name: &str,
+    owner_name: &Name,
     record: &Record,
     original_ttl: Duration,
 ) -> Result<(), EncodeError> {
-    append_canonical_name_to_vec(buf, owner_name)?;
+    owner_name.to_canonical().append_to_vec(buf);
     buf.extend_from_slice(&record.r#type().code().to_be_bytes());
     buf.extend_from_slice(&(record.class as u16).to_be_bytes());
     let ttl = u32::try_from(original_ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
@@ -93,9 +118,9 @@ pub(crate) fn append_canonical_record_to_vec(
     })?;
     buf.extend_from_slice(&ttl.to_be_bytes());
 
-    // Serialize RDATA into temporary buffer
+    // Serialize RDATA into temporary buffer with canonical domain names
     let mut rdata = Vec::new();
-    record.resource.append_rdata_to_vec(&mut rdata)?;
+    append_canonical_rdata_to_vec(&record.resource, &mut rdata)?;
 
     let rdata_len = u16::try_from(rdata.len()).map_err(|_| EncodeError::RdataTooLong {
         max: crate::limits::MAX_RDATA_LEN,
@@ -115,7 +140,7 @@ pub(crate) fn append_canonical_record_to_vec(
 /// [RFC 4034 §3.1.8]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8
 pub(crate) fn append_signed_data_to_vec(
     buf: &mut Vec<u8>,
-    owner_name: &str,
+    owner_name: &Name,
     rrsig: &RRSIG,
     rrset: &[Record],
 ) -> Result<(), EncodeError> {
@@ -134,8 +159,8 @@ pub(crate) fn append_signed_data_to_vec(
     buf.extend_from_slice(&inception.to_be_bytes());
     buf.extend_from_slice(&rrsig.key_tag.to_be_bytes());
 
-    // Signer name in canonical wire format
-    append_canonical_name_to_vec(buf, &rrsig.signer_name)?;
+    // Signer name in canonical wire format (RFC 4034 §3.1.8.1)
+    rrsig.signer_name.to_canonical().append_to_vec(buf);
 
     // 2. Canonical owner name (adjusted for wildcard expansion)
     let canonical_owner = canonical_owner_for_rrsig(owner_name, rrsig.labels);
@@ -165,7 +190,7 @@ pub(crate) fn append_signed_data_to_vec(
 /// [RFC 4034 §3.1.8]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.8
 #[cfg(test)]
 pub(crate) fn signed_data_to_vec(
-    owner_name: &str,
+    owner_name: &Name,
     rrsig: &RRSIG,
     rrset: &[Record],
 ) -> Result<Vec<u8>, EncodeError> {
@@ -182,36 +207,38 @@ mod tests {
 
     #[test]
     fn test_count_labels() {
-        assert_eq!(count_labels("."), 0);
-        assert_eq!(count_labels("com."), 1);
-        assert_eq!(count_labels("example.com."), 2);
-        assert_eq!(count_labels("a.b.c.example.com"), 5);
+        assert_eq!(Name::root().count_labels(), 0);
+        assert_eq!(Name::new("com.").unwrap().count_labels(), 1);
+        assert_eq!(Name::new("example.com.").unwrap().count_labels(), 2);
+        assert_eq!(Name::new("a.b.c.example.com").unwrap().count_labels(), 5);
     }
 
     #[test]
     fn test_canonical_owner_wildcard() {
+        let sub = Name::new("sub.example.com.").unwrap();
         // No wildcard expansion
         assert_eq!(
-            canonical_owner_for_rrsig("sub.example.com.", 3),
-            "sub.example.com."
+            canonical_owner_for_rrsig(&sub, 3),
+            sub
         );
         // Wildcard expansion: labels = 2, owner has 3 labels -> "*.example.com."
         assert_eq!(
-            canonical_owner_for_rrsig("sub.example.com.", 2),
-            "*.example.com."
+            canonical_owner_for_rrsig(&sub, 2),
+            Name::new("*.example.com.").unwrap()
         );
     }
 
     #[test]
     fn test_canonical_record_sorting() {
+        let owner = Name::new("example.com.").unwrap();
         let r1 = Record::new(
-            "example.com.",
+            owner.clone(),
             Class::Internet,
             Duration::from_secs(300),
             Resource::A("192.0.2.2".parse().unwrap()),
         );
         let r2 = Record::new(
-            "example.com.",
+            owner.clone(),
             Class::Internet,
             Duration::from_secs(300),
             Resource::A("192.0.2.1".parse().unwrap()),
@@ -225,11 +252,77 @@ mod tests {
             expiration: std::time::UNIX_EPOCH + Duration::from_secs(1000),
             inception: std::time::UNIX_EPOCH + Duration::from_secs(500),
             key_tag: 1234,
-            signer_name: "example.com.".to_string(),
+            signer_name: Name::new("example.com.").unwrap(),
             signature: vec![1, 2, 3],
         };
 
-        let signed = signed_data_to_vec("example.com.", &rrsig, &[r1, r2]).unwrap();
+        let signed = signed_data_to_vec(&owner, &rrsig, &[r1, r2]).unwrap();
         assert!(!signed.is_empty());
+    }
+
+    #[test]
+    fn test_canonical_owner_casing() {
+        let mixed = Name::new("SuB.ExAmPlE.cOm.").unwrap();
+        assert_eq!(mixed.as_ascii(), "SuB.ExAmPlE.cOm.");
+
+        // Direct match produces lowercase canonical name
+        let owner_direct = canonical_owner_for_rrsig(&mixed, 3);
+        assert_eq!(owner_direct.as_ascii(), "sub.example.com.");
+        assert!(owner_direct.is_canonical());
+
+        // Wildcard match produces lowercase canonical wildcard
+        let owner_wild = canonical_owner_for_rrsig(&mixed, 2);
+        assert_eq!(owner_wild.as_ascii(), "*.example.com.");
+        assert!(owner_wild.is_canonical());
+    }
+
+    #[test]
+    fn test_canonical_signed_data_case_invariance() {
+        // Lowercase signed data
+        let lower_owner = Name::new("www.example.com.").unwrap();
+        let lower_signer = Name::new("example.com.").unwrap();
+        let lower_cname = Record::new(
+            lower_owner.clone(),
+            Class::Internet,
+            Duration::from_secs(300),
+            Resource::CNAME(Name::new("target.example.com.").unwrap()),
+        );
+        let lower_rrsig = RRSIG {
+            type_covered: Type::CNAME,
+            algorithm: crate::types::Algorithm::ECDSAP256SHA256,
+            labels: 3,
+            original_ttl: Duration::from_secs(300),
+            expiration: std::time::UNIX_EPOCH + Duration::from_secs(1000),
+            inception: std::time::UNIX_EPOCH + Duration::from_secs(500),
+            key_tag: 1234,
+            signer_name: lower_signer,
+            signature: vec![1, 2, 3],
+        };
+        let lower_wire = signed_data_to_vec(&lower_owner, &lower_rrsig, &[lower_cname]).unwrap();
+
+        // Mixed-case (0x20) signed data
+        let mixed_owner = Name::new("wWw.ExAmPlE.cOm.").unwrap();
+        let mixed_signer = Name::new("ExAmPlE.cOm.").unwrap();
+        let mixed_cname = Record::new(
+            mixed_owner.clone(),
+            Class::Internet,
+            Duration::from_secs(300),
+            Resource::CNAME(Name::new("TaRgEt.ExAmPlE.cOm.").unwrap()),
+        );
+        let mixed_rrsig = RRSIG {
+            type_covered: Type::CNAME,
+            algorithm: crate::types::Algorithm::ECDSAP256SHA256,
+            labels: 3,
+            original_ttl: Duration::from_secs(300),
+            expiration: std::time::UNIX_EPOCH + Duration::from_secs(1000),
+            inception: std::time::UNIX_EPOCH + Duration::from_secs(500),
+            key_tag: 1234,
+            signer_name: mixed_signer,
+            signature: vec![1, 2, 3],
+        };
+        let mixed_wire = signed_data_to_vec(&mixed_owner, &mixed_rrsig, &[mixed_cname]).unwrap();
+
+        // RFC 4034 §6.2: canonical signed data MUST be identical regardless of input casing
+        assert_eq!(lower_wire, mixed_wire);
     }
 }

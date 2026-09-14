@@ -149,7 +149,7 @@ impl AsyncExchanger for BrowserJsonClient {
             rustdns::Error::InvalidArgument("query must have a question".to_string())
         })?;
 
-        let domain = question.ascii_name()?;
+        let domain = question.name.as_ascii();
         let rtype = question.r#type.to_string();
 
         let separator = if self.endpoint.contains('?') {

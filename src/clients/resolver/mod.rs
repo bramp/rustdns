@@ -1,4 +1,5 @@
 //! Asynchronous DNS resolver with upstream failover, retries, and DNSSEC validation.
+// TODO Implement caching, query prioritization and cookies for the resolver.
 
 mod backoff;
 pub use backoff::Backoff;

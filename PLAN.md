@@ -124,10 +124,26 @@ Transition from stringly-typed domain names (`String` / `&str`) to a strongly-ty
 
 ### Tasks
 
-- [ ] Implement `Name` struct in [src/names.rs](src/names.rs) upholding all canonical wire invariants.
-- [ ] Add unit tests for `Name` parsing, validation bounds, IDNA roundtrips, and RFC 4034 canonical ordering.
-- [ ] Adopt `Name` in internal DNSSEC modules (`ChainValidator`, `DnssecCache`, `rrset_validator`) to eliminate repeated normalization and string allocations.
-- [ ] Plan public API evolution: migrate `Question.name` and `Record.name` from `String` to `Name` (or accept `Into<Name>`).
+- [x] Implement `Name` struct in [src/names.rs](src/names.rs) upholding all canonical wire invariants.
+- [x] Add unit tests for `Name` parsing, validation bounds, IDNA roundtrips, and RFC 4034 canonical ordering.
+- [x] Adopt `Name` in `Question.name`, `Record.name`, `NS`, `CNAME`, `PTR`, and `TrustAnchor.zone`.
+- [x] Migrate RDATA domain name fields from `String` to `Name`:
+  - [x] `MX.exchange`
+  - [x] `SOA.mname`
+  - [ ] `SOA.rname` (encoded mailbox local-part; consider dedicated `Mailbox` or `Rname` type)
+  - [x] `SRV.name`
+  - [x] `RRSIG.signer_name`
+  - [x] `NSEC.next_domain`
+- [x] Remove `Message::append_qname_to_vec` in favor of direct `name.append_to_vec(buf)`.
+- [x] Simplify infallible `append_rdata_to_vec(&self, buf: &mut Vec<u8>)` on `MX`, `SRV`, `DS`, `DNSKEY`, `NSEC`, and `ZONEMD`.
+- [x] Migrate DNSSEC verification APIs to accept `&Name` / `impl IntoName`:
+  - [x] `ValidationReport.signer: Name`
+  - [x] `ChainValidator` methods (`validate_rrset_chain`, `get_zone_dnskeys`, `get_zone_ds`, `verify_key_against_parent_or_anchor`)
+  - [x] `DnssecCache` methods (`insert_dnskeys`, `get_dnskeys`, `insert_ds`, `get_ds`)
+  - [x] `denial.rs` methods (`nsec_covers`, `verify_nsec_nodata`, `verify_nsec_nxdomain`, `nsec3_hash`)
+- [x] Update `Resolver::query` and `Resolver::lookup` in [src/clients/resolver/async.rs](src/clients/resolver/async.rs) to accept `impl IntoName`.
+- [ ] Deprecate or remove `Name::as_str` in favor of explicit `Name::as_ascii` and `Name::to_unicode`.
+- [x] Support 0x20-bit case preservation and randomization ([draft-vixie-dnsext-dns0x20-00]) via case-preserving `Name`, case-insensitive equality/hashing, `Name::to_0x20()`, `Name::to_canonical()`, and `case_sensitive_eq`.
 
 ---
 

@@ -170,7 +170,7 @@ impl TryFrom<&Message> for MessageJson {
         let mut question = Vec::with_capacity(msg.questions.len());
         for q in &msg.questions {
             question.push(QuestionJson {
-                name: q.name.clone(),
+                name: q.name.as_ascii().to_string(),
                 r#type: q.r#type.code(),
             });
         }
@@ -178,7 +178,7 @@ impl TryFrom<&Message> for MessageJson {
         let mut answer = Vec::with_capacity(msg.answers.len());
         for a in &msg.answers {
             answer.push(RecordJson {
-                name: a.name.clone(),
+                name: a.name.as_ascii().to_string(),
                 r#type: a.resource.r#type().code(),
                 ttl: a.ttl.as_secs().min(u32::MAX as u64) as u32,
                 data: a.resource.to_string(),
@@ -188,7 +188,7 @@ impl TryFrom<&Message> for MessageJson {
         let mut authority = Vec::with_capacity(msg.authoritys.len());
         for auth in &msg.authoritys {
             authority.push(RecordJson {
-                name: auth.name.clone(),
+                name: auth.name.as_ascii().to_string(),
                 r#type: auth.resource.r#type().code(),
                 ttl: auth.ttl.as_secs().min(u32::MAX as u64) as u32,
                 data: auth.resource.to_string(),
@@ -198,7 +198,7 @@ impl TryFrom<&Message> for MessageJson {
         let mut additional = Vec::with_capacity(msg.additionals.len());
         for add in &msg.additionals {
             additional.push(RecordJson {
-                name: add.name.clone(),
+                name: add.name.as_ascii().to_string(),
                 r#type: add.resource.r#type().code(),
                 ttl: add.ttl.as_secs().min(u32::MAX as u64) as u32,
                 data: add.resource.to_string(),
@@ -226,7 +226,7 @@ impl TryFrom<&Message> for MessageJson {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub struct QuestionJson {
-    /// FQDN name.
+    /// Fully-qualified domain name (FQDN) in lowercase ASCII Punycode.
     pub name: String,
     /// Standard DNS RR type integer code.
     pub r#type: u16,
@@ -237,9 +237,11 @@ impl TryInto<Question> for QuestionJson {
 
     fn try_into(self) -> Result<Question, Self::Error> {
         let r#type = Type::from(self.r#type);
+        let name = crate::names::Name::new(&self.name)
+            .map_err(|_| JsonError::InvalidName(self.name))?;
 
         Ok(Question {
-            name: self.name,
+            name,
             r#type,
             class: Class::Internet,
         })
@@ -250,8 +252,9 @@ impl TryInto<Question> for QuestionJson {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub struct RecordJson {
-    /// Owner domain name.
+    /// Owner domain name in lowercase ASCII Punycode.
     pub name: String,
+
     /// Standard DNS RR type integer code.
     pub r#type: u16,
 
@@ -268,12 +271,14 @@ impl TryInto<Record> for RecordJson {
 
     fn try_into(self) -> Result<Record, Self::Error> {
         let r#type = Type::from(self.r#type);
+        let name = crate::names::Name::new(&self.name)
+            .map_err(|_| JsonError::InvalidName(self.name))?;
 
         let resource = Resource::parse_text(r#type, &self.data)
             .map_err(|x| JsonError::InvalidResource(r#type, x))?;
 
         Ok(Record {
-            name: self.name,
+            name,
             class: Class::Internet,
             ttl: Duration::from_secs(self.ttl.into()),
             resource,
@@ -437,5 +442,59 @@ mod tests {
         let re_decoded = from_str(&serialized).unwrap();
         assert_eq!(msg.questions.len(), re_decoded.questions.len());
         assert_eq!(msg.answers.len(), re_decoded.answers.len());
+    }
+
+    #[test]
+    fn test_record_json_punycode_serialization() {
+        let mut msg = Message::default();
+        msg.try_add_question("🍕.ws", Type::A, Class::Internet)
+            .expect("valid question");
+        msg.answers.push(Record::try_new(
+            "🍕.ws",
+            Class::Internet,
+            Duration::from_secs(300),
+            Resource::A("208.100.42.200".parse().unwrap()),
+        ).expect("valid record"));
+
+        let json_str = to_string(&msg).expect("serialization succeeds");
+
+        // The DoH JSON specification requires ASCII Punycode for domain names.
+        assert!(
+            json_str.contains("\"name\":\"xn--vi8h.ws.\""),
+            "serialized JSON should contain Punycode FQDN name, got: {json_str}"
+        );
+        assert!(
+            !json_str.contains("🍕"),
+            "serialized JSON should not contain raw Unicode characters"
+        );
+    }
+
+    #[test]
+    fn test_record_json_deserialization() {
+        // Punycode format from compliant DoH servers (e.g. Google, Cloudflare)
+        let puny_json = r#"{
+            "Status": 0,
+            "Question": [{"name": "xn--vi8h.ws.", "type": 1}],
+            "Answer": [{"name": "xn--vi8h.ws.", "type": 1, "TTL": 300, "data": "208.100.42.200"}]
+        }"#;
+
+        let msg = from_str(puny_json).expect("parses Punycode JSON");
+        assert_eq!(msg.questions[0].name.as_ascii(), "xn--vi8h.ws.");
+        assert_eq!(msg.questions[0].name.to_unicode(), "🍕.ws.");
+        assert_eq!(msg.answers[0].name.as_ascii(), "xn--vi8h.ws.");
+        assert_eq!(msg.answers[0].name.to_unicode(), "🍕.ws.");
+
+        // Permissive parsing of raw Unicode if sent by non-standard servers
+        let unicode_json = r#"{
+            "Status": 0,
+            "Question": [{"name": "🍕.ws.", "type": 1}],
+            "Answer": [{"name": "🍕.ws.", "type": 1, "TTL": 300, "data": "208.100.42.200"}]
+        }"#;
+
+        let msg2 = from_str(unicode_json).expect("tolerates raw Unicode in JSON");
+        assert_eq!(msg2.questions[0].name.as_ascii(), "xn--vi8h.ws.");
+        assert_eq!(msg2.questions[0].name.to_unicode(), "🍕.ws.");
+        assert_eq!(msg2.answers[0].name.as_ascii(), "xn--vi8h.ws.");
+        assert_eq!(msg2.answers[0].name.to_unicode(), "🍕.ws.");
     }
 }

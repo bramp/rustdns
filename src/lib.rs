@@ -393,6 +393,9 @@ extern crate lazy_static;
 pub use crate::types::*;
 
 #[doc(inline)]
+pub use crate::names::{IntoName, Name};
+
+#[doc(inline)]
 pub use crate::edns::*;
 
 #[doc(inline)]
@@ -418,6 +421,9 @@ pub use crate::from_str::FromStrError;
 pub mod prelude {
     #[doc(no_inline)]
     pub use crate::types::*;
+
+    #[doc(no_inline)]
+    pub use crate::Name;
 
     #[doc(no_inline)]
     pub use crate::Message;

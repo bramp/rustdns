@@ -84,17 +84,17 @@ fn test_parse_root_hints() {
         match &r.resource {
             Resource::NS(ns) => {
                 assert!(
-                    r.name.is_empty() || r.name == ".",
+                    r.name.is_root(),
                     "NS record domain should be root, got {:?}",
                     r.name
                 );
-                ns_servers.insert(ns.to_ascii_lowercase());
+                ns_servers.insert(ns.clone());
             }
             Resource::A(_) => {
-                a_servers.insert(r.name.to_ascii_lowercase());
+                a_servers.insert(r.name.clone());
             }
             Resource::AAAA(_) => {
-                aaaa_servers.insert(r.name.to_ascii_lowercase());
+                aaaa_servers.insert(r.name.clone());
             }
             other => panic!("unexpected record in named.root: {:?}", other),
         }
@@ -105,7 +105,8 @@ fn test_parse_root_hints() {
     assert_eq!(aaaa_servers.len(), 13, "expected 13 root AAAA glue records");
 
     for letter in b'a'..=b'm' {
-        let expected_server = format!("{}.root-servers.net", letter as char);
+        let expected_server = crate::Name::new(&format!("{}.root-servers.net.", letter as char))
+            .expect("valid root server name");
         assert!(
             ns_servers.contains(&expected_server),
             "missing root NS {}",
@@ -125,6 +126,7 @@ fn test_parse_root_hints() {
 }
 
 #[test]
+#[ntest::timeout(15000)]
 fn test_parse_root_zone() {
     let Some(zone_path) = get_fixture_path("root.zone", "ROOT_ZONE_PATH") else {
         eprintln!(
@@ -158,10 +160,10 @@ fn test_parse_root_zone() {
     for record in &records {
         *type_counts.entry(record.resource.r#type()).or_insert(0) += 1;
 
-        if record.name == "." || record.name.is_empty() {
+        if record.name.is_root() {
             if let Resource::SOA(ref soa) = record.resource {
                 assert!(
-                    soa.mname.contains("root-servers.net"),
+                    soa.mname.as_ascii().contains("root-servers.net"),
                     "unexpected root SOA mname: {}",
                     soa.mname
                 );
@@ -171,7 +173,7 @@ fn test_parse_root_zone() {
                 dnskeys.push(key.clone());
             }
         }
-        if record.name == "com." || record.name == "com" {
+        if record.name == "com." {
             if let Resource::DS(_) = record.resource {
                 found_com_ds = true;
             }
@@ -243,7 +245,7 @@ fn test_parse_root_zone() {
         let mut root_dnskey_rrsig: Option<crate::resource::RRSIG> = None;
 
         for record in &records {
-            if record.name == "." || record.name.is_empty() {
+            if record.name.is_root() {
                 if let Resource::DNSKEY(_) = &record.resource {
                     root_dnskeys.push(record.clone());
                 } else if let Resource::RRSIG(rrsig) = &record.resource {

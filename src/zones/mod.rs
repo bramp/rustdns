@@ -11,7 +11,6 @@ use crate::zones::preprocessor::preprocess;
 use crate::zones::parser::Rule;
 use crate::zones::parser::ZoneParser;
 use crate::Class;
-use crate::Resource;
 use pest_consume::Parser;
 use std::str::FromStr;
 use std::time::Duration;
@@ -23,8 +22,10 @@ mod preprocessor;
 mod process;
 #[cfg(test)]
 mod root_files_tests;
+mod types;
 
 pub use process::ProcessError;
+pub use types::{MX, NSEC, Resource, RRSIG, SOA, SRV};
 
 /// A Zone File. This is the unprocessed version of the zone file
 /// where domains such as "@" have not yet been resolved, and fields
@@ -78,8 +79,7 @@ impl FromStr for File {
     /// Returns a Pest parsing error when the zone-file syntax is invalid.
     ///
     /// ```
-    /// use rustdns::Resource;
-    /// use rustdns::zones::{File, Entry, Record};
+    /// use rustdns::zones::{File, Entry, Record, Resource};
     /// use std::str::FromStr;
     ///
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -132,6 +132,9 @@ impl FromStr for File {
 #[derive(Clone, Debug, Display, PartialEq)]
 pub enum Entry {
     /// An `$ORIGIN <domain>` directive that establishes or updates the current base domain.
+    ///
+    /// Stored as a raw [`String`] (not [`crate::Name`]) because it may omit a trailing dot
+    /// in the zone text before being validated and normalized during processing.
     Origin(String),
     /// A `$TTL <duration>` directive that sets the default time-to-live for subsequent records.
     TTL(Duration),
@@ -149,6 +152,11 @@ pub enum Entry {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
     /// The domain name of the record, or `None` to inherit the previous record's name.
+    ///
+    /// Intentionally stored as `Option<String>` (not `Option<Name>`) because in an unprocessed
+    /// zone file, the owner name may be relative (e.g. `"www"`), an origin alias (`"@"`),
+    /// or omitted entirely. It cannot be converted into a canonical [`crate::Name`] until
+    /// resolved against the active `$ORIGIN` in [`File::try_into_records`].
     pub name: Option<String>,
     /// The time-to-live for the record, or `None` to inherit the current default `$TTL`.
     pub ttl: Option<Duration>,
@@ -177,8 +185,7 @@ impl FromStr for Record {
     /// For example:
     ///
     /// ```
-    /// use rustdns::Resource;
-    /// use rustdns::zones::Record;
+    /// use rustdns::zones::{Record, Resource};
     /// use std::str::FromStr;
     ///
     /// let record = Record::from_str("example.com.  A   192.0.2.1");

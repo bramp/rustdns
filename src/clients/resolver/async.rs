@@ -236,7 +236,7 @@ fn correlates(query: &Message, response: &Message) -> bool {
 
     query.questions.iter().all(|question| {
         response.questions.iter().any(|candidate| {
-            candidate.name.eq_ignore_ascii_case(&question.name)
+            candidate.name == question.name
                 && candidate.r#type == question.r#type
                 && candidate.class == question.class
         })
@@ -553,7 +553,7 @@ impl Resolver {
     /// # Errors
     ///
     /// See [`Resolver::query_with_deadline`].
-    pub async fn query(&self, name: &str, rtype: Type) -> Result<Response, crate::Error> {
+    pub async fn query(&self, name: impl crate::names::IntoName, rtype: Type) -> Result<Response, crate::Error> {
         self.query_with_deadline(name, rtype, Instant::now() + self.timeout)
             .await
     }
@@ -577,7 +577,7 @@ impl Resolver {
     /// fail without returning a usable response, or DNSSEC validation fails.
     pub async fn query_with_deadline(
         &self,
-        name: &str,
+        name: impl crate::names::IntoName,
         rtype: Type,
         deadline: Instant,
     ) -> Result<Response, crate::Error> {
@@ -611,7 +611,7 @@ impl Resolver {
     /// # Errors
     ///
     /// See [`Resolver::lookup_with_deadline`].
-    pub async fn lookup(&self, name: &str) -> Result<Vec<IpAddr>, crate::Error> {
+    pub async fn lookup(&self, name: impl crate::names::IntoName) -> Result<Vec<IpAddr>, crate::Error> {
         self.lookup_with_deadline(name, Instant::now() + self.timeout)
             .await
     }
@@ -628,12 +628,13 @@ impl Resolver {
     // https://datatracker.ietf.org/doc/html/rfc1035#section-7
     pub async fn lookup_with_deadline(
         &self,
-        name: &str,
+        name: impl crate::names::IntoName,
         deadline: Instant,
     ) -> Result<Vec<IpAddr>, crate::Error> {
+        let name = name.into_name()?;
         let (a_response, aaaa_response) = tokio::try_join!(
-            self.query_with_deadline(name, Type::A, deadline),
-            self.query_with_deadline(name, Type::AAAA, deadline),
+            self.query_with_deadline(&name, Type::A, deadline),
+            self.query_with_deadline(&name, Type::AAAA, deadline),
         )?;
 
         let mut results = std::collections::HashSet::new();
@@ -861,12 +862,12 @@ mod tests {
             secure: true,
             ad: true,
             rcode: Rcode::NoError,
-            answers: vec![Record::new(
+            answers: vec![Record::try_new(
                 "bramp.net",
                 Class::Internet,
                 Duration::from_secs(60),
                 Resource::A("127.0.0.1".parse().unwrap()),
-            )],
+            ).unwrap()],
             received_do: do_tracker.clone(),
         };
 
@@ -886,12 +887,12 @@ mod tests {
             secure: true,
             ad: true,
             rcode: Rcode::NoError,
-            answers: vec![Record::new(
+            answers: vec![Record::try_new(
                 "bramp.net",
                 Class::Internet,
                 Duration::from_secs(60),
                 Resource::A("127.0.0.1".parse().unwrap()),
-            )],
+            ).unwrap()],
             received_do: do_tracker2.clone(),
         };
         let resolver_dnssec = Resolver::builder()
@@ -915,12 +916,12 @@ mod tests {
     #[tokio::test]
     async fn security_status_and_upstream_trust_policy() {
         let tracker = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let a_record = Record::new(
+        let a_record = Record::try_new(
             "bramp.net",
             Class::Internet,
             Duration::from_secs(60),
             Resource::A("127.0.0.1".parse().unwrap()),
-        );
+        ).unwrap();
 
         // AD=1 over insecure channel with SecureTransportOnly policy -> Indeterminate
         let mock_insecure = DnssecMockExchanger {
@@ -1068,12 +1069,12 @@ mod tests {
             secure: true,
             ad: true,
             rcode: Rcode::NoError,
-            answers: vec![Record::new(
+            answers: vec![Record::try_new(
                 "bramp.net",
                 Class::Internet,
                 Duration::from_secs(60),
                 Resource::A("127.0.0.1".parse().unwrap()),
-            )],
+            ).unwrap()],
             received_do: tracker,
         };
 
@@ -1111,12 +1112,12 @@ mod tests {
                 response.rcode = Rcode::ServFail;
             } else {
                 response.rcode = Rcode::NoError;
-                response.answers.push(Record::new(
+                response.answers.push(Record::try_new(
                     "bramp.net",
                     Class::Internet,
                     Duration::from_secs(60),
                     Resource::A("127.0.0.1".parse().unwrap()),
-                ));
+                ).unwrap());
             }
             Ok(WireResponse::test(response, ChannelSecurity::Loopback))
         }
@@ -1167,12 +1168,12 @@ mod tests {
             secure: true,
             ad: true,
             rcode: Rcode::NoError,
-            answers: vec![Record::new(
+            answers: vec![Record::try_new(
                 "bramp.net",
                 Class::Internet,
                 Duration::from_secs(60),
                 Resource::A("127.0.0.1".parse().unwrap()),
-            )],
+            ).unwrap()],
             received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
@@ -1195,12 +1196,12 @@ mod tests {
     #[cfg(feature = "dnssec")]
     #[tokio::test]
     async fn validate_local_validates_locally_without_upstream_trust() {
-        let a_record = Record::new(
+        let a_record = Record::try_new(
             "bramp.net",
             Class::Internet,
             Duration::from_secs(60),
             Resource::A("127.0.0.1".parse().unwrap()),
-        );
+        ).unwrap();
 
         // Even over an insecure transport and with AD=0, an unsigned domain is
         // verified locally by ChainValidator and evaluates to Insecure (RFC 4035 §5.2).
@@ -1221,7 +1222,7 @@ mod tests {
         assert_eq!(resp.meta.security_status, SecurityStatus::Insecure);
 
         // Tampered / bogus RRSIG triggers local validation failure
-        let invalid_rrsig = Record::new(
+        let invalid_rrsig = Record::try_new(
             "bramp.net",
             Class::Internet,
             Duration::from_secs(60),
@@ -1233,10 +1234,10 @@ mod tests {
                 expiration: SystemTime::now() + Duration::from_secs(3600),
                 inception: SystemTime::now() - Duration::from_secs(60),
                 key_tag: 12345,
-                signer_name: "bramp.net".to_string(),
+                signer_name: crate::Name::new("bramp.net").unwrap(),
                 signature: vec![0xDE, 0xAD, 0xBE, 0xEF],
             }),
-        );
+        ).unwrap();
         let mock_bogus = DnssecMockExchanger {
             secure: true,
             ad: true, // Upstream claims AD=1, but ValidateLocal does not trust upstream

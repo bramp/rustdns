@@ -2,11 +2,8 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::resource::*;
-    use crate::zones::Entry;
-    use crate::zones::File;
-    use crate::zones::Record;
-    use crate::zones::Resource;
+    use crate::resource::{DNSKEY, DS, ZONEMD};
+    use crate::zones::{Entry, File, Record, Resource, MX, NSEC, RRSIG, SOA};
     use crate::Class;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
@@ -506,7 +503,7 @@ mod tests {
                 Entry::Record(Record {
                     resource: Resource::MX(MX{
                         preference: 10,
-                        exchange: "VENERA".to_string()
+                        exchange: "VENERA".to_string(),
                     }),
                     ..Default::default()
                 }),
@@ -752,7 +749,7 @@ mod tests {
                         name: Some("@".to_string(),),
                         ttl: Some(Duration::new(86400, 0)),
                         class: Some(Class::Internet),
-                        resource: Resource::NS("@".parse().unwrap()),
+                        resource: Resource::NS("@".to_string()),
                     },
                 ),
                 Entry::Record(Record {

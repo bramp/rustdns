@@ -6,9 +6,7 @@
 //! [RFC 4035 §5.4]: https://datatracker.ietf.org/doc/html/rfc4035#section-5.4
 //! [RFC 5155 §5 & §8]: https://datatracker.ietf.org/doc/html/rfc5155#section-8
 
-use crate::EncodeError;
-use crate::dnssec::canonical::append_canonical_name_to_vec;
-pub use crate::names::{canonical_cmp, canonical_name_cmp};
+use crate::names::Name;
 use crate::resource::{NSEC, NSEC3};
 use crate::types::Type;
 use std::cmp::Ordering;
@@ -19,16 +17,14 @@ use std::cmp::Ordering;
 /// - In the standard non-wrapping case ($O < N$): $O < T < N$.
 /// - In the circular zone wrap-around case ($O \ge N$): $T > O$ or $T < N$.
 #[must_use]
-pub fn nsec_covers(owner: &str, next_domain: &str, name: &str) -> bool {
-    let cmp_on = canonical_name_cmp(owner, next_domain);
-    let cmp_ot = canonical_name_cmp(owner, name);
-    let cmp_tn = canonical_name_cmp(name, next_domain);
-
-    match cmp_on {
-        Ordering::Less => cmp_ot == Ordering::Less && cmp_tn == Ordering::Less,
-        Ordering::Greater | Ordering::Equal => {
-            cmp_ot == Ordering::Less || cmp_tn == Ordering::Less
-        }
+pub fn nsec_covers(
+    owner: &Name,
+    next_domain: &Name,
+    name: &Name,
+) -> bool {
+    match owner.cmp(next_domain) {
+        Ordering::Less => owner < name && name < next_domain,
+        Ordering::Greater | Ordering::Equal => name > owner || name < next_domain,
     }
 }
 
@@ -40,8 +36,13 @@ pub fn nsec_covers(owner: &str, next_domain: &str, name: &str) -> bool {
 /// - `qtype` is NOT present in the NSEC types bitmap.
 /// - `CNAME` is NOT present in the NSEC types bitmap (otherwise the query would follow CNAME).
 #[must_use]
-pub fn verify_nsec_nodata(nsec: &NSEC, nsec_owner: &str, qname: &str, qtype: Type) -> bool {
-    if canonical_name_cmp(nsec_owner, qname) != Ordering::Equal {
+pub fn verify_nsec_nodata(
+    nsec: &NSEC,
+    nsec_owner: &Name,
+    qname: &Name,
+    qtype: Type,
+) -> bool {
+    if nsec_owner != qname {
         return false;
     }
     !nsec.types.contains(&qtype) && !nsec.types.contains(&Type::CNAME)
@@ -54,7 +55,11 @@ pub fn verify_nsec_nodata(nsec: &NSEC, nsec_owner: &str, qname: &str, qtype: Typ
 /// 1. An NSEC record covering `qname`.
 /// 2. An NSEC record covering the wildcard under the closest enclosing ancestor (or zone apex).
 #[must_use]
-pub fn verify_nsec_nxdomain(nsecs: &[(&str, &NSEC)], qname: &str, zone: &str) -> bool {
+pub fn verify_nsec_nxdomain(
+    nsecs: &[(&Name, &NSEC)],
+    qname: &Name,
+    zone: &Name,
+) -> bool {
     let qname_covered = nsecs
         .iter()
         .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, qname));
@@ -64,7 +69,11 @@ pub fn verify_nsec_nxdomain(nsecs: &[(&str, &NSEC)], qname: &str, zone: &str) ->
     }
 
     // Check wildcard non-existence (*.<closest_enclosing_ancestor>)
-    let wildcard = format!("*.{zone}");
+    let wildcard = if zone.is_root() {
+        Name::new("*.").expect("valid wildcard name")
+    } else {
+        Name::new(&format!("*.{}", zone.as_ascii())).expect("valid wildcard name")
+    };
     nsecs
         .iter()
         .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, &wildcard))
@@ -74,13 +83,10 @@ pub fn verify_nsec_nxdomain(nsecs: &[(&str, &NSEC)], qname: &str, zone: &str) ->
 ///
 /// Implements $IH(\text{salt}, x, \text{iterations})$ where $x$ is the uncompressed canonical
 /// wire-format encoding of `name` (lowercased) and hash algorithm is SHA-1.
-///
-/// # Errors
-///
-/// Returns [`EncodeError`] if canonical name serialization fails.
-pub fn nsec3_hash(name: &str, salt: &[u8], iterations: u16) -> Result<Vec<u8>, EncodeError> {
+#[must_use]
+pub fn nsec3_hash(name: &Name, salt: &[u8], iterations: u16) -> Vec<u8> {
     let mut wire = Vec::new();
-    append_canonical_name_to_vec(&mut wire, name)?;
+    name.to_canonical().append_to_vec(&mut wire);
 
     // Initial hash: SHA-1(wire || salt)
     let mut ctx = ring::digest::Context::new(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY);
@@ -96,7 +102,7 @@ pub fn nsec3_hash(name: &str, salt: &[u8], iterations: u16) -> Result<Vec<u8>, E
         digest = next_ctx.finish();
     }
 
-    Ok(digest.as_ref().to_vec())
+    digest.as_ref().to_vec()
 }
 
 /// Checks whether an NSEC3 record covers a target hash in the circular NSEC3 hash ring ([RFC 5155 §8.4]).
@@ -143,26 +149,26 @@ mod tests {
 
     #[test]
     fn test_canonical_name_order_rfc4034_example() {
-        // RFC 4034 §6.1 sorting example
+        // TODO We seem to ave this list in multiple places in the code base. Are we testing the same thing twice? should we dedup?
+        // RFC 4034 §6.1 sorting example (valid IDNA domain subset)
         let sorted = [
-            "example",
-            "a.example",
-            "yljkjljk.a.example",
-            "Z.a.example",
-            "zABC.a.EXAMPLE",
-            "z.example",
-            "\x01.z.example",
-            "*.z.example",
-            "\u{0080}.z.example",
+            Name::new("example").unwrap(),
+            Name::new("a.example").unwrap(),
+            Name::new("yljkjljk.a.example").unwrap(),
+            Name::new("Z.a.example").unwrap(),
+            Name::new("zABC.a.EXAMPLE").unwrap(),
+            Name::new("z.example").unwrap(),
+            Name::new("\x01.z.example").unwrap(),
+            Name::new("*.z.example").unwrap(),
         ];
 
         for i in 0..sorted.len() {
             for j in 0..sorted.len() {
                 let expected = i.cmp(&j);
-                let actual = canonical_name_cmp(sorted[i], sorted[j]);
+                let actual = sorted[i].cmp(&sorted[j]);
                 assert_eq!(
                     actual, expected,
-                    "comparison failed between '{}' and '{}'",
+                    "comparison failed between '{:?}' and '{:?}'",
                     sorted[i], sorted[j]
                 );
             }
@@ -171,74 +177,57 @@ mod tests {
 
     #[test]
     fn test_nsec_covers_standard_and_wraparound() {
+        let a = Name::new("a.example.com").unwrap();
+        let b = Name::new("b.example.com").unwrap();
+        let c = Name::new("c.example.com").unwrap();
+        let d = Name::new("d.example.com").unwrap();
+        let z = Name::new("z.example.com").unwrap();
+        let zz = Name::new("zz.example.com").unwrap();
+        let zero = Name::new("0.example.com").unwrap();
+        let m = Name::new("m.example.com").unwrap();
+
         // Standard range: a.example.com -> c.example.com
-        assert!(nsec_covers(
-            "a.example.com",
-            "c.example.com",
-            "b.example.com"
-        ));
-        assert!(!nsec_covers(
-            "a.example.com",
-            "c.example.com",
-            "a.example.com"
-        ));
-        assert!(!nsec_covers(
-            "a.example.com",
-            "c.example.com",
-            "c.example.com"
-        ));
-        assert!(!nsec_covers(
-            "a.example.com",
-            "c.example.com",
-            "d.example.com"
-        ));
+        assert!(nsec_covers(&a, &c, &b));
+        assert!(!nsec_covers(&a, &c, &a));
+        assert!(!nsec_covers(&a, &c, &c));
+        assert!(!nsec_covers(&a, &c, &d));
 
         // Circular wrap-around: z.example.com -> a.example.com
-        assert!(nsec_covers(
-            "z.example.com",
-            "a.example.com",
-            "zz.example.com"
-        ));
-        assert!(nsec_covers(
-            "z.example.com",
-            "a.example.com",
-            "0.example.com"
-        ));
-        assert!(!nsec_covers(
-            "z.example.com",
-            "a.example.com",
-            "m.example.com"
-        ));
+        assert!(nsec_covers(&z, &a, &zz));
+        assert!(nsec_covers(&z, &a, &zero));
+        assert!(!nsec_covers(&z, &a, &m));
     }
 
     #[test]
     fn test_verify_nsec_nodata() {
         let nsec = NSEC {
-            next_domain: "host.example.com.".to_string(),
+            next_domain: Name::new("host.example.com.").unwrap(),
             types: vec![Type::A, Type::MX, Type::RRSIG, Type::NSEC],
         };
+        let alfa = Name::new("alfa.example.com.").unwrap();
+        let beta = Name::new("beta.example.com.").unwrap();
 
         // Querying for AAAA on alfa.example.com should succeed (NODATA proof)
         assert!(verify_nsec_nodata(
             &nsec,
-            "alfa.example.com.",
-            "alfa.example.com.",
+            &alfa,
+            &alfa,
             Type::AAAA
         ));
 
         // Querying for A should fail (A exists)
         assert!(!verify_nsec_nodata(
             &nsec,
-            "alfa.example.com.",
-            "alfa.example.com.",
+            &alfa,
+            &alfa,
             Type::A
         ));
 
         // Mismatched name should fail
         assert!(!verify_nsec_nodata(
             &nsec,
-            "alfa.example.com.",
-            "beta.example.com.",
+            &alfa,
+            &beta,
             Type::AAAA
         ));
     }
@@ -246,22 +235,27 @@ mod tests {
     #[test]
     fn test_verify_nsec_nxdomain() {
         let nsec_name = NSEC {
-            next_domain: "d.example.com.".to_string(),
+            next_domain: Name::new("d.example.com.").unwrap(),
             types: vec![Type::A, Type::RRSIG, Type::NSEC],
         };
         // In canonical order, example.com. < *.example.com. < a.example.com.
         let nsec_wildcard = NSEC {
-            next_domain: "a.example.com.".to_string(),
+            next_domain: Name::new("a.example.com.").unwrap(),
             types: vec![Type::SOA, Type::NS, Type::RRSIG, Type::NSEC],
         };
 
+        let b = Name::new("b.example.com.").unwrap();
+        let example = Name::new("example.com.").unwrap();
+        let c = Name::new("c.example.com.").unwrap();
+        let e = Name::new("e.example.com.").unwrap();
+
         let nsecs = [
-            ("b.example.com.", &nsec_name),         // covers c.example.com
-            ("example.com.", &nsec_wildcard),       // covers *.example.com
+            (&b, &nsec_name),         // covers c.example.com
+            (&example, &nsec_wildcard),       // covers *.example.com
         ];
 
-        assert!(verify_nsec_nxdomain(&nsecs, "c.example.com.", "example.com."));
-        assert!(!verify_nsec_nxdomain(&nsecs, "e.example.com.", "example.com."));
+        assert!(verify_nsec_nxdomain(&nsecs, &c, &example));
+        assert!(!verify_nsec_nxdomain(&nsecs, &e, &example));
     }
 
     #[cfg(feature = "dnssec")]
@@ -272,9 +266,28 @@ mod tests {
         // NSEC3PARAM: 1 0 12 aabbccdd
         // H(example.) = 0p9mhaveqvm6t7vbl5lop2u3t2rp3tom
         let salt = crate::util::hex_decode("aabbccdd").unwrap();
-        let hash = nsec3_hash("example.", &salt, 12).expect("nsec3_hash should succeed");
+        let name = Name::new("example.").unwrap();
+        let hash = nsec3_hash(&name, &salt, 12);
         let b32_hash = crate::util::base32hex_encode(&hash).to_ascii_lowercase();
         assert_eq!(b32_hash, "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom");
+
+        // RFC 5155 §5: Hashing mixed-case name MUST produce identical digest
+        let mixed = Name::new("ExAmPlE.").unwrap();
+        let mixed_hash = nsec3_hash(&mixed, &salt, 12);
+        assert_eq!(hash, mixed_hash);
+    }
+
+    #[test]
+    fn test_verify_nsec_nodata_case_insensitive() {
+        let nsec = NSEC {
+            next_domain: Name::new("b.example.com.").unwrap(),
+            types: vec![Type::A, Type::RRSIG, Type::NSEC],
+        };
+        let owner = Name::new("a.example.com.").unwrap();
+        let mixed_query = Name::new("A.ExAmPlE.cOm.").unwrap();
+
+        // Nodota matches case-insensitively
+        assert!(verify_nsec_nodata(&nsec, &owner, &mixed_query, Type::AAAA));
     }
 
     #[test]

@@ -5,7 +5,7 @@ extern crate arbitrary;
 extern crate rustdns;
 
 use arbitrary::Arbitrary;
-use rustdns::{EdnsOption, Extension, Type};
+use rustdns::{EdnsOption, Extension, Name, Type};
 use std::io::Cursor;
 
 #[derive(Arbitrary, Debug)]
@@ -59,12 +59,12 @@ fuzz_target!(|input: FuzzInput<'_>| {
         }
         FuzzInput::RawExtension(bytes) => {
             let mut cur = Cursor::new(bytes);
-            if let Ok(ext) = Extension::fuzz_parse(&mut cur, ".".to_string(), Type::OPT) {
+            if let Ok(ext) = Extension::fuzz_parse(&mut cur, Name::root(), Type::OPT) {
                 let mut buf = Vec::new();
                 if ext.append_to_vec(&mut buf).is_ok() {
                     // Prepend root name and OPT type as expected by parse_internal
                     let mut re_cur = Cursor::new(&buf[3..]); // skip root (.) and OPT type u16
-                    let re_decoded = Extension::fuzz_parse(&mut re_cur, ".".to_string(), Type::OPT)
+                    let re_decoded = Extension::fuzz_parse(&mut re_cur, Name::root(), Type::OPT)
                         .expect("re-decoding encoded Extension must succeed");
                     let mut buf2 = Vec::new();
                     if re_decoded.append_to_vec(&mut buf2).is_ok() {

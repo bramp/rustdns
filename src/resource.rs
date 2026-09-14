@@ -8,9 +8,8 @@
 use crate::FromStrError;
 use crate::errors::{DecodeError, EncodeError};
 use crate::io::{CursorExt, DNSReadExt, SeekExt};
-use crate::types::{
-    Algorithm, Class, DigestType, Message, Nsec3HashAlgorithm, Record, Resource, Type,
-};
+use crate::names::Name;
+use crate::types::{Algorithm, Class, DigestType, Nsec3HashAlgorithm, Record, Resource, Type};
 use byteorder::{BE, ReadBytesExt};
 use std::convert::TryFrom;
 use std::io;
@@ -28,16 +27,16 @@ pub type AAAA = Ipv6Addr;
 
 /// Name Server (NS) record for delegating a the given authoritative name
 /// servers.
-pub type NS = String;
+pub type NS = Name;
 
 /// Canonical name (CNAME) record, for aliasing one name to another.
 #[allow(clippy::upper_case_acronyms)]
-pub type CNAME = String;
+pub type CNAME = Name;
 
 /// Pointer (PTR) record most commonly used for most common use is for
 /// implementing reverse DNS lookups.
 #[allow(clippy::upper_case_acronyms)]
-pub type PTR = String;
+pub type PTR = Name;
 
 /// Text (TXT) record for arbitrary human-readable text in a DNS record.
 #[allow(clippy::upper_case_acronyms)]
@@ -51,19 +50,19 @@ impl Resource {
             Resource::A(address) => buf.extend_from_slice(&address.octets()),
             Resource::AAAA(address) => buf.extend_from_slice(&address.octets()),
             Resource::CNAME(name) | Resource::NS(name) | Resource::PTR(name) => {
-                Message::append_qname_to_vec(buf, name)?;
+                name.append_to_vec(buf);
             }
             Resource::TXT(txt) | Resource::SPF(txt) => txt.append_rdata_to_vec(buf)?,
-            Resource::MX(mx) => mx.append_rdata_to_vec(buf)?,
+            Resource::MX(mx) => mx.append_rdata_to_vec(buf),
             Resource::SOA(soa) => soa.append_rdata_to_vec(buf)?,
-            Resource::SRV(srv) => srv.append_rdata_to_vec(buf)?,
-            Resource::DS(ds) => ds.append_rdata_to_vec(buf)?,
-            Resource::DNSKEY(dnskey) => dnskey.append_rdata_to_vec(buf)?,
+            Resource::SRV(srv) => srv.append_rdata_to_vec(buf),
+            Resource::DS(ds) => ds.append_rdata_to_vec(buf),
+            Resource::DNSKEY(dnskey) => dnskey.append_rdata_to_vec(buf),
             Resource::RRSIG(rrsig) => rrsig.append_rdata_to_vec(buf)?,
-            Resource::NSEC(nsec) => nsec.append_rdata_to_vec(buf)?,
+            Resource::NSEC(nsec) => nsec.append_rdata_to_vec(buf),
             Resource::NSEC3(nsec3) => nsec3.append_rdata_to_vec(buf)?,
             Resource::NSEC3PARAM(param) => param.append_rdata_to_vec(buf)?,
-            Resource::ZONEMD(zonemd) => zonemd.append_rdata_to_vec(buf)?,
+            Resource::ZONEMD(zonemd) => zonemd.append_rdata_to_vec(buf),
             Resource::Raw(raw) => buf.extend_from_slice(&raw.data),
             Resource::OPT | Resource::ANY => {
                 return Err(EncodeError::UnsupportedType(self.r#type()));
@@ -84,7 +83,7 @@ impl Record {
     /// for `OPT` and `ANY`, which have no record encoding. Name failures produce
     /// the [`EncodeError`] name variants.
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
-        Message::append_qname_to_vec(buf, &self.name)?;
+        self.name.append_to_vec(buf);
         buf.extend_from_slice(&self.r#type().code().to_be_bytes());
         buf.extend_from_slice(&(self.class as u16).to_be_bytes());
         let ttl = u32::try_from(self.ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
@@ -108,7 +107,7 @@ impl Record {
 
     pub(crate) fn parse(
         cur: &mut Cursor<&[u8]>,
-        name: String,
+        name: Name,
         r#type: Type,
         class: Class,
     ) -> Result<Record, DecodeError> {
@@ -196,7 +195,7 @@ pub struct MX {
     pub preference: u16,
 
     /// A host willing to act as a mail exchange for the owner name.
-    pub exchange: String,
+    pub exchange: Name,
 }
 
 /// Start of Authority (SOA) record containing administrative information
@@ -208,7 +207,7 @@ pub struct MX {
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SOA {
     /// The name server that was the original or primary source of data for this zone.
-    pub mname: String,
+    pub mname: Name,
 
     /// The mailbox domain name of the person responsible for this zone,
     /// e.g. "dns-admin.google.com.". This is an encoded email address "dns-admin@google.com".
@@ -252,7 +251,7 @@ pub struct SRV {
     pub port: u16,
 
     /// Canonical domain name of the host providing the service.
-    pub name: String,
+    pub name: Name,
 }
 
 /// Delegation Signer (DS) record. See [RFC 4034 §5].
@@ -292,13 +291,14 @@ impl DS {
     /// [RFC 6605]: https://datatracker.ietf.org/doc/html/rfc6605
     #[cfg(feature = "dnssec")]
     pub fn from_dnskey(
-        owner: &str,
+        owner: impl crate::names::IntoName,
         dnskey: &DNSKEY,
         digest_type: DigestType,
     ) -> Result<DS, crate::Error> {
         let mut wire = Vec::new();
-        crate::dnssec::canonical::append_canonical_name_to_vec(&mut wire, owner)?;
-        dnskey.append_rdata_to_vec(&mut wire)?;
+        let owner_name = owner.into_name()?;
+        owner_name.to_canonical().append_to_vec(&mut wire);
+        dnskey.append_rdata_to_vec(&mut wire);
 
         let algorithm = match digest_type {
             DigestType::Sha1 => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
@@ -317,12 +317,11 @@ impl DS {
         })
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.key_tag.to_be_bytes());
         buf.push(self.algorithm.code());
         buf.push(self.digest_type.code());
         buf.extend_from_slice(&self.digest);
-        Ok(())
     }
 
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<DS, DecodeError> {
@@ -407,12 +406,11 @@ impl DNSKEY {
         }
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.flags.to_be_bytes());
         buf.push(self.protocol);
         buf.push(self.algorithm.code());
         buf.extend_from_slice(&self.public_key);
-        Ok(())
     }
 
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<DNSKEY, DecodeError> {
@@ -457,7 +455,7 @@ pub struct RRSIG {
     pub key_tag: u16,
 
     /// The domain name of the signer generating the signature.
-    pub signer_name: String,
+    pub signer_name: Name,
 
     /// The cryptographic signature.
     pub signature: Vec<u8>,
@@ -507,7 +505,7 @@ impl RRSIG {
         buf.extend_from_slice(&expiration.to_be_bytes());
         buf.extend_from_slice(&inception.to_be_bytes());
         buf.extend_from_slice(&self.key_tag.to_be_bytes());
-        Message::append_qname_to_vec(buf, &self.signer_name)?;
+        self.signer_name.append_to_vec(buf);
         buf.extend_from_slice(&self.signature);
         Ok(())
     }
@@ -573,7 +571,7 @@ impl<'a> arbitrary::Arbitrary<'a> for RRSIG {
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct NSEC {
     /// The next owner name in canonical order.
-    pub next_domain: String,
+    pub next_domain: Name,
 
     /// The RR types that exist at the owner name.
     pub types: Vec<Type>,
@@ -726,10 +724,9 @@ pub struct RawResource {
 }
 
 impl NSEC {
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
-        Message::append_qname_to_vec(buf, &self.next_domain)?;
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
+        self.next_domain.append_to_vec(buf);
         Self::encode_type_bit_maps(&self.types, buf);
-        Ok(())
     }
 
     /// Encodes a list of DNS record types into the windowed Type Bit Maps wire format
@@ -858,12 +855,11 @@ pub struct ZONEMD {
 }
 
 impl ZONEMD {
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.serial.to_be_bytes());
         buf.push(self.scheme);
         buf.push(self.algorithm);
         buf.extend_from_slice(&self.digest);
-        Ok(())
     }
 
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<ZONEMD, DecodeError> {
@@ -946,7 +942,7 @@ impl TXT {
 impl SOA {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SOA, DecodeError> {
         let mname = cur.read_qname()?;
-        let rname = cur.read_qname()?;
+        let rname = cur.read_qname()?.to_unicode();
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
@@ -967,8 +963,8 @@ impl SOA {
     }
 
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
-        Message::append_qname_to_vec(buf, &self.mname)?;
-        Message::append_qname_to_vec(buf, &self.rname)?;
+        self.mname.append_to_vec(buf);
+        Name::new(&self.rname)?.append_to_vec(buf);
 
         let duration_to_u32 = |duration: Duration| {
             u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
@@ -1087,9 +1083,9 @@ impl MX {
         })
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.preference.to_be_bytes());
-        Message::append_qname_to_vec(buf, &self.exchange)
+        self.exchange.append_to_vec(buf);
     }
 }
 
@@ -1109,11 +1105,11 @@ impl SRV {
         })
     }
 
-    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
+    pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.priority.to_be_bytes());
         buf.extend_from_slice(&self.weight.to_be_bytes());
         buf.extend_from_slice(&self.port.to_be_bytes());
-        Message::append_qname_to_vec(buf, &self.name)
+        self.name.append_to_vec(buf);
     }
 }
 
@@ -1197,7 +1193,7 @@ mod tests {
     #[test]
     fn test_soa_email_and_email_to_rname() {
         let mut soa = SOA {
-            mname: "ns1.example.com.".to_string(),
+            mname: Name::new("ns1.example.com.").unwrap(),
             rname: "root.localhost.".to_string(),
             serial: 1,
             refresh: Duration::from_secs(3600),
@@ -1255,6 +1251,11 @@ mod tests {
                 crate::util::hex_encode(&ds.digest),
                 "2BB183AF5F22588179A53B0A98631FAD1A292118"
             );
+
+            // RFC 4034 §5.1.4: Owner name in DS calculation MUST be canonical (case-insensitive)
+            let ds_mixed = DS::from_dnskey("DsKeY.ExAmPlE.cOm.", &dnskey, DigestType::Sha1)
+                .expect("from_dnskey must succeed for mixed case");
+            assert_eq!(ds, ds_mixed);
         }
 
         // Test Nsec3HashAlgorithm

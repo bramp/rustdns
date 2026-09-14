@@ -3,13 +3,13 @@
 use crate::zones::Entry;
 use crate::zones::Record;
 use crate::zones::Resource;
+use crate::zones::MX;
+use crate::zones::NSEC;
+use crate::zones::RRSIG;
+use crate::zones::SOA;
 use crate::Class;
 use crate::DNSKEY;
 use crate::DS;
-use crate::MX;
-use crate::NSEC;
-use crate::RRSIG;
-use crate::SOA;
 use crate::Type;
 use crate::ZONEMD;
 use pest_consume::match_nodes;
@@ -177,7 +177,7 @@ impl ZoneParser {
         Ok(match_nodes!(input.into_children();
             [number(preference), domain(exchange)] => Resource::MX(MX {
                 preference,
-                exchange: exchange.to_string()
+                exchange: exchange.to_string(),
             }),
         ))
     }
@@ -196,11 +196,17 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_soa);
 
         Ok(match_nodes!(input.into_children();
-            [domain(mname), string(rname), number(serial), duration(refresh), duration(retry), duration(expire), duration(minimum)] => Resource::SOA(SOA {
-                mname: mname.to_string(),
-                rname: rname.to_string(), // TODO Should this actually be a domain?
-                serial, refresh, retry, expire, minimum
-            }),
+            [domain(mname), string(rname), number(serial), duration(refresh), duration(retry), duration(expire), duration(minimum)] => {
+                Resource::SOA(SOA {
+                    mname: mname.to_string(),
+                    rname: rname.to_string(),
+                    serial,
+                    refresh,
+                    retry,
+                    expire,
+                    minimum,
+                })
+            },
         ))
     }
 
@@ -237,17 +243,19 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_rrsig);
 
         Ok(match_nodes!(input.into_children();
-            [type_name(type_covered), number(algorithm), number(labels), duration(original_ttl), rrsig_time(expiration), rrsig_time(inception), number(key_tag), domain(signer_name), base64_string(signature)] => Resource::RRSIG(RRSIG {
-                type_covered,
-                algorithm,
-                labels,
-                original_ttl,
-                expiration,
-                inception,
-                key_tag,
-                signer_name: signer_name.to_string(),
-                signature,
-            }),
+            [type_name(type_covered), number(algorithm), number(labels), duration(original_ttl), rrsig_time(expiration), rrsig_time(inception), number(key_tag), domain(signer_name), base64_string(signature)] => {
+                Resource::RRSIG(RRSIG {
+                    type_covered,
+                    algorithm,
+                    labels,
+                    original_ttl,
+                    expiration,
+                    inception,
+                    key_tag,
+                    signer_name: signer_name.to_string(),
+                    signature,
+                })
+            },
         ))
     }
 
@@ -256,10 +264,12 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_nsec);
 
         Ok(match_nodes!(input.into_children();
-            [domain(next_domain), type_name(types)..] => Resource::NSEC(NSEC {
-                next_domain: next_domain.to_string(),
-                types: types.collect(),
-            }),
+            [domain(next_domain), type_name(types)..] => {
+                Resource::NSEC(NSEC {
+                    next_domain: next_domain.to_string(),
+                    types: types.collect(),
+                })
+            },
         ))
     }
 
@@ -349,6 +359,10 @@ impl ZoneParser {
                 Rule::domain => {
                     assert!(record.name.is_none(), "record domain was set twice");
 
+                    // Intentionally preserved as a raw String (not Name). In zone files,
+                    // domain names may be relative (e.g. "www"), "@", or inherit from previous
+                    // records. They must not be turned into a canonical FQDN `Name` until
+                    // resolved against $ORIGIN in `File::try_into_records`.
                     record.name = Some(Self::domain(node)?.to_string())
                 }
                 Rule::duration => {
