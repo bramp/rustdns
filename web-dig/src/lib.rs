@@ -92,6 +92,18 @@ pub async fn dig(
         .map_err(|e| JsValue::from_str(&e))
 }
 
+/// Returns the git commit hash embedded at build time.
+#[wasm_bindgen]
+pub fn build_commit() -> String {
+    env!("BUILD_COMMIT").into()
+}
+
+/// Returns the UTC timestamp embedded at build time.
+#[wasm_bindgen]
+pub fn build_time() -> String {
+    env!("BUILD_TIME").into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +170,11 @@ mod tests {
             "https://dns.google/resolve"
         );
         assert!(json_client.is_secure_channel());
+    }
+
+    #[test]
+    fn test_build_info() {
+        assert!(!build_commit().is_empty());
+        assert!(!build_time().is_empty());
     }
 }

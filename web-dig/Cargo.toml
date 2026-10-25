@@ -32,3 +32,6 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+
+[build-dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }

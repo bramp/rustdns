@@ -317,6 +317,10 @@ footer {
     text-align: center;
     font-size: 0.85rem;
     color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: center;
 }
 
 footer a {
@@ -326,4 +330,25 @@ footer a {
 
 footer a:hover {
     text-decoration: underline;
+}
+
+.build-info {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.build-info code {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    color: var(--accent-blue);
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.build-info a:hover code {
+    border-color: var(--accent-blue);
+    background: #283344;
 }

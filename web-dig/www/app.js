@@ -1,4 +1,4 @@
-import init, { dig, supported_record_types } from "./pkg/web_dig.js";
+import init, { dig, supported_record_types, build_commit, build_time } from "./pkg/web_dig.js";
 
 const ENDPOINTS = {
     "cloudflare-doh": {
@@ -151,10 +151,20 @@ digForm.addEventListener("submit", async (event) => {
     }
 });
 
+function renderBuildInfo() {
+    const el = document.getElementById("build-info");
+    if (!el) return;
+    const commit = build_commit();
+    const time = build_time();
+    el.innerHTML = `Commit <a href="https://github.com/bramp/rustdns/commit/${commit}" target="_blank" rel="noopener"><code>${commit}</code></a> · <time>${time}</time>`;
+}
+
 // Initialize WASM
 async function run() {
     try {
         await init();
+
+        renderBuildInfo();
 
         // Populate record types from WASM
         const types = supported_record_types();
