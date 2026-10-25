@@ -393,6 +393,7 @@ mod tests {
     use crate::TXT;
     use crate::Type;
     use crate::ZONEMD;
+    use lazy_static::lazy_static;
     use pretty_assertions::assert_eq;
     use std::time::{Duration, UNIX_EPOCH};
 

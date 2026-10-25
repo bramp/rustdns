@@ -14,14 +14,26 @@ use crate::TXT;
 use crate::Type;
 use crate::ZONEMD;
 use core::str::FromStr;
-use regex::Regex;
+use pest::Parser;
+use pest::iterators::{Pair, Pairs};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(pest_derive::Parser)]
 #[grammar = "character_string.pest"]
-struct CharacterStringParser;
+struct TextParser;
 
 use crate::FromStrError;
+
+fn parse_record_text(input: &str, rule: Rule) -> Result<Pair<'_, Rule>, FromStrError> {
+    TextParser::parse(rule, input)
+        .map_err(|_| FromStrError::InvalidFormat)?
+        .next()
+        .ok_or(FromStrError::InvalidFormat)
+}
+
+fn next_field<'i>(fields: &mut Pairs<'i, Rule>) -> Result<Pair<'i, Rule>, FromStrError> {
+    fields.next().ok_or(FromStrError::InvalidFormat)
+}
 
 impl Resource {
     /// Parses resource text using the supplied record type.
@@ -74,26 +86,26 @@ impl FromStr for SOA {
     /// Returns an error when the text does not contain the seven required SOA fields,
     /// a domain name or `rname` is invalid, or a numeric field is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
-            // "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}",
-            static ref RE: Regex = Regex::new(r"^(\S+) (\S+) (\d+) (\d+) (\d+) (\d+) (\d+)$").unwrap();
-        }
+        // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
+        // "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}"
+        let mut fields = parse_record_text(s, Rule::soa)?.into_inner();
+        let mname = Name::new(next_field(&mut fields)?.as_str())?;
+        let rname = next_field(&mut fields)?.as_str().parse()?;
+        let serial = next_field(&mut fields)?.as_str().parse()?;
+        let refresh = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
+        let retry = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
+        let expire = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
+        let minimum = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
 
-        if let Some(caps) = RE.captures(s) {
-            let rname = caps[2].parse()?;
-            Ok(SOA {
-                mname: Name::new(&caps[1])?,
-                rname,
-                serial: caps[3].parse()?,
-                refresh: Duration::from_secs(caps[4].parse()?),
-                retry: Duration::from_secs(caps[5].parse()?),
-                expire: Duration::from_secs(caps[6].parse()?),
-                minimum: Duration::from_secs(caps[7].parse()?),
-            })
-        } else {
-            Err(FromStrError::InvalidFormat)
-        }
+        Ok(SOA {
+            mname,
+            rname,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        })
     }
 }
 
@@ -106,19 +118,15 @@ impl FromStr for MX {
     ///
     /// Returns an error when the preference is not a valid integer or the format is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            // "10 aspmx.l.google.com."
-            // "{preference} {exchange}",
-            static ref RE: Regex = Regex::new(r"^(\d+) (.+)$").unwrap();
-        }
-        if let Some(caps) = RE.captures(s) {
-            Ok(MX {
-                preference: caps[1].parse()?,
-                exchange: Name::new(&caps[2])?,
-            })
-        } else {
-            Err(FromStrError::InvalidFormat)
-        }
+        // "10 aspmx.l.google.com."
+        // "{preference} {exchange}"
+        let mut fields = parse_record_text(s, Rule::mx)?.into_inner();
+        let preference = next_field(&mut fields)?.as_str().parse()?;
+        let exchange = Name::new(next_field(&mut fields)?.as_str())?;
+        Ok(MX {
+            preference,
+            exchange,
+        })
     }
 }
 
@@ -131,21 +139,19 @@ impl FromStr for SRV {
     ///
     /// Returns an error when a priority, weight, or port is not a valid integer or the format is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            // "5 0 389 ldap.google.com."
-            // "{priority} {weight} {port} {name}",
-            static ref RE: Regex = Regex::new(r"^(\d+) (\d+) (\d+) (.+)$").unwrap();
-        }
-        if let Some(caps) = RE.captures(s) {
-            Ok(SRV {
-                priority: caps[1].parse()?,
-                weight: caps[2].parse()?,
-                port: caps[3].parse()?,
-                name: Name::new(&caps[4])?,
-            })
-        } else {
-            Err(FromStrError::InvalidFormat)
-        }
+        // "5 0 389 ldap.google.com."
+        // "{priority} {weight} {port} {name}"
+        let mut fields = parse_record_text(s, Rule::srv)?.into_inner();
+        let priority = next_field(&mut fields)?.as_str().parse()?;
+        let weight = next_field(&mut fields)?.as_str().parse()?;
+        let port = next_field(&mut fields)?.as_str().parse()?;
+        let name = Name::new(next_field(&mut fields)?.as_str())?;
+        Ok(SRV {
+            priority,
+            weight,
+            port,
+            name,
+        })
     }
 }
 
@@ -153,14 +159,19 @@ impl FromStr for DS {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split_whitespace().collect();
-        if parts.len() < 4 {
-            return Err(FromStrError::InvalidFormat);
-        }
-        let key_tag = parts[0].parse()?;
-        let algorithm = parts[1].parse().map_err(|_| FromStrError::InvalidFormat)?;
-        let digest_type = parts[2].parse().map_err(|_| FromStrError::InvalidFormat)?;
-        let digest_hex = parts[3..].join("");
+        // "20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D"
+        // "{key_tag} {algorithm} {digest_type} {digest}"
+        let mut fields = parse_record_text(s, Rule::ds)?.into_inner();
+        let key_tag = next_field(&mut fields)?.as_str().parse()?;
+        let algorithm = next_field(&mut fields)?
+            .as_str()
+            .parse()
+            .map_err(|_| FromStrError::InvalidFormat)?;
+        let digest_type = next_field(&mut fields)?
+            .as_str()
+            .parse()
+            .map_err(|_| FromStrError::InvalidFormat)?;
+        let digest_hex: String = fields.map(|fragment| fragment.as_str()).collect();
         let digest =
             crate::util::hex_decode(&digest_hex).map_err(|_| FromStrError::InvalidFormat)?;
         Ok(DS {
@@ -176,14 +187,13 @@ impl FromStr for DNSKEY {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split_whitespace().collect();
-        if parts.len() < 4 {
-            return Err(FromStrError::InvalidFormat);
-        }
-        let flags = parts[0].parse()?;
-        let protocol = parts[1].parse()?;
-        let algorithm = parts[2].parse()?;
-        let key_b64 = parts[3..].join("");
+        // "257 3 8 AwEAAQ=="
+        // "{flags} {protocol} {algorithm} {base64_public_key}"
+        let mut fields = parse_record_text(s, Rule::dnskey)?.into_inner();
+        let flags = next_field(&mut fields)?.as_str().parse()?;
+        let protocol = next_field(&mut fields)?.as_str().parse()?;
+        let algorithm = next_field(&mut fields)?.as_str().parse()?;
+        let key_b64: String = fields.map(|fragment| fragment.as_str()).collect();
         let public_key =
             crate::util::base64_decode(&key_b64).map_err(|_| FromStrError::InvalidFormat)?;
         Ok(DNSKEY {
@@ -202,26 +212,28 @@ fn parse_rrsig_time(s: &str) -> Result<SystemTime, FromStrError> {
         }
     }
     let secs = s.parse::<u64>().map_err(FromStrError::from)?;
-    Ok(UNIX_EPOCH + Duration::from_secs(secs))
+    UNIX_EPOCH
+        .checked_add(Duration::from_secs(secs))
+        .ok_or(FromStrError::InvalidFormat)
 }
 
 impl FromStr for RRSIG {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split_whitespace().collect();
-        if parts.len() < 9 {
-            return Err(FromStrError::InvalidFormat);
-        }
-        let type_covered = Type::from_str(parts[0]).map_err(|_| FromStrError::InvalidFormat)?;
-        let algorithm = parts[1].parse()?;
-        let labels = parts[2].parse()?;
-        let original_ttl = Duration::from_secs(parts[3].parse()?);
-        let expiration = parse_rrsig_time(parts[4])?;
-        let inception = parse_rrsig_time(parts[5])?;
-        let key_tag = parts[6].parse()?;
-        let signer_name = Name::new(parts[7])?;
-        let sig_b64 = parts[8..].join("");
+        // "A 8 2 3600 2000000000 1900000000 12345 example.com. AwEAAQ=="
+        // "{type_covered} {algorithm} {labels} {original_ttl} {expiration} {inception} {key_tag} {signer_name} {signature}"
+        let mut fields = parse_record_text(s, Rule::rrsig)?.into_inner();
+        let type_covered = Type::from_str(next_field(&mut fields)?.as_str())
+            .map_err(|_| FromStrError::InvalidFormat)?;
+        let algorithm = next_field(&mut fields)?.as_str().parse()?;
+        let labels = next_field(&mut fields)?.as_str().parse()?;
+        let original_ttl = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
+        let expiration = parse_rrsig_time(next_field(&mut fields)?.as_str())?;
+        let inception = parse_rrsig_time(next_field(&mut fields)?.as_str())?;
+        let key_tag = next_field(&mut fields)?.as_str().parse()?;
+        let signer_name = Name::new(next_field(&mut fields)?.as_str())?;
+        let sig_b64: String = fields.map(|fragment| fragment.as_str()).collect();
         let signature =
             crate::util::base64_decode(&sig_b64).map_err(|_| FromStrError::InvalidFormat)?;
         Ok(RRSIG {
@@ -242,11 +254,13 @@ impl FromStr for NSEC {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split_whitespace();
-        let next_domain = Name::new(parts.next().ok_or(FromStrError::InvalidFormat)?)?;
+        // "next.example.com. A NS SOA MX RRSIG NSEC DNSKEY"
+        // "{next_domain} {type}..."
+        let mut fields = parse_record_text(s, Rule::nsec)?.into_inner();
+        let next_domain = Name::new(next_field(&mut fields)?.as_str())?;
         let mut types = Vec::new();
-        for type_str in parts {
-            if let Ok(t) = Type::from_str(type_str) {
+        for type_field in fields {
+            if let Ok(t) = Type::from_str(type_field.as_str()) {
                 types.push(t);
             }
         }
@@ -258,14 +272,13 @@ impl FromStr for ZONEMD {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split_whitespace().collect();
-        if parts.len() < 4 {
-            return Err(FromStrError::InvalidFormat);
-        }
-        let serial = parts[0].parse()?;
-        let scheme = parts[1].parse()?;
-        let algorithm = parts[2].parse()?;
-        let digest_hex = parts[3..].join("");
+        // "2024010100 1 1 AABBCCDDEEFF00112233445566778899"
+        // "{serial} {scheme} {algorithm} {digest}"
+        let mut fields = parse_record_text(s, Rule::zonemd)?.into_inner();
+        let serial = next_field(&mut fields)?.as_str().parse()?;
+        let scheme = next_field(&mut fields)?.as_str().parse()?;
+        let algorithm = next_field(&mut fields)?.as_str().parse()?;
+        let digest_hex: String = fields.map(|fragment| fragment.as_str()).collect();
         let digest =
             crate::util::hex_decode(&digest_hex).map_err(|_| FromStrError::InvalidFormat)?;
         Ok(ZONEMD {
@@ -294,13 +307,12 @@ impl FromStr for TXT {
     ///
     /// [RFC 1035 §5.1]: https://www.rfc-editor.org/rfc/rfc1035#section-5.1
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use pest::Parser;
-
+        // "\"first string\" \"second string\""
         if !s.contains('"') {
             return Ok(TXT::from(s));
         }
 
-        let parsed = CharacterStringParser::parse(Rule::txt, s)
+        let parsed = TextParser::parse(Rule::txt, s)
             .map_err(|_| FromStrError::InvalidFormat)?
             .next()
             .ok_or(FromStrError::InvalidFormat)?;
@@ -342,7 +354,7 @@ impl FromStr for TXT {
 
 #[cfg(test)]
 mod tests {
-    use super::{FromStrError, Resource, SOA, TXT};
+    use super::{DNSKEY, DS, FromStrError, MX, NSEC, RRSIG, Resource, SOA, SRV, TXT, ZONEMD};
     use crate::Type;
 
     #[test]
@@ -367,6 +379,66 @@ mod tests {
         assert!(
             "ns..example admin.example 1 2 3 4 5"
                 .parse::<SOA>()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rdata_text_parsers_accept_whitespace_and_split_digests() {
+        let soa: SOA = "ns.example.\tadmin.example. 1 2 3 4 5"
+            .parse()
+            .expect("SOA with tab separator should parse");
+        assert_eq!(soa.serial, 1);
+
+        let mx: MX = "10\tmail.example.".parse().expect("MX should parse");
+        assert_eq!(mx.preference, 10);
+
+        let srv: SRV = "5 0\t389 ldap.example.".parse().expect("SRV should parse");
+        assert_eq!(srv.port, 389);
+
+        let ds: DS = "12345 8 2 aabb ccdd".parse().expect("DS should parse");
+        assert_eq!(ds.digest, [0xaa, 0xbb, 0xcc, 0xdd]);
+
+        let dnskey: DNSKEY = "257 3 8 AQ ID".parse().expect("DNSKEY should parse");
+        assert_eq!(dnskey.public_key, [1, 2, 3]);
+
+        let rrsig: RRSIG = "A 8 2 3600 2000000000 1900000000 12345 example. AQ ID"
+            .parse()
+            .expect("RRSIG should parse");
+        assert_eq!(rrsig.signature, [1, 2, 3]);
+
+        let nsec: NSEC = "next.example. A AAAA RRSIG NSEC DNSKEY"
+            .parse()
+            .expect("NSEC should parse");
+        assert_eq!(
+            nsec.types,
+            [Type::A, Type::AAAA, Type::RRSIG, Type::NSEC, Type::DNSKEY]
+        );
+
+        let zonemd: ZONEMD = "1 1 1 aabb ccdd".parse().expect("ZONEMD should parse");
+        assert_eq!(zonemd.digest, [0xaa, 0xbb, 0xcc, 0xdd]);
+    }
+
+    #[test]
+    fn rdata_text_parsers_reject_invalid_or_trailing_fields() {
+        assert!(
+            "ns.example. admin.example. 1 2 3 4 5 extra"
+                .parse::<SOA>()
+                .is_err()
+        );
+        assert!("10 mail.example. extra".parse::<MX>().is_err());
+        assert!("5 0 389 ldap.example. extra".parse::<SRV>().is_err());
+        assert!("12345 8 2 aabb invalid".parse::<DS>().is_err());
+        assert!("257 3 8 AQID invalid".parse::<DNSKEY>().is_err());
+        assert!(
+            "A 8 2 3600 2000000000 1900000000 12345 example. AQID invalid"
+                .parse::<RRSIG>()
+                .is_err()
+        );
+        assert!("1 1 1 aabb invalid".parse::<ZONEMD>().is_err());
+        assert!(
+            "A 8 2 3600 18446744073709551615 1 12345 example. AQID"
+                .parse::<RRSIG>()
                 .is_err()
         );
     }

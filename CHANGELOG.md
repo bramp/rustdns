@@ -6,10 +6,13 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- Migrated SOA, MX, SRV, DS, DNSKEY, RRSIG, NSEC, and ZONEMD text parsing to Pest
+  while retaining their `FromStr` entry points. The `text` feature no longer
+  requires the regex crate.
 - Record text parsing is now behind the `text` feature, automatically enabled by
   `zones` and `json`. Defaults are unchanged. Wire-only builds can disable default
-  features to exclude Pest and record-parser regex dependencies; basic name
-  construction and formatting remain available.
+  features to exclude text parsing dependencies; basic name construction and
+  formatting remain available.
 - SOA mailbox wire decoding now constructs `Rname` directly from decoded labels
   rather than reparsing presentation text.
 - **Breaking (planned for 1.0):** Resource `SOA.rname` is now a validated `Rname`

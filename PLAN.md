@@ -21,7 +21,7 @@ The current baseline is `0.7.0`.
   - [x] Parse TXT/SPF quoting and RFC 1035 escapes with Pest.
   - [x] Validate SOA mailbox labels with `Rname`, preserving escaped octets through text, zone, wire, and DNSSEC paths.
 - [x] Make record text parsing opt-in via `text` for wire-only builds, with `zones` and `json` enabling it automatically.
-- [ ] Migrate the remaining RDATA text parsers to Pest, sharing grammar with zone parsing where appropriate and retaining `FromStr` entry points (TXT/SPF already use Pest).
+- [x] Migrate the remaining RDATA text parsers to Pest, sharing grammar with zone parsing where appropriate and retaining `FromStr` entry points (TXT/SPF already use Pest).
 - [ ] Deprecate [src/from_str.rs](src/from_str.rs) and unify text RDATA parsing with `zones::parse_rdata`.
 - [ ] Add validated constructors/builders for public DNS and EDNS structs.
 - [ ] Replace broad `Error::InvalidArgument(String)` with typed error variants.

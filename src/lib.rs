@@ -400,10 +400,6 @@ cfg_feature! {
 #[macro_use]
 extern crate num_derive;
 
-#[macro_use]
-#[cfg(any(feature = "text", test))]
-extern crate lazy_static;
-
 // Pull up the various types that should be on the front page of the docs.
 #[doc(inline)]
 pub use crate::types::*;

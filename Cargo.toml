@@ -56,7 +56,7 @@ doh-json = ["json", "http_deps"]
 dot = ["dep:tokio", "dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 # Parse textual resource records, including FromStr implementations.
-text = ["dep:pest", "dep:pest_derive", "dep:regex", "dep:lazy_static"]
+text = ["dep:pest", "dep:pest_derive"]
 
 # Enable the Zone Parser
 zones = ["text", "pest_consume"]
@@ -105,12 +105,10 @@ bytes = "1.12.1"
 chrono = "0.4.45"
 hex = "0.4.3"
 idna = "1.1.0"
-lazy_static = { version = "1.5.0", optional = true }
 log = "0.4.34"
 num-derive = "0.5.1"
 num-traits = "0.2.19"
 rand = "0.10.2"
-regex = { version = "1.13.1", optional = true }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 thiserror = "2.0.20"

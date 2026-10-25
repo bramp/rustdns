@@ -1,7 +1,25 @@
 // RFC 1035 section 5.1. Adjacent quoted strings are also accepted for DoH JSON.
-txt = { SOI ~ space* ~ quoted ~ (space* ~ quoted)* ~ space* ~ EOI }
+txt = ${ SOI ~ space* ~ quoted ~ (space* ~ quoted)* ~ space* ~ EOI }
 space = _{ " " | "\t" | "\r" | "\n" }
 quoted = { "\"" ~ (decimal_escape | character_escape | text)* ~ "\"" }
 decimal_escape = @{ "\\" ~ ASCII_DIGIT{3} }
 character_escape = @{ "\\" ~ !ASCII_DIGIT ~ ANY }
 text = @{ (!("\"" | "\\") ~ ANY)+ }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+field = @{ (!(" " | "\t" | "\r" | "\n") ~ ANY)+ }
+number = @{ ASCII_DIGIT+ }
+hex_fragment = @{ ASCII_HEX_DIGIT+ }
+base64_fragment = @{ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+ }
+
+soa = { SOI ~ field ~ field ~ number ~ number ~ number ~ number ~ number ~ EOI }
+mx = { SOI ~ number ~ field ~ EOI }
+srv = { SOI ~ number ~ number ~ number ~ field ~ EOI }
+ds = { SOI ~ number ~ field ~ field ~ hex_fragment+ ~ EOI }
+dnskey = { SOI ~ number ~ number ~ field ~ base64_fragment+ ~ EOI }
+rrsig = {
+    SOI ~ field ~ field ~ number ~ number ~ field ~ field ~ number ~ field ~ base64_fragment+ ~ EOI
+}
+nsec = { SOI ~ field ~ field* ~ EOI }
+zonemd = { SOI ~ number ~ number ~ number ~ hex_fragment+ ~ EOI }
