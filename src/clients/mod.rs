@@ -1,5 +1,8 @@
 //! DNS clients (transports).
 //!
+//! Wire-format transports encode queries through [`Message::to_vec`], which
+//! limits each DNS message to [`crate::limits::MAX_DNS_MESSAGE_LEN`] bytes.
+//!
 //! `udp`, `tcp`, `do53`, `dot`, `doh`, and `json` follow one constructor convention:
 //!
 //! - `new(server, ..)` — `server` is already resolved / typed (e.g. `SocketAddr` or `Url`).
@@ -68,7 +71,8 @@ pub trait Exchanger {
     /// # Errors
     ///
     /// Returns an error if encoding the query fails, network I/O fails, or the
-    /// response is truncated or malformed.
+    /// response is truncated or malformed. Query encoding fails if the encoded
+    /// DNS message exceeds [`crate::limits::MAX_DNS_MESSAGE_LEN`] bytes.
     fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).
@@ -105,7 +109,8 @@ pub trait AsyncExchanger {
     /// # Errors
     ///
     /// Returns an error if encoding the query fails, network I/O fails, or the
-    /// response is truncated or malformed.
+    /// response is truncated or malformed. Query encoding fails if the encoded
+    /// DNS message exceeds [`crate::limits::MAX_DNS_MESSAGE_LEN`] bytes.
     async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error>;
 
     /// Returns a string describing the endpoint of this exchanger (e.g. server address or URL).

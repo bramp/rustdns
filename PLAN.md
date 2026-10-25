@@ -16,7 +16,7 @@ The current baseline is `0.7.0`.
 
 ## 1. Version 1.0.0: Public API Cleanup
 
-- [ ] Enforce `MAX_DNS_MESSAGE_LEN` in `Message::to_vec` and document across transports.
+- [x] Enforce `MAX_DNS_MESSAGE_LEN` in `Message::to_vec` and document across transports.
 - [ ] Tighten text resource parsing: validate domain names, SOA rnames, and TXT escapes.
 - [ ] Deprecate [src/from_str.rs](src/from_str.rs) and unify text RDATA parsing with `zones::parse_rdata`.
 - [ ] Add validated constructors/builders for public DNS and EDNS structs.

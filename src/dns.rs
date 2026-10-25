@@ -257,8 +257,9 @@ impl Message {
     /// [`EncodeError::LabelTooLong`], or [`EncodeError::NameTooLong`] when a
     /// domain in the message cannot be encoded, and
     /// [`EncodeError::UnsupportedType`] for record types this crate cannot
-    /// write. Oversized records and EDNS(0) options produce the corresponding
-    /// `*TooLong` variants.
+    /// write. Returns [`EncodeError::MessageTooLong`] if the encoded message
+    /// exceeds [`limits::MAX_DNS_MESSAGE_LEN`]. Oversized records and EDNS(0)
+    /// options produce the corresponding `*TooLong` variants.
     ///
     /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
     pub fn to_vec(&self) -> Result<Vec<u8>, EncodeError> {
@@ -269,63 +270,82 @@ impl Message {
 
     /// Appends this DNS [`Message`] as DNS wire-format bytes to `buf`.
     ///
+    /// Appends nothing if encoding fails.
+    ///
     /// # Errors
     ///
-    /// Returns the same [`EncodeError`] variants as [`Self::to_vec`].
+    /// Returns the same [`EncodeError`] variants as [`Self::to_vec`]. The
+    /// message is limited to [`limits::MAX_DNS_MESSAGE_LEN`] bytes, excluding
+    /// any bytes already present in `buf`.
     // TODO We need to support name compression
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
-        buf.extend_from_slice(&self.id.to_be_bytes());
+        let start_len = buf.len();
+        let result = (|| {
+            buf.extend_from_slice(&self.id.to_be_bytes());
 
-        let mut b = 0_u8;
-        b |= if bool::from(self.qr) { 0b1000_0000 } else { 0 };
-        b |= ((self.opcode as u8) << 3) & 0b0111_1000;
-        b |= if self.aa { 0b0000_0100 } else { 0 };
-        b |= if self.tc { 0b0000_0010 } else { 0 };
-        b |= if self.rd { 0b0000_0001 } else { 0 };
-        buf.push(b);
+            let mut b = 0_u8;
+            b |= if bool::from(self.qr) { 0b1000_0000 } else { 0 };
+            b |= ((self.opcode as u8) << 3) & 0b0111_1000;
+            b |= if self.aa { 0b0000_0100 } else { 0 };
+            b |= if self.tc { 0b0000_0010 } else { 0 };
+            b |= if self.rd { 0b0000_0001 } else { 0 };
+            buf.push(b);
 
-        let mut b = 0_u8;
-        b |= if self.ra { 0b1000_0000 } else { 0 };
-        b |= if self.z { 0b0100_0000 } else { 0 };
-        b |= if self.ad { 0b0010_0000 } else { 0 };
-        b |= if self.cd { 0b0001_0000 } else { 0 };
-        b |= (self.rcode as u8) & 0b0000_1111;
+            let mut b = 0_u8;
+            b |= if self.ra { 0b1000_0000 } else { 0 };
+            b |= if self.z { 0b0100_0000 } else { 0 };
+            b |= if self.ad { 0b0010_0000 } else { 0 };
+            b |= if self.cd { 0b0001_0000 } else { 0 };
+            b |= (self.rcode as u8) & 0b0000_1111;
 
-        buf.push(b);
+            buf.push(b);
+            limits::validate_message_len(buf.len() - start_len)?;
 
-        limits::validate_section_count(self.questions.len())?;
-        limits::validate_section_count(self.answers.len())?;
-        limits::validate_section_count(self.authoritys.len())?;
-        limits::validate_section_count(self.additionals.len() + self.extension.is_some() as usize)?;
+            limits::validate_section_count(self.questions.len())?;
+            limits::validate_section_count(self.answers.len())?;
+            limits::validate_section_count(self.authoritys.len())?;
+            limits::validate_section_count(
+                self.additionals.len() + self.extension.is_some() as usize,
+            )?;
 
-        let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
+            let ar_count = self.additionals.len() as u16 + self.extension.is_some() as u16;
 
-        buf.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
-        buf.extend_from_slice(&(self.answers.len() as u16).to_be_bytes());
-        buf.extend_from_slice(&(self.authoritys.len() as u16).to_be_bytes());
-        buf.extend_from_slice(&ar_count.to_be_bytes());
+            buf.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
+            buf.extend_from_slice(&(self.answers.len() as u16).to_be_bytes());
+            buf.extend_from_slice(&(self.authoritys.len() as u16).to_be_bytes());
+            buf.extend_from_slice(&ar_count.to_be_bytes());
 
-        for question in &self.questions {
-            question.append_to_vec(buf);
+            for question in &self.questions {
+                question.append_to_vec(buf);
+                limits::validate_message_len(buf.len() - start_len)?;
+            }
+
+            for record in self
+                .answers
+                .iter()
+                .chain(self.authoritys.iter())
+                .chain(self.additionals.iter())
+            {
+                record.append_to_vec(buf)?;
+                limits::validate_message_len(buf.len() - start_len)?;
+            }
+
+            if let Some(e) = &self.extension {
+                e.append_to_vec(buf)?;
+                limits::validate_message_len(buf.len() - start_len)?;
+            }
+
+            // TODO Replace this stateless writer with a message encoder that handles
+            // EDNS-aware sizing and canonical DNSSEC-style encoding.
+
+            Ok(())
+        })();
+
+        if result.is_err() {
+            buf.truncate(start_len);
         }
 
-        for record in self
-            .answers
-            .iter()
-            .chain(self.authoritys.iter())
-            .chain(self.additionals.iter())
-        {
-            record.append_to_vec(buf)?;
-        }
-
-        if let Some(e) = &self.extension {
-            e.append_to_vec(buf)?
-        }
-
-        // TODO Replace this stateless writer with a message encoder that handles
-        // message-size limits, EDNS-aware sizing, and canonical DNSSEC-style encoding.
-
-        Ok(())
+        result
     }
 }
 
@@ -454,9 +474,9 @@ impl Extension {
 mod tests {
     use super::Message;
     use crate::{
-        Algorithm, Class, DNSKEY, DS, DigestType, EdnsOption, Extension, MX, NSEC, NSEC3,
-        NSEC3PARAM, Name, Nsec3HashAlgorithm, Question, RRSIG, RawResource, Record, Resource, SOA,
-        SRV, TXT, Type, ZONEMD,
+        Algorithm, Class, DNSKEY, DS, DigestType, EdnsOption, EncodeError, Extension, MX, NSEC,
+        NSEC3, NSEC3PARAM, Name, Nsec3HashAlgorithm, Question, RRSIG, RawResource, Record,
+        Resource, SOA, SRV, TXT, Type, ZONEMD,
     };
     use std::convert::TryFrom;
 
@@ -845,6 +865,73 @@ mod tests {
             .to_vec()
             .expect("decoded message with maximum tiny questions should re-encode");
         assert_eq!(encoded, re_encoded);
+    }
+
+    #[test]
+    fn rejects_messages_exceeding_maximum_length() {
+        const QUESTION_COUNT: usize = (crate::limits::MAX_DNS_MESSAGE_LEN - 12) / 5 + 1;
+        let mut message = Message::default();
+        for _ in 0..QUESTION_COUNT {
+            message.questions.push(Question {
+                name: Name::root(),
+                r#type: Type::A,
+                class: Class::Internet,
+            });
+        }
+
+        let expected_error = EncodeError::MessageTooLong {
+            max: crate::limits::MAX_DNS_MESSAGE_LEN,
+        };
+        assert_eq!(message.to_vec().unwrap_err(), expected_error);
+
+        let mut buf = vec![0xCA, 0xFE];
+        assert_eq!(message.append_to_vec(&mut buf), Err(expected_error));
+        assert_eq!(buf, [0xCA, 0xFE]);
+    }
+
+    #[test]
+    fn message_length_limit_includes_records_and_edns_but_not_buffer_prefix() {
+        let max = crate::limits::MAX_DNS_MESSAGE_LEN;
+        for use_edns in [false, true] {
+            for length in [max, max + 1] {
+                let mut message = Message::default();
+                // Both a root-owned resource record and an OPT record use 11
+                // bytes before their payload; an EDNS option adds 4 more bytes.
+                let payload_len = length - crate::limits::DNS_HEADER_LEN - 11;
+                if use_edns {
+                    message.set_extension(Extension::default().with_option(EdnsOption::padding(
+                        u16::try_from(payload_len - 4).expect("padding fits in u16"),
+                    )));
+                } else {
+                    message.answers.push(Record::new(
+                        Name::root(),
+                        Class::Internet,
+                        std::time::Duration::ZERO,
+                        Resource::Raw(RawResource {
+                            rtype: 65280,
+                            data: vec![0; payload_len],
+                        }),
+                    ));
+                }
+
+                let mut buf = vec![0xCA, 0xFE];
+                if length == max {
+                    let encoded = message.to_vec().expect("maximum-size message encodes");
+                    assert_eq!(encoded.len(), max);
+                    Message::from_slice(&encoded).expect("maximum-size message decodes");
+                    message.append_to_vec(&mut buf).expect("message appends");
+                    assert_eq!(&buf[..2], &[0xCA, 0xFE]);
+                    assert_eq!(&buf[2..], encoded);
+                } else {
+                    assert_eq!(message.to_vec(), Err(EncodeError::MessageTooLong { max }));
+                    assert_eq!(
+                        message.append_to_vec(&mut buf),
+                        Err(EncodeError::MessageTooLong { max })
+                    );
+                    assert_eq!(buf, [0xCA, 0xFE]);
+                }
+            }
+        }
     }
 
     #[test]
