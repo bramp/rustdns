@@ -6,7 +6,7 @@ use crate::zones::Resource;
 use crate::zones::MX;
 use crate::zones::NSEC;
 use crate::zones::RRSIG;
-use crate::zones::SOA;
+use crate::zones::UnresolvedSoa;
 use crate::Class;
 use crate::DNSKEY;
 use crate::DS;
@@ -15,6 +15,7 @@ use crate::ZONEMD;
 use pest_consume::match_nodes;
 use pest_consume::Error;
 use pest_consume::Parser;
+use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
@@ -22,6 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[grammar = "zones/zones.pest"]
+#[grammar = "soa.pest"]
 pub(crate) struct ZoneParser;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
@@ -60,12 +62,6 @@ impl ZoneParser {
             Ok(i) => Ok(Duration::new(i, 0)),
             Err(e) => Err(input.error(e)),
         }
-    }
-
-    fn string(input: Node<'_>) -> Result<&str> {
-        assert_eq!(input.as_rule(), Rule::string);
-
-        Ok(input.as_str())
     }
 
     fn domain(input: Node<'_>) -> Result<&str> {
@@ -196,18 +192,27 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_soa);
 
         Ok(match_nodes!(input.into_children();
-            [domain(mname), string(rname), number(serial), duration(refresh), duration(retry), duration(expire), duration(minimum)] => {
-                Resource::SOA(SOA {
-                    mname: mname.to_string(),
-                    rname: rname.to_string(),
-                    serial,
-                    refresh,
-                    retry,
-                    expire,
-                    minimum,
-                })
-            },
+            [soa_rdata(soa)] => Resource::SOA(soa),
         ))
+    }
+
+    fn soa_rdata(input: Node<'_>) -> Result<UnresolvedSoa> {
+        // The preprocessor flattens grouped lines but leaves the parentheses.
+        let text = if input.as_str().contains(['(', ')']) {
+            Cow::Owned(input.as_str().replace(['(', ')'], " "))
+        } else {
+            Cow::Borrowed(input.as_str())
+        };
+        let fields = crate::from_str::parse_soa(&text).map_err(|error| input.error(error))?;
+        Ok(UnresolvedSoa {
+            mname: fields.mname.to_owned(),
+            rname: fields.rname.to_owned(),
+            serial: fields.serial,
+            refresh: fields.refresh,
+            retry: fields.retry,
+            expire: fields.expire,
+            minimum: fields.minimum,
+        })
     }
 
     #[alias(resource)]

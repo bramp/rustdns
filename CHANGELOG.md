@@ -6,6 +6,12 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- SOA text and zone parsing now share one borrowed field parser. Core `FromStr`
+  still validates names immediately; zone parsing preserves relative names and
+  origin aliases until processing, including grouped records with comments.
+- Renamed the zone SOA payload to `zones::UnresolvedSoa`, sharing its generic
+  representation with borrowed parser fields. `zones::SOA` remains available
+  as a deprecated alias; the `zones::Resource::SOA` variant is unchanged.
 - Migrated SOA, MX, SRV, DS, DNSKEY, RRSIG, NSEC, and ZONEMD text parsing to Pest
   while retaining their `FromStr` entry points. The `text` feature no longer
   requires the regex crate.

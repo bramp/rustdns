@@ -4,6 +4,7 @@ use crate::resource::{A, AAAA, DNSKEY, DS, NSEC3, NSEC3PARAM, RawResource, TXT, 
 use crate::types::{Algorithm, Type};
 use core::time::Duration;
 use std::time::SystemTime;
+use crate::from_str::UnresolvedSoa;
 
 /// An unprocessed zone file resource record data payload before origin resolution.
 ///
@@ -29,7 +30,7 @@ pub enum Resource {
     /// Mail EXchanger (MX) record before origin resolution.
     MX(MX),
     /// Start of Authority (SOA) record before origin resolution.
-    SOA(SOA),
+    SOA(UnresolvedSoa),
     /// Service (SRV) record before origin resolution.
     SRV(SRV),
     /// Delegation Signer (DS) record.
@@ -61,25 +62,6 @@ pub struct MX {
     pub preference: u16,
     /// A host willing to act as a mail exchange (may be relative, `"@"`, or FQDN).
     pub exchange: String,
-}
-
-/// Unprocessed SOA record data before zone origin resolution.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct SOA {
-    /// The primary master nameserver domain (may be relative, `"@"`, or FQDN).
-    pub mname: String,
-    /// The mailbox domain name of the responsible person (may be relative, `"@"`, or FQDN).
-    pub rname: String,
-    /// Serial version number.
-    pub serial: u32,
-    /// Refresh interval.
-    pub refresh: Duration,
-    /// Retry interval.
-    pub retry: Duration,
-    /// Expiration limit.
-    pub expire: Duration,
-    /// Minimum TTL.
-    pub minimum: Duration,
 }
 
 /// Unprocessed SRV record data before zone origin resolution.

@@ -20,6 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(pest_derive::Parser)]
 #[grammar = "character_string.pest"]
+#[grammar = "soa.pest"]
 struct TextParser;
 
 use crate::FromStrError;
@@ -33,6 +34,44 @@ fn parse_record_text(input: &str, rule: Rule) -> Result<Pair<'_, Rule>, FromStrE
 
 fn next_field<'i>(fields: &mut Pairs<'i, Rule>) -> Result<Pair<'i, Rule>, FromStrError> {
     fields.next().ok_or(FromStrError::InvalidFormat)
+}
+
+/// Parsed SOA fields whose names have not been resolved against a zone origin.
+///
+/// The default name storage is owned [`String`]; parsing temporarily uses
+/// borrowed [`str`] slices. Unlike [`crate::SOA`], these names may be relative
+/// or the origin alias `"@"` and have not yet been validated.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UnresolvedSoa<N = String> {
+    /// The primary master nameserver domain (relative, `"@"`, or fully qualified).
+    pub mname: N,
+    /// The responsible person's mailbox domain (relative, `"@"`, or fully qualified).
+    pub rname: N,
+    /// Serial version number.
+    pub serial: u32,
+    /// Refresh interval.
+    pub refresh: Duration,
+    /// Retry interval.
+    pub retry: Duration,
+    /// Expiration limit.
+    pub expire: Duration,
+    /// Minimum TTL.
+    pub minimum: Duration,
+}
+
+pub(crate) fn parse_soa(input: &str) -> Result<UnresolvedSoa<&str>, FromStrError> {
+    // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
+    // "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}"
+    let mut fields = parse_record_text(input, Rule::soa)?.into_inner();
+    Ok(UnresolvedSoa {
+        mname: next_field(&mut fields)?.as_str(),
+        rname: next_field(&mut fields)?.as_str(),
+        serial: next_field(&mut fields)?.as_str().parse()?,
+        refresh: Duration::from_secs(next_field(&mut fields)?.as_str().parse()?),
+        retry: Duration::from_secs(next_field(&mut fields)?.as_str().parse()?),
+        expire: Duration::from_secs(next_field(&mut fields)?.as_str().parse()?),
+        minimum: Duration::from_secs(next_field(&mut fields)?.as_str().parse()?),
+    })
 }
 
 impl Resource {
@@ -86,25 +125,16 @@ impl FromStr for SOA {
     /// Returns an error when the text does not contain the seven required SOA fields,
     /// a domain name or `rname` is invalid, or a numeric field is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
-        // "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}"
-        let mut fields = parse_record_text(s, Rule::soa)?.into_inner();
-        let mname = Name::new(next_field(&mut fields)?.as_str())?;
-        let rname = next_field(&mut fields)?.as_str().parse()?;
-        let serial = next_field(&mut fields)?.as_str().parse()?;
-        let refresh = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
-        let retry = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
-        let expire = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
-        let minimum = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
+        let fields = parse_soa(s)?;
 
         Ok(SOA {
-            mname,
-            rname,
-            serial,
-            refresh,
-            retry,
-            expire,
-            minimum,
+            mname: fields.mname.parse()?,
+            rname: fields.rname.parse()?,
+            serial: fields.serial,
+            refresh: fields.refresh,
+            retry: fields.retry,
+            expire: fields.expire,
+            minimum: fields.minimum,
         })
     }
 }
@@ -356,6 +386,21 @@ impl FromStr for TXT {
 mod tests {
     use super::{DNSKEY, DS, FromStrError, MX, NSEC, RRSIG, Resource, SOA, SRV, TXT, ZONEMD};
     use crate::Type;
+
+    #[test]
+    fn soa_fields_borrow_names_without_resolving_them() {
+        let input = String::from(r"ns Action\.domains 376337657 900 900 1800 60");
+        let fields = super::parse_soa(&input).unwrap();
+        assert_eq!(fields.mname, "ns");
+        assert_eq!(fields.rname, r"Action\.domains");
+        assert_eq!(fields.mname.as_ptr(), input.as_ptr());
+        assert_eq!(fields.rname.as_ptr(), input[3..].as_ptr());
+        assert_eq!(fields.serial, 376337657);
+        assert_eq!(fields.refresh.as_secs(), 900);
+        assert_eq!(fields.retry.as_secs(), 900);
+        assert_eq!(fields.expire.as_secs(), 1800);
+        assert_eq!(fields.minimum.as_secs(), 60);
+    }
 
     #[test]
     fn soa_text_rejects_invalid_rnames() {

@@ -25,7 +25,12 @@ mod root_files_tests;
 mod types;
 
 pub use process::ProcessError;
-pub use types::{MX, NSEC, Resource, RRSIG, SOA, SRV};
+pub use crate::from_str::UnresolvedSoa;
+pub use types::{MX, NSEC, Resource, RRSIG, SRV};
+
+/// Compatibility name for owned, unresolved SOA fields.
+#[deprecated(note = "use UnresolvedSoa to distinguish unresolved names from crate::SOA")]
+pub type SOA = UnresolvedSoa;
 
 /// A Zone File. This is the unprocessed version of the zone file
 /// where domains such as "@" have not yet been resolved, and fields

@@ -22,7 +22,9 @@ The current baseline is `0.7.0`.
   - [x] Validate SOA mailbox labels with `Rname`, preserving escaped octets through text, zone, wire, and DNSSEC paths.
 - [x] Make record text parsing opt-in via `text` for wire-only builds, with `zones` and `json` enabling it automatically.
 - [x] Migrate the remaining RDATA text parsers to Pest, sharing grammar with zone parsing where appropriate and retaining `FromStr` entry points (TXT/SPF already use Pest).
-- [ ] Deprecate [src/from_str.rs](src/from_str.rs) and unify text RDATA parsing with `zones::parse_rdata`.
+- [ ] Consolidate text and zone RDATA parsing under `text`, retaining `FromStr` entry points and unresolved zone names.
+  - [x] Share borrowed SOA fields and numeric parsing between core and zone records.
+  - [ ] Consolidate the remaining overlapping RDATA parsers.
 - [ ] Add validated constructors/builders for public DNS and EDNS structs.
 - [ ] Replace broad `Error::InvalidArgument(String)` with typed error variants.
 - [ ] Audit all public methods against naming conventions in [DEVELOPERS.md](DEVELOPERS.md).
@@ -160,7 +162,7 @@ Authoritative root zone (`root.zone`) and root hints (`named.root`) are supporte
 - [ ] Support standard BIND duration abbreviations (`w`, `d`, `h`, `m`, `s`) in `$TTL` and record TTLs.
 - [ ] Add `TXT`, `SPF`, `SRV`, `NSEC3`, and `NSEC3PARAM` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.
 - [ ] Enforce RFC 2181 §5.2 TTL consistency across RRsets in [src/zones/process.rs](src/zones/process.rs).
-- [ ] Unify [src/from_str.rs](src/from_str.rs) with `zones::parse_rdata` and deprecate duplicate regex parsers.
+- [ ] Finish the shared text/zone RDATA parsing consolidation tracked in section 1 (SOA is shared).
 - [ ] Validate domain label ($\le 63$) and name ($\le 255$) lengths during zone processing.
 - [ ] Add streaming `File::from_reader` iterator for memory-efficient large zone parsing.
 

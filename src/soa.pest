@@ -1,0 +1,6 @@
+// Separators and name syntax depend on whether the input is RDATA or a zone.
+soa_fields = _{
+    soa_mname ~ separator ~ soa_rname ~ separator ~ soa_number ~ separator ~
+    soa_number ~ separator ~ soa_number ~ separator ~ soa_number ~ separator ~ soa_number
+}
+soa_number = @{ ASCII_DIGIT+ }

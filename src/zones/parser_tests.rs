@@ -3,12 +3,145 @@
 #[cfg(test)]
 mod tests {
     use crate::resource::{DNSKEY, DS, ZONEMD};
-    use crate::zones::{Entry, File, Record, Resource, MX, NSEC, RRSIG, SOA};
+    use crate::zones::{Entry, File, Record, Resource, MX, NSEC, RRSIG, UnresolvedSoa as SOA};
     use crate::Class;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    #[allow(deprecated)]
+    fn soa_compatibility_alias_accepts_owned_unresolved_fields() {
+        let old: crate::zones::SOA = crate::zones::SOA {
+            mname: "ns1".to_owned(),
+            rname: "dns-admin".to_owned(),
+            serial: 376337657,
+            refresh: Duration::from_secs(900),
+            retry: Duration::from_secs(900),
+            expire: Duration::from_secs(1800),
+            minimum: Duration::from_secs(60),
+        };
+        let unresolved: crate::zones::UnresolvedSoa<String> = old;
+        let parsed: Record = "@ SOA ns1 dns-admin 376337657 900 900 1800 60"
+            .parse()
+            .unwrap();
+        assert_eq!(parsed.resource, Resource::SOA(unresolved));
+    }
+
+    #[test]
+    fn soa_zone_and_text_parsing_agree() {
+        for rdata in [
+            "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60",
+            r"ns.ISI.EDU. Action\.domains.ISI.EDU. 1 2 3 4 5",
+            ". . 4294967295 18446744073709551615 0 0 0",
+        ] {
+            let core: crate::SOA = rdata.parse().unwrap();
+            let input = format!("$TTL 300\nexample.com. IN SOA {rdata}\nnext.example.com. A 192.0.2.1");
+            let records = input.parse::<File>().unwrap().try_into_records().unwrap();
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[0].resource, crate::Resource::SOA(core));
+            assert_eq!(
+                records[1].resource,
+                crate::Resource::A("192.0.2.1".parse().unwrap())
+            );
+        }
+    }
+
+    #[test]
+    fn soa_zone_record_owns_names_after_input_is_dropped() {
+        let record = {
+            let input = String::from("@ SOA ns1 dns-admin 376337657 900 900 1800 60");
+            input.parse::<Record>().unwrap()
+        };
+        let Resource::SOA(soa) = record.resource else {
+            panic!("expected SOA data");
+        };
+        assert_eq!(soa.mname, "ns1");
+        assert_eq!(soa.rname, "dns-admin");
+        assert_eq!(soa.serial, 376337657);
+    }
+
+    #[test]
+    fn soa_zone_preserves_relative_names_and_origin_aliases() {
+        for (mname, rname) in [("ns1", "dns-admin"), ("@", "@")] {
+            let input = format!(
+                "$ORIGIN google.com.\n$TTL 900\n@ IN SOA {mname} {rname} 376337657 900 900 1800 60"
+            );
+            let file: File = input.parse().unwrap();
+            let Entry::Record(record) = &file.entries[2] else {
+                panic!("expected SOA record");
+            };
+            let Resource::SOA(soa) = &record.resource else {
+                panic!("expected SOA data");
+            };
+            assert_eq!(soa.mname, mname);
+            assert_eq!(soa.rname, rname);
+
+            let resolved = file.try_into_records().unwrap();
+            let expected = if mname == "@" {
+                "google.com. google.com. 376337657 900 900 1800 60"
+            } else {
+                "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
+            };
+            assert_eq!(
+                resolved[0].resource,
+                crate::Resource::SOA(expected.parse().unwrap())
+            );
+        }
+    }
+
+    #[test]
+    fn soa_zone_grouping_and_comments_preserve_shared_fields() {
+        let input = "$ORIGIN google.com.\n$TTL 900\n\
+            @ IN SOA ns1 dns-admin (\n\
+                376337657 ; serial\n\
+                900       ; refresh\n\
+                900       ; retry\n\
+                1800      ; expire\n\
+                60)       ; minimum\n";
+        let records = input.parse::<File>().unwrap().try_into_records().unwrap();
+        let expected = "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60";
+        assert_eq!(
+            records[0].resource,
+            crate::Resource::SOA(expected.parse().unwrap())
+        );
+
+        let single: Record = "@ SOA ns1 dns-admin (376337657 900 900 1800 60) ; comment"
+            .parse()
+            .unwrap();
+        let Resource::SOA(soa) = single.resource else {
+            panic!("expected SOA data");
+        };
+        assert_eq!(soa.mname, "ns1");
+        assert_eq!(soa.minimum, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn soa_zone_and_text_reject_malformed_fields() {
+        for rdata in [
+            "",
+            "ns.example. admin.example. 1 2 3 4",
+            "ns.example. admin.example. 1 2 3 4 5 extra",
+            "ns.example. admin.example. -1 2 3 4 5",
+            "ns.example. admin.example. 4294967296 2 3 4 5",
+            "ns.example. admin.example. 1 18446744073709551616 3 4 5",
+            "ns.example. admin.example. 1 2 nope 4 5",
+        ] {
+            assert!(rdata.parse::<crate::SOA>().is_err(), "{rdata:?}");
+            let single = format!("example. SOA {rdata}");
+            assert!(single.parse::<Record>().is_err(), "{rdata:?}");
+            assert!(single.parse::<File>().is_err(), "{rdata:?}");
+        }
+
+        let input = "$TTL 900\nexample. SOA ns.example. admin.example. 4294967296 2 3 4 5";
+        let error = input.parse::<File>().unwrap_err();
+        assert!(
+            matches!(error.line_col, pest::error::LineColLocation::Span((2, _), _)),
+            "{error}"
+        );
+        assert!(error.to_string().contains("4294967296"), "{error}");
+    }
 
     #[test]
     fn test_parse_combinations() {

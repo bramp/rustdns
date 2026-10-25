@@ -13,7 +13,10 @@ number = @{ ASCII_DIGIT+ }
 hex_fragment = @{ ASCII_HEX_DIGIT+ }
 base64_fragment = @{ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+ }
 
-soa = { SOI ~ field ~ field ~ number ~ number ~ number ~ number ~ number ~ EOI }
+soa = ${ SOI ~ space* ~ soa_fields ~ space* ~ EOI }
+soa_mname = _{ field }
+soa_rname = _{ field }
+separator = _{ space+ }
 mx = { SOI ~ number ~ field ~ EOI }
 srv = { SOI ~ number ~ number ~ number ~ field ~ EOI }
 ds = { SOI ~ number ~ field ~ field ~ hex_fragment+ ~ EOI }
