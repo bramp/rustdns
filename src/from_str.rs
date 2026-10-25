@@ -12,6 +12,7 @@ use crate::SRV;
 use crate::TXT;
 use crate::Type;
 use crate::ZONEMD;
+use crate::resource::{Mx, Nsec, Rrsig, Soa, Srv};
 use core::str::FromStr;
 use pest::Parser;
 use pest::iterators::{Pair, Pairs};
@@ -35,88 +36,11 @@ fn next_field<'i>(fields: &mut Pairs<'i, Rule>) -> Result<Pair<'i, Rule>, FromSt
     fields.next().ok_or(FromStrError::InvalidFormat)
 }
 
-/// Parsed SOA fields whose names have not been resolved against a zone origin.
-///
-/// The default name storage is owned [`String`]; parsing temporarily uses
-/// borrowed [`str`] slices. Unlike [`crate::SOA`], these names may be relative
-/// or the origin alias `"@"` and have not yet been validated.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct UnresolvedSoa<N = String> {
-    /// The primary master nameserver domain (relative, `"@"`, or fully qualified).
-    pub mname: N,
-    /// The responsible person's mailbox domain (relative, `"@"`, or fully qualified).
-    pub rname: N,
-    /// Serial version number.
-    pub serial: u32,
-    /// Refresh interval.
-    pub refresh: Duration,
-    /// Retry interval.
-    pub retry: Duration,
-    /// Expiration limit.
-    pub expire: Duration,
-    /// Minimum TTL.
-    pub minimum: Duration,
-}
-
-/// Parsed MX fields whose exchange name has not been resolved or validated.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct UnresolvedMx<N = String> {
-    /// Preference given to this mail exchanger.
-    pub preference: u16,
-    /// Mail exchange host (relative, `"@"`, or fully qualified).
-    pub exchange: N,
-}
-
-/// Parsed SRV fields whose target name has not been resolved or validated.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct UnresolvedSrv<N = String> {
-    /// Priority of this target host.
-    pub priority: u16,
-    /// Relative weight.
-    pub weight: u16,
-    /// Port number.
-    pub port: u16,
-    /// Target hostname (relative, `"@"`, or fully qualified).
-    pub name: N,
-}
-
-/// Parsed RRSIG fields whose signer name has not been resolved or validated.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct UnresolvedRrsig<N = String> {
-    /// Covered record type.
-    pub type_covered: Type,
-    /// Cryptographic algorithm.
-    pub algorithm: crate::Algorithm,
-    /// Label count.
-    pub labels: u8,
-    /// Original TTL.
-    pub original_ttl: Duration,
-    /// Expiration timestamp.
-    pub expiration: SystemTime,
-    /// Inception timestamp.
-    pub inception: SystemTime,
-    /// Key tag.
-    pub key_tag: u16,
-    /// Signer name (relative, `"@"`, or fully qualified).
-    pub signer_name: N,
-    /// Decoded signature bytes.
-    pub signature: Vec<u8>,
-}
-
-/// Parsed NSEC fields whose next name has not been resolved or validated.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct UnresolvedNsec<N = String> {
-    /// Next owner name (relative, `"@"`, or fully qualified).
-    pub next_domain: N,
-    /// Types present at the owner.
-    pub types: Vec<Type>,
-}
-
-pub(crate) fn parse_soa(input: &str) -> Result<UnresolvedSoa<&str>, FromStrError> {
+pub(crate) fn parse_soa(input: &str) -> Result<Soa<&str, &str>, FromStrError> {
     // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
     // "{mname} {rname} {serial} {refresh} {retry} {expire} {minimum}"
     let mut fields = parse_record_text(input, Rule::soa)?.into_inner();
-    Ok(UnresolvedSoa {
+    Ok(Soa {
         mname: next_field(&mut fields)?.as_str(),
         rname: next_field(&mut fields)?.as_str(),
         serial: next_field(&mut fields)?.as_str().parse()?,
@@ -209,21 +133,21 @@ impl FromStr for MX {
     }
 }
 
-pub(crate) fn parse_mx(input: &str) -> Result<UnresolvedMx<&str>, FromStrError> {
+pub(crate) fn parse_mx(input: &str) -> Result<Mx<&str>, FromStrError> {
     // "10 aspmx.l.google.com."
     // "{preference} {exchange}"
     let mut fields = parse_record_text(input, Rule::mx)?.into_inner();
-    Ok(UnresolvedMx {
+    Ok(Mx {
         preference: next_field(&mut fields)?.as_str().parse()?,
         exchange: next_field(&mut fields)?.as_str(),
     })
 }
 
-pub(crate) fn parse_srv(input: &str) -> Result<UnresolvedSrv<&str>, FromStrError> {
+pub(crate) fn parse_srv(input: &str) -> Result<Srv<&str>, FromStrError> {
     // "5 0 389 ldap.google.com."
     // "{priority} {weight} {port} {name}"
     let mut fields = parse_record_text(input, Rule::srv)?.into_inner();
-    Ok(UnresolvedSrv {
+    Ok(Srv {
         priority: next_field(&mut fields)?.as_str().parse()?,
         weight: next_field(&mut fields)?.as_str().parse()?,
         port: next_field(&mut fields)?.as_str().parse()?,
@@ -331,7 +255,7 @@ impl FromStr for RRSIG {
     }
 }
 
-pub(crate) fn parse_rrsig(s: &str) -> Result<UnresolvedRrsig<&str>, FromStrError> {
+pub(crate) fn parse_rrsig(s: &str) -> Result<Rrsig<&str>, FromStrError> {
     // "A 8 2 3600 2000000000 1900000000 12345 example.com. AwEAAQ=="
     // "{type_covered} {algorithm} {labels} {original_ttl} {expiration} {inception} {key_tag} {signer_name} {signature}"
     let mut fields = parse_record_text(s, Rule::rrsig)?.into_inner();
@@ -347,7 +271,7 @@ pub(crate) fn parse_rrsig(s: &str) -> Result<UnresolvedRrsig<&str>, FromStrError
     let sig_b64: String = fields.map(|fragment| fragment.as_str()).collect();
     let signature =
         crate::util::base64_decode(&sig_b64).map_err(|_| FromStrError::InvalidFormat)?;
-    Ok(UnresolvedRrsig {
+    Ok(Rrsig {
         type_covered,
         algorithm,
         labels,
@@ -372,7 +296,7 @@ impl FromStr for NSEC {
     }
 }
 
-pub(crate) fn parse_nsec(s: &str) -> Result<UnresolvedNsec<&str>, FromStrError> {
+pub(crate) fn parse_nsec(s: &str) -> Result<Nsec<&str>, FromStrError> {
     // "next.example.com. A NS SOA MX RRSIG NSEC DNSKEY"
     // "{next_domain} {type}..."
     let mut fields = parse_record_text(s, Rule::nsec)?.into_inner();
@@ -385,7 +309,7 @@ pub(crate) fn parse_nsec(s: &str) -> Result<UnresolvedNsec<&str>, FromStrError> 
             );
         }
     }
-    Ok(UnresolvedNsec { next_domain, types })
+    Ok(Nsec { next_domain, types })
 }
 
 impl FromStr for ZONEMD {

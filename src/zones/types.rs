@@ -1,7 +1,7 @@
 //! Zone file AST data structures before directive inheritance and name resolution.
 
 use crate::resource::{A, AAAA, DNSKEY, DS, NSEC3, NSEC3PARAM, RawResource, TXT, ZONEMD};
-use crate::from_str::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
+use super::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
 
 /// An unprocessed zone file resource record data payload before origin resolution.
 ///

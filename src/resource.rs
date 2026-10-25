@@ -185,75 +185,145 @@ impl Record {
     }
 }
 
-/// Mail EXchanger (MX) record specifies the mail server responsible
-/// for accepting email messages on behalf of a domain name.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct MX {
-    /// The preference given to this RR among others at the same owner.
-    /// Lower values are preferred.
-    pub preference: u16,
+mod mx {
+    /// Mail EXchanger (MX) record specifies the mail server responsible
+    /// for accepting email messages on behalf of a domain name.
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    pub struct Mx<N> {
+        /// The preference given to this RR among others at the same owner.
+        /// Lower values are preferred.
+        pub preference: u16,
 
-    /// A host willing to act as a mail exchange for the owner name.
-    pub exchange: Name,
+        /// A host willing to act as a mail exchange for the owner name.
+        pub exchange: N,
+    }
 }
-
-/// Start of Authority (SOA) record containing administrative information
-/// about the zone. See [RFC 1035].
+pub(crate) use mx::Mx;
+/// Mail exchanger with a validated exchange name.
 ///
-/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[allow(clippy::upper_case_acronyms)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct SOA {
-    /// The name server that was the original or primary source of data for this zone.
-    pub mname: Name,
+/// # Examples
+///
+/// Construct from a validated name without enabling text parsing:
+///
+/// ```
+/// use rustdns::MX;
+/// let mx = MX { preference: 10, exchange: "mail.example.com.".parse()? };
+/// assert_eq!(mx.exchange.as_ascii(), "mail.example.com.");
+/// # Ok::<(), rustdns::EncodeError>(())
+/// ```
+///
+/// With the `text` feature, parse the complete RDATA:
+///
+/// ```
+/// # #[cfg(feature = "text")]
+/// # fn main() -> Result<(), rustdns::FromStrError> {
+/// use rustdns::MX;
+/// let mx: MX = "10 mail.example.com.".parse()?;
+/// assert_eq!(mx.preference, 10);
+/// # Ok(())
+/// # }
+/// # #[cfg(not(feature = "text"))]
+/// # fn main() {}
+/// ```
+pub type MX = Mx<Name>;
 
-    /// The responsible person's mailbox encoded as a [`crate::Rname`].
+mod soa {
+    use super::*;
+    /// Start of Authority (SOA) record containing administrative information
+    /// about the zone. See [RFC 1035].
     ///
-    /// The entire mailbox local-part occupies one DNS label, including literal
-    /// dots. Construct with `"dns-admin.google.com.".parse()?` or
-    /// [`crate::Rname::from_email`]. Use [`SOA::email`] to recover an email address.
-    pub rname: crate::Rname,
+    /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[allow(clippy::upper_case_acronyms)]
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    pub struct Soa<N, R> {
+        /// The name server that was the original or primary source of data for this zone.
+        pub mname: N,
 
-    /// Unsigned 32-bit version number of the original copy of the zone ([RFC 1982]).
-    pub serial: u32,
+        /// The responsible person's mailbox encoded as a [`crate::Rname`].
+        ///
+        /// The entire mailbox local-part occupies one DNS label, including literal
+        /// dots. Construct with `"dns-admin.google.com.".parse()?` or
+        /// [`crate::Rname::from_email`]. Use [`SOA::email`] to recover an email address.
+        pub rname: R,
 
-    /// Time interval before the zone should be refreshed by secondary servers.
-    pub refresh: Duration,
+        /// Unsigned 32-bit version number of the original copy of the zone ([RFC 1982]).
+        pub serial: u32,
 
-    /// Time interval that should elapse before a failed refresh is retried.
-    pub retry: Duration,
+        /// Time interval before the zone should be refreshed by secondary servers.
+        pub refresh: Duration,
 
-    /// Upper limit on the time interval that can elapse before the zone is no longer authoritative.
-    pub expire: Duration,
+        /// Time interval that should elapse before a failed refresh is retried.
+        pub retry: Duration,
 
-    /// Minimum TTL exported with any RR from this zone, or negative caching TTL ([RFC 2308]).
-    pub minimum: Duration,
+        /// Upper limit on the time interval that can elapse before the zone is no longer authoritative.
+        pub expire: Duration,
+
+        /// Minimum TTL exported with any RR from this zone, or negative caching TTL ([RFC 2308]).
+        pub minimum: Duration,
+    }
 }
-
-/// Service (SRV) record, containg hostname and port number information of specified services. See [RFC 2782].
+pub(crate) use soa::Soa;
+/// Start of authority with validated names and mailbox.
 ///
-/// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
-/// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982
-/// [RFC 2308]: https://datatracker.ietf.org/doc/html/rfc2308
-/// [RFC 2782]: https://datatracker.ietf.org/doc/html/rfc2782
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[allow(clippy::upper_case_acronyms)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct SRV {
-    /// Priority of this target host; lower values indicate higher priority.
-    pub priority: u16,
+/// # Examples
+///
+/// ```
+/// use rustdns::SOA;
+/// use std::time::Duration;
+/// let soa = SOA {
+///     mname: "ns1.example.com.".parse()?,
+///     rname: "hostmaster.example.com.".parse()?,
+///     serial: 2026102501,
+///     refresh: Duration::from_secs(3600),
+///     retry: Duration::from_secs(900),
+///     expire: Duration::from_secs(604800),
+///     minimum: Duration::from_secs(300),
+/// };
+/// assert_eq!(soa.email()?, "hostmaster@example.com.");
+/// # Ok::<(), rustdns::FromStrError>(())
+/// ```
+pub type SOA = Soa<Name, crate::Rname>;
 
-    /// Relative weight for records with the same priority.
-    pub weight: u16,
+mod srv {
+    /// Service (SRV) record, containg hostname and port number information of specified services. See [RFC 2782].
+    ///
+    /// [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
+    /// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982
+    /// [RFC 2308]: https://datatracker.ietf.org/doc/html/rfc2308
+    /// [RFC 2782]: https://datatracker.ietf.org/doc/html/rfc2782
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[allow(clippy::upper_case_acronyms)]
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    pub struct Srv<N> {
+        /// Priority of this target host; lower values indicate higher priority.
+        pub priority: u16,
 
-    /// TCP or UDP port on which the service is offered.
-    pub port: u16,
+        /// Relative weight for records with the same priority.
+        pub weight: u16,
 
-    /// Canonical domain name of the host providing the service.
-    pub name: Name,
+        /// TCP or UDP port on which the service is offered.
+        pub port: u16,
+
+        /// Canonical domain name of the host providing the service.
+        pub name: N,
+    }
 }
+pub(crate) use srv::Srv;
+/// Service location with a validated target name.
+///
+/// # Examples
+///
+/// ```
+/// use rustdns::SRV;
+/// let srv = SRV {
+///     priority: 10, weight: 20, port: 389, name: "ldap.example.com.".parse()?,
+/// };
+/// assert_eq!(srv.port, 389);
+/// # Ok::<(), rustdns::EncodeError>(())
+/// ```
+pub type SRV = Srv<Name>;
 
 /// Delegation Signer (DS) record. See [RFC 4034 §5].
 ///
@@ -429,40 +499,65 @@ impl DNSKEY {
     }
 }
 
-/// DNSSEC Signature (RRSIG) record. See [RFC 4034 §3].
-///
-/// [RFC 4034 §3]: https://datatracker.ietf.org/doc/html/rfc4034#section-3
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct RRSIG {
-    /// The RR type covered by this signature.
-    pub type_covered: Type,
+mod rrsig {
+    use super::*;
+    /// DNSSEC Signature (RRSIG) record. See [RFC 4034 §3].
+    ///
+    /// [RFC 4034 §3]: https://datatracker.ietf.org/doc/html/rfc4034#section-3
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    pub struct Rrsig<N> {
+        /// The RR type covered by this signature.
+        pub type_covered: Type,
 
-    /// The cryptographic algorithm used to create the signature.
-    pub algorithm: Algorithm,
+        /// The cryptographic algorithm used to create the signature.
+        pub algorithm: Algorithm,
 
-    /// The number of labels in the original RRSIG RR owner name.
-    pub labels: u8,
+        /// The number of labels in the original RRSIG RR owner name.
+        pub labels: u8,
 
-    /// The original TTL of the covered RRset.
-    pub original_ttl: Duration,
+        /// The original TTL of the covered RRset.
+        pub original_ttl: Duration,
 
-    /// Signature expiration time.
-    pub expiration: SystemTime,
+        /// Signature expiration time.
+        pub expiration: SystemTime,
 
-    /// Signature inception time.
-    pub inception: SystemTime,
+        /// Signature inception time.
+        pub inception: SystemTime,
 
-    /// The key tag of the DNSKEY RR that validates this signature.
-    pub key_tag: u16,
+        /// The key tag of the DNSKEY RR that validates this signature.
+        pub key_tag: u16,
 
-    /// The domain name of the signer generating the signature.
-    pub signer_name: Name,
+        /// The domain name of the signer generating the signature.
+        pub signer_name: N,
 
-    /// The cryptographic signature.
-    pub signature: Vec<u8>,
+        /// The cryptographic signature.
+        pub signature: Vec<u8>,
+    }
 }
+pub(crate) use rrsig::Rrsig;
+/// DNSSEC signature with a validated signer name.
+///
+/// # Examples
+///
+/// Parse signature RDATA with the `text` feature. Parsing does not verify
+/// the cryptographic signature.
+///
+/// ```
+/// # #[cfg(feature = "text")]
+/// # fn main() -> Result<(), rustdns::FromStrError> {
+/// use rustdns::{RRSIG, Type};
+/// let signature: RRSIG =
+///     "A 8 2 3600 20300101000000 20200101000000 12345 example.com. AQID".parse()?;
+/// assert_eq!(signature.type_covered, Type::A);
+/// assert_eq!(signature.signer_name.as_ascii(), "example.com.");
+/// # Ok(())
+/// # }
+/// # #[cfg(not(feature = "text"))]
+/// # fn main() {}
+/// ```
+pub type RRSIG = Rrsig<Name>;
 
-impl RRSIG {
+impl Rrsig<Name> {
     /// Returns the 32-bit expiration timestamp in seconds since UNIX epoch.
     ///
     /// # Errors
@@ -538,7 +633,7 @@ impl RRSIG {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<'a> arbitrary::Arbitrary<'a> for RRSIG {
+impl<'a> arbitrary::Arbitrary<'a> for Rrsig<Name> {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let type_covered = u.arbitrary()?;
         let algorithm = u.arbitrary()?;
@@ -565,18 +660,36 @@ impl<'a> arbitrary::Arbitrary<'a> for RRSIG {
     }
 }
 
-/// Next Secure (NSEC) record. See [RFC 4034 §4].
-///
-/// [RFC 4034 §4]: https://datatracker.ietf.org/doc/html/rfc4034#section-4
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-pub struct NSEC {
-    /// The next owner name in canonical order.
-    pub next_domain: Name,
+mod nsec {
+    use super::*;
+    /// Next Secure (NSEC) record. See [RFC 4034 §4].
+    ///
+    /// [RFC 4034 §4]: https://datatracker.ietf.org/doc/html/rfc4034#section-4
+    #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    pub struct Nsec<N> {
+        /// The next owner name in canonical order.
+        pub next_domain: N,
 
-    /// The RR types that exist at the owner name.
-    pub types: Vec<Type>,
+        /// The RR types that exist at the owner name.
+        pub types: Vec<Type>,
+    }
 }
+pub(crate) use nsec::Nsec;
+/// Next secure record with a validated next owner name.
+///
+/// # Examples
+///
+/// ```
+/// use rustdns::{NSEC, Type};
+/// let nsec = NSEC {
+///     next_domain: "next.example.com.".parse()?,
+///     types: vec![Type::A, Type::RRSIG, Type::NSEC],
+/// };
+/// assert_eq!(nsec.next_domain.as_ascii(), "next.example.com.");
+/// # Ok::<(), rustdns::EncodeError>(())
+/// ```
+pub type NSEC = Nsec<Name>;
 
 /// Next Secure version 3 (NSEC3) record. See [RFC 5155].
 ///
@@ -724,7 +837,7 @@ pub struct RawResource {
     pub data: Vec<u8>,
 }
 
-impl NSEC {
+impl Nsec<Name> {
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) {
         self.next_domain.append_to_vec(buf);
         Self::encode_type_bit_maps(&self.types, buf);
@@ -940,7 +1053,7 @@ impl TXT {
     }
 }
 
-impl SOA {
+impl Soa<Name, crate::Rname> {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SOA, DecodeError> {
         let mname = cur.read_qname()?;
         let rname = cur.read_rname()?;
@@ -1037,7 +1150,7 @@ impl SOA {
     }
 }
 
-impl MX {
+impl Mx<Name> {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<MX, DecodeError> {
         let preference = cur.read_u16::<BE>()?;
         let exchange = cur.read_qname()?;
@@ -1054,7 +1167,7 @@ impl MX {
     }
 }
 
-impl SRV {
+impl Srv<Name> {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SRV, DecodeError> {
         let priority = cur.read_u16::<BE>()?;
         let weight = cur.read_u16::<BE>()?;

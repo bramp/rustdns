@@ -6,21 +6,22 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
-- MX, SRV, RRSIG, and NSEC now share generic unresolved field types and parsing
-  between text and zone records. Zone payloads are named `UnresolvedMx`,
-  `UnresolvedSrv`, `UnresolvedRrsig`, and `UnresolvedNsec`; their previous names
-  remain deprecated compatibility aliases, and enum variants are unchanged.
-- Zone DS, DNSKEY, and ZONEMD parsing now reuses their core `FromStr` parsers.
-  Shared RDATA grammar preserves grouped zone records and relative names.
+- Unified core and unresolved MX, SRV, SOA, RRSIG, and NSEC payloads using internal
+  generic name storage. Public core names are concrete aliases with validated
+  `Name`/`Rname`; zone `Unresolved*` aliases use owned strings. Borrowed parsers
+  use the same structs without allocating names. Callers cannot choose custom
+  name storage, and wire methods remain restricted to resolved specializations.
+- Zone payloads are named `UnresolvedMx`, `UnresolvedSrv`, `UnresolvedSoa`,
+  `UnresolvedRrsig`, and `UnresolvedNsec`. Their previous uppercase names remain
+  deprecated compatibility aliases; `zones::Resource` variant names are unchanged.
+- Text and zone parsing share RDATA grammar and borrowed name fields for MX,
+  SRV, SOA, RRSIG, and NSEC. Zone DS, DNSKEY, and ZONEMD parsing reuses their core
+  `FromStr` parsers. Core parsing validates names immediately; zone parsing
+  preserves relative names and origin aliases until processing. Grouped zone
+  records and comments remain supported.
 - RDATA text parsing now requires separators between fields. NSEC text parsing
   rejects unrecognized type tokens instead of silently discarding them, matching
   zone parsing. RRSIG zone parsing returns an error for overflowing timestamps.
-- SOA text and zone parsing now share one borrowed field parser. Core `FromStr`
-  still validates names immediately; zone parsing preserves relative names and
-  origin aliases until processing, including grouped records with comments.
-- Renamed the zone SOA payload to `zones::UnresolvedSoa`, sharing its generic
-  representation with borrowed parser fields. `zones::SOA` remains available
-  as a deprecated alias; the `zones::Resource::SOA` variant is unchanged.
 - Migrated SOA, MX, SRV, DS, DNSKEY, RRSIG, NSEC, and ZONEMD text parsing to Pest
   while retaining their `FromStr` entry points. The `text` feature no longer
   requires the regex crate.
@@ -38,8 +39,8 @@ All notable changes to rustdns are documented here.
   and DNSSEC canonicalization without losing their label boundaries.
 - TXT/SPF text parsing now uses Pest to validate complete quoted input and
   decode RFC 1035 character and decimal octet escapes while preserving separate
-  character-strings. Pest and its derive macro are now core dependencies;
-  unquoted text retains its existing behavior.
+  character-strings. Pest and its derive macro are optional dependencies enabled
+  by `text`; unquoted text retains its existing behavior.
 - TXT/SPF formatting escapes quotes, backslashes, control characters, and
   non-UTF-8 data so parsed escape bytes survive display and JSON round trips.
 
@@ -146,7 +147,7 @@ All notable changes to rustdns are documented here.
   `Resolver::query` and `Resolver::lookup` (which manage EDNS options and enforce DNSSEC policy).
 - Added `scripts/fetch_root_fixtures.sh` to download and cache IANA root hints (`named.root`) and
   authoritative root zone (`root.zone`) fixtures for offline-friendly testing and CI caching.
-- Added root hints and root zone integration tests in `tests/zones.rs`, verifying parsing of canonical
+- Added root hints and root zone integration tests in `src/zones/root_files_tests.rs`, verifying parsing of canonical
   `named.root` (extracting all 13 root name servers and glue records) and `root.zone` (all 24.8k records).
 - Added DNSSEC and zone digest record types (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `ZONEMD`) to `Type`,
   `Resource`, wire-format encoding/decoding, text parsing (`Resource::parse_text`), presentation formatting (`Display`),
@@ -159,9 +160,10 @@ All notable changes to rustdns are documented here.
 - Added 0x20-bit case randomization methods on `Name` (`to_0x20()`, `to_0x20_with_rng()`)
   and exact case comparison (`case_sensitive_eq()`) supporting RFC 5452 §9 and
   draft-vixie-dnsext-dns0x20-00 anti-spoofing transaction entropy.
-- Added AST types (`zones::Resource`, `zones::Record`, `zones::MX`, `zones::SOA`,
-  `zones::SRV`, `zones::RRSIG`, `zones::NSEC`) in `rustdns::zones` preserving unprocessed
-  relative domain names, `@`, and author casing until origin resolution in `File::try_into_records`.
+- Added AST types `zones::Resource` and `zones::Record`, with `UnresolvedMx`,
+  `UnresolvedSoa`, `UnresolvedSrv`, `UnresolvedRrsig`, and `UnresolvedNsec` payloads
+  preserving relative names, `@`, and author casing until origin resolution in
+  `File::try_into_records`.
 
 ### Changed
 
@@ -193,9 +195,8 @@ All notable changes to rustdns are documented here.
 - `SOA.rname` is now stored as a domain name (`<domain-name>`) per RFC 1035 §3.3.13
   rather than an email address containing `@`, ensuring wire-format decoding and
   encoding are lossless and idempotent.
-- `SOA::rname_to_email` and `SOA::email_to_rname` now treat only `\.` as an escaped
-  dot in the mailbox local part per RFC 1035 §8, preserving backslashes in other
-  contexts.
+- `SOA::rname_to_email` and `SOA::email_to_rname` use `Rname` for label-preserving
+  mailbox conversion, supporting RFC 1035 character and decimal octet escapes.
 - `FromStrError::InvalidRname` now provides `{ rname: String, reason: &'static str }`
   describing the failure reason.
 - `doh::Client` and `json::Client` now store a single server `Url` instead of a
@@ -240,9 +241,8 @@ All notable changes to rustdns are documented here.
 - Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
 - Set the Cargo resolver to version 3 at the workspace level, so dependency
   resolution respects the declared minimum supported Rust version.
-- Upgraded dependencies to their latest versions compatible with Rust 1.85. This
-  pins `educe` to 0.6 and `time` to 0.3.45, because later releases require newer
-  toolchains.
+- Updated dependencies while maintaining the declared Rust 1.86 minimum
+  supported version.
 - `Message::from_slice` and `TryFrom<&[u8]> for Message` now return
   `DecodeError`; `Message::to_vec`, the `append_to_vec` family, and
   `limits::validate_*` now return `EncodeError`.

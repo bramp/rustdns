@@ -25,7 +25,33 @@ mod root_files_tests;
 mod types;
 
 pub use process::ProcessError;
-pub use crate::from_str::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
+/// SOA fields with owned, unresolved names.
+pub type UnresolvedSoa = crate::resource::Soa<String, String>;
+/// MX fields with an owned, unresolved exchange.
+///
+/// # Examples
+///
+/// ```
+/// use rustdns::zones::UnresolvedMx;
+/// let unresolved = UnresolvedMx { preference: 10, exchange: String::from("mail") };
+/// assert_eq!(unresolved.exchange, "mail");
+/// ```
+///
+/// Names are resolved against the zone origin by [`File::try_into_records`].
+/// Unresolved data cannot be inserted directly into a core resource:
+///
+/// ```compile_fail
+/// use rustdns::{Resource, zones::UnresolvedMx};
+/// let unresolved = UnresolvedMx { preference: 10, exchange: String::from("mail") };
+/// let invalid = Resource::MX(unresolved);
+/// ```
+pub type UnresolvedMx = crate::resource::Mx<String>;
+/// SRV fields with an owned, unresolved target.
+pub type UnresolvedSrv = crate::resource::Srv<String>;
+/// RRSIG fields with an owned, unresolved signer.
+pub type UnresolvedRrsig = crate::resource::Rrsig<String>;
+/// NSEC fields with an owned, unresolved next name.
+pub type UnresolvedNsec = crate::resource::Nsec<String>;
 pub use types::Resource;
 
 /// Compatibility name for owned, unresolved SOA fields.

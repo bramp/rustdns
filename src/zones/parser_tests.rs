@@ -14,6 +14,37 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     #[test]
+    fn unresolved_payloads_are_core_record_specializations() {
+        for line in [
+            "@ MX 10 mail",
+            "@ SRV 1 2 389 ldap",
+            "@ SOA ns admin 1 2 3 4 5",
+            "@ RRSIG A 8 2 300 2000000000 1900000000 12345 signer AQID",
+            "@ NSEC next A AAAA",
+        ] {
+            let record: Record = line.parse().unwrap();
+            match record.resource {
+                Resource::MX(value) => {
+                    let _: crate::resource::Mx<String> = value;
+                }
+                Resource::SRV(value) => {
+                    let _: crate::resource::Srv<String> = value;
+                }
+                Resource::SOA(value) => {
+                    let _: crate::resource::Soa<String, String> = value;
+                }
+                Resource::RRSIG(value) => {
+                    let _: crate::resource::Rrsig<String> = value;
+                }
+                Resource::NSEC(value) => {
+                    let _: crate::resource::Nsec<String> = value;
+                }
+                _ => panic!("unexpected resource"),
+            }
+        }
+    }
+
+    #[test]
     fn shared_rdata_zone_and_text_parsing_agree() {
         for (kind, rdata) in [
             (crate::Type::MX, "65535 mail.example."),
@@ -171,7 +202,7 @@ mod tests {
             expire: Duration::from_secs(1800),
             minimum: Duration::from_secs(60),
         };
-        let unresolved: crate::zones::UnresolvedSoa<String> = old;
+        let unresolved: crate::zones::UnresolvedSoa = old;
         let parsed: Record = "@ SOA ns1 dns-admin 376337657 900 900 1800 60"
             .parse()
             .unwrap();
