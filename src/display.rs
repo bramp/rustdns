@@ -345,23 +345,34 @@ impl fmt::Display for ZONEMD {
 
 impl fmt::Display for TXT {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let output = self
-            .0
-            .iter()
-            .map(|txt| {
-                match std::str::from_utf8(txt) {
-                    // TODO Escape the " character (and maybe others)
-                    Ok(txt) => "\"".to_owned() + txt + "\"",
-
-                    // TODO Try our best to convert this to valid UTF, and use
-                    // https://doc.rust-lang.org/std/str/struct.Utf8Error.html to show what we can.
-                    Err(_e) => "invalid".to_string(),
+        for (index, bytes) in self.0.iter().enumerate() {
+            if index != 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "\"")?;
+            match std::str::from_utf8(bytes) {
+                Ok(text) => {
+                    for character in text.chars() {
+                        match character {
+                            '"' | '\\' => write!(f, "\\{character}")?,
+                            c if c.is_control() => {
+                                for byte in c.encode_utf8(&mut [0; 4]).bytes() {
+                                    write!(f, "\\{byte:03}")?;
+                                }
+                            }
+                            c => write!(f, "{c}")?,
+                        }
+                    }
                 }
-            })
-            .collect::<Vec<String>>()
-            .join(" ");
-
-        write!(f, "{}", output)
+                Err(_) => {
+                    for byte in bytes {
+                        write!(f, "\\{byte:03}")?;
+                    }
+                }
+            }
+            write!(f, "\"")?;
+        }
+        Ok(())
     }
 }
 

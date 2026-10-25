@@ -20,6 +20,10 @@ use std::net::AddrParseError;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+#[derive(pest_derive::Parser)]
+#[grammar = "character_string.pest"]
+struct CharacterStringParser;
+
 /// An error encountered when parsing human-readable DNS text representations.
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -38,6 +42,13 @@ pub enum FromStrError {
         /// The invalid rname string.
         rname: String,
         /// Description of the validation failure.
+        reason: &'static str,
+    },
+
+    /// A TXT character-string contains an invalid escape sequence.
+    #[error("invalid TXT escape: {reason}")]
+    InvalidTxtEscape {
+        /// Description of the malformed escape.
         reason: &'static str,
     },
 
@@ -312,32 +323,171 @@ impl FromStr for TXT {
 
     /// Parses a TXT resource from its text representation.
     ///
+    /// Quoted strings use the escape syntax from [RFC 1035 §5.1]. Each quoted
+    /// segment remains a separate character-string. Text without quotes is
+    /// preserved as a single unescaped string for compatibility.
+    ///
     /// # Errors
     ///
-    /// Returns an error when quoted text is malformed or no quoted segments are found.
+    /// Returns [`FromStrError::InvalidFormat`] for malformed quoted strings or
+    /// escapes, and [`FromStrError::InvalidTxtEscape`] for a decimal escape
+    /// outside the octet range.
+    ///
+    /// [RFC 1035 §5.1]: https://www.rfc-editor.org/rfc/rfc1035#section-5.1
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            // TODO Handle escaped quotes
-            static ref RE: Regex = Regex::new(r#""(.*?)""#).unwrap();
-        }
+        use pest::Parser;
 
-        if !s.starts_with('"') && !s.ends_with('"') {
-            // Assume a single unquoted string
+        if !s.contains('"') {
             return Ok(TXT::from(s));
         }
 
-        // Otherparse parse multiple "..." strings
-        let mut txts = Vec::new();
-        for caps in RE.captures_iter(s) {
-            txts.push(caps[1].as_bytes().to_vec());
+        let parsed = CharacterStringParser::parse(Rule::txt, s)
+            .map_err(|_| FromStrError::InvalidFormat)?
+            .next()
+            .ok_or(FromStrError::InvalidFormat)?;
+        let mut strings = Vec::new();
+        for quoted in parsed
+            .into_inner()
+            .filter(|pair| pair.as_rule() == Rule::quoted)
+        {
+            let mut bytes = Vec::new();
+            for token in quoted.into_inner() {
+                match token.as_rule() {
+                    Rule::decimal_escape => {
+                        let digits = token
+                            .as_str()
+                            .strip_prefix('\\')
+                            .ok_or(FromStrError::InvalidFormat)?;
+                        bytes.push(digits.parse::<u8>().map_err(|_| {
+                            FromStrError::InvalidTxtEscape {
+                                reason: "decimal escape is greater than 255",
+                            }
+                        })?);
+                    }
+                    Rule::character_escape => {
+                        let character = token
+                            .as_str()
+                            .strip_prefix('\\')
+                            .ok_or(FromStrError::InvalidFormat)?;
+                        bytes.extend_from_slice(character.as_bytes());
+                    }
+                    Rule::text => bytes.extend_from_slice(token.as_str().as_bytes()),
+                    _ => return Err(FromStrError::InvalidFormat),
+                }
+            }
+            strings.push(bytes);
+        }
+        Ok(TXT(strings))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FromStrError, Resource, TXT};
+    use crate::Type;
+
+    #[test]
+    fn txt_text_decodes_escaped_characters_and_decimal_bytes() {
+        let txt: TXT = r#""quote: \" slash: \\ byte: \065" "second""#.parse().unwrap();
+        assert_eq!(
+            txt.0,
+            vec![b"quote: \" slash: \\ byte: A".to_vec(), b"second".to_vec()]
+        );
+    }
+
+    #[test]
+    fn txt_text_rejects_malformed_escapes_and_trailing_text() {
+        for input in [
+            r#""bad\1""#,
+            r#""bad\12""#,
+            r#""bad\12x""#,
+            r#""bad\256""#,
+            r#""bad\999""#,
+            r#""bad\"#,
+            r#""ok" trailing"#,
+            r#"leading "ok""#,
+            r#""unterminated"#,
+            r#""ok" "unterminated"#,
+        ] {
+            assert!(
+                input.parse::<TXT>().is_err(),
+                "accepted invalid TXT text {input:?}"
+            );
         }
 
-        if txts.is_empty() {
-            return Err(FromStrError::InvalidFormat);
+        assert!(matches!(
+            r#""bad\256""#.parse::<TXT>(),
+            Err(FromStrError::InvalidTxtEscape { .. })
+        ));
+    }
+
+    #[test]
+    fn txt_text_preserves_segments_and_unquoted_compatibility() {
+        for (input, expected) in [
+            (r#""""#, vec![Vec::new()]),
+            (r#""one""two""#, vec![b"one".to_vec(), b"two".to_vec()]),
+            (
+                " \t\"one\"\n\"\"\r\n\"two\" ",
+                vec![b"one".to_vec(), Vec::new(), b"two".to_vec()],
+            ),
+            (r"unquoted \065 text", vec![br"unquoted \065 text".to_vec()]),
+            ("", vec![Vec::new()]),
+            ("\"caf\u{e9}\"", vec!["caf\u{e9}".as_bytes().to_vec()]),
+            (r#""\0654""#, vec![b"A4".to_vec()]),
+            (r#""\n""#, vec![b"n".to_vec()]),
+        ] {
+            for record_type in [Type::TXT, Type::SPF] {
+                let parsed = Resource::parse_text(record_type, input).unwrap();
+                let expected_resource = if record_type == Type::TXT {
+                    Resource::TXT(TXT(expected.clone()))
+                } else {
+                    Resource::SPF(TXT(expected.clone()))
+                };
+                assert_eq!(parsed, expected_resource, "{input:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn txt_decimal_escapes_cover_every_octet() {
+        for value in 0..=u8::MAX {
+            let input = format!(r#""\{value:03}""#);
+            let parsed = input.parse::<TXT>().unwrap();
+            assert_eq!(parsed.0, vec![vec![value]]);
+            assert_eq!(parsed.to_string().parse::<TXT>().unwrap(), parsed);
+        }
+    }
+
+    #[test]
+    fn txt_display_round_trips_escaped_text() {
+        let txt = TXT(vec![
+            b"quote: \" slash: \\065".to_vec(),
+            "caf\u{e9}".as_bytes().to_vec(),
+            vec![0, 255],
+            Vec::new(),
+        ]);
+        assert_eq!(txt.to_string().parse::<TXT>().unwrap(), txt);
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn txt_and_spf_json_round_trip_escaped_bytes() {
+        let mut message = crate::Message::default();
+        let text = TXT(vec![b"quote: \" slash: \\".to_vec(), vec![0, 255]]);
+        for resource in [Resource::TXT(text.clone()), Resource::SPF(text)] {
+            message.answers.push(
+                crate::Record::try_new(
+                    "example.com.",
+                    crate::Class::Internet,
+                    std::time::Duration::from_secs(60),
+                    resource,
+                )
+                .unwrap(),
+            );
         }
 
-        // TODO Also check we parsed the full record
-
-        Ok(TXT(txts))
+        let json = crate::json::to_string(&message).unwrap();
+        let decoded = crate::json::from_str(&json).unwrap();
+        assert_eq!(decoded.answers, message.answers);
     }
 }

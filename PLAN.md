@@ -18,6 +18,8 @@ The current baseline is `0.7.0`.
 
 - [x] Enforce `MAX_DNS_MESSAGE_LEN` in `Message::to_vec` and document across transports.
 - [ ] Tighten text resource parsing: validate domain names, SOA rnames, and TXT escapes.
+  - [x] Parse TXT/SPF quoting and RFC 1035 escapes with Pest.
+- [ ] Migrate the remaining RDATA text parsers to Pest, sharing grammar with zone parsing where appropriate and retaining `FromStr` entry points (TXT/SPF already use Pest).
 - [ ] Deprecate [src/from_str.rs](src/from_str.rs) and unify text RDATA parsing with `zones::parse_rdata`.
 - [ ] Add validated constructors/builders for public DNS and EDNS structs.
 - [ ] Replace broad `Error::InvalidArgument(String)` with typed error variants.

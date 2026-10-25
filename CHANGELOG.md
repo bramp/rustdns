@@ -4,6 +4,15 @@ All notable changes to rustdns are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- TXT/SPF text parsing now uses Pest to validate complete quoted input and
+  decode RFC 1035 character and decimal octet escapes while preserving separate
+  character-strings. Pest and its derive macro are now core dependencies;
+  unquoted text retains its existing behavior.
+- TXT/SPF formatting escapes quotes, backslashes, control characters, and
+  non-UTF-8 data so parsed escape bytes survive display and JSON round trips.
+
 ### Added
 
 - Added `web-dig`, an in-browser WebAssembly DNS query tool supporting DoH

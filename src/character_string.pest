@@ -1,0 +1,7 @@
+// RFC 1035 section 5.1. Adjacent quoted strings are also accepted for DoH JSON.
+txt = { SOI ~ space* ~ quoted ~ (space* ~ quoted)* ~ space* ~ EOI }
+space = _{ " " | "\t" | "\r" | "\n" }
+quoted = { "\"" ~ (decimal_escape | character_escape | text)* ~ "\"" }
+decimal_escape = @{ "\\" ~ ASCII_DIGIT{3} }
+character_escape = @{ "\\" ~ !ASCII_DIGIT ~ ANY }
+text = @{ (!("\"" | "\\") ~ ANY)+ }
