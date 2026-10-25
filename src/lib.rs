@@ -169,8 +169,21 @@
 //!   - `dnssec`: Local DNSSEC cryptographic signature and chain-of-trust verification using `ring`.
 //!   - `exchanger`: Generic [`clients::Exchanger`] and [`clients::AsyncExchanger`] traits without Tokio/HTTP dependencies (WASM compatible).
 //!   - `sync`: Synchronous blocking variants of enabled clients under `rustdns::clients::sync`.
-//! - `json`: DNS-over-HTTPS JSON parsing and serialization (WASM compatible, no network/HTTP dependencies).
-//! - `zones`: RFC 1035 zone file master format parser.
+//! - `text`: Textual resource record parsing (`FromStr` and `Resource::parse_text`).
+//! - `json`: DNS-over-HTTPS JSON parsing and serialization (WASM compatible, no network/HTTP dependencies); enables `text`.
+//! - `zones`: RFC 1035 zone file master format parser; enables `text`.
+//!
+//! Default features remain `clients` and `zones`. For wire-only use without Pest
+//! or record-parser regex dependencies, disable defaults:
+//!
+//! ```toml
+//! rustdns = { version = "0.7", default-features = false }
+//! ```
+//!
+//! Transports such as `do53`, `dot`, and binary `doh` can be selected independently
+//! without enabling `text`. Lightweight [`Name`] and [`Rname`] constructors and
+//! formatting remain available without `text`. This is a `std`-based library;
+//! disabling features does not provide `no_std` support.
 //!
 //! # WebAssembly (WASM) & In-Browser Support
 //!
@@ -353,6 +366,7 @@ mod display;
 mod dns;
 mod edns;
 mod errors;
+#[cfg(feature = "text")]
 mod from_str;
 mod io;
 pub mod limits;
@@ -387,6 +401,7 @@ cfg_feature! {
 extern crate num_derive;
 
 #[macro_use]
+#[cfg(any(feature = "text", test))]
 extern crate lazy_static;
 
 // Pull up the various types that should be on the front page of the docs.
@@ -411,10 +426,10 @@ pub use crate::errors::DecodeError;
 pub use crate::errors::DnssecError;
 pub use crate::errors::EncodeError;
 pub use crate::errors::Error;
+pub use crate::errors::FromStrError;
 #[cfg(feature = "json")]
 pub use crate::errors::JsonError;
 pub use crate::errors::Result;
-pub use crate::from_str::FromStrError;
 
 /// The `rustdns` prelude.
 ///

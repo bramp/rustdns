@@ -1,6 +1,40 @@
-use crate::from_str::FromStrError;
 use crate::types::{Algorithm, Class, DigestType, SecurityStatus, Type};
 use thiserror::Error;
+
+/// An error encountered when parsing human-readable DNS text representations.
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum FromStrError {
+    /// The specified resource record type has no standard textual format.
+    #[error("that resource type doesn't have a text representation")]
+    UnsupportedType,
+    /// The input string does not match the expected field pattern for the record type.
+    #[error("string doesn't match expected format")]
+    InvalidFormat,
+    /// The mailbox domain name (`rname`) in an SOA record is malformed.
+    #[error("invalid rname '{rname}': {reason}")]
+    InvalidRname {
+        /// The invalid rname string.
+        rname: String,
+        /// Description of the validation failure.
+        reason: &'static str,
+    },
+    /// A TXT character-string contains an invalid escape sequence.
+    #[error("invalid TXT escape: {reason}")]
+    InvalidTxtEscape {
+        /// Description of the malformed escape.
+        reason: &'static str,
+    },
+    /// An integer field could not be parsed.
+    #[error(transparent)]
+    Int(#[from] core::num::ParseIntError),
+    /// An IP address field could not be parsed.
+    #[error(transparent)]
+    Addr(#[from] std::net::AddrParseError),
+    /// A domain name field could not be parsed or validated.
+    #[error(transparent)]
+    Name(#[from] crate::EncodeError),
+}
 
 /// A convenient alias for results returned by this crate.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -13,6 +47,14 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum DecodeError {
+    /// An expanded DNS name exceeded the wire-format length limit.
+    #[error("expanded DNS name is {len} bytes, exceeding the {max}-byte limit")]
+    NameTooLong {
+        /// The maximum expanded wire length.
+        max: usize,
+        /// The expanded wire length.
+        len: usize,
+    },
     /// The input ended before the value being decoded was complete.
     #[error("input ended before the DNS message was complete")]
     UnexpectedEof,

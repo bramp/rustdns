@@ -74,6 +74,7 @@ pub(crate) fn base64_encode(data: &[u8]) -> String {
 /// Returns an error message if the input contains invalid base64 characters or has an invalid length.
 ///
 /// [RFC 4648]: https://datatracker.ietf.org/doc/html/rfc4648
+#[cfg(any(feature = "text", test))]
 pub(crate) fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     let clean: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     BASE64_STANDARD.decode(&clean).map_err(|e| e.to_string())
@@ -90,6 +91,7 @@ pub(crate) fn hex_encode(data: &[u8]) -> String {
 /// # Errors
 ///
 /// Returns an error message if the input contains non-hex characters or has an odd length.
+#[cfg(any(feature = "text", test))]
 pub(crate) fn hex_decode(input: &str) -> Result<Vec<u8>, String> {
     let clean: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     hex::decode(&clean).map_err(|e| e.to_string())

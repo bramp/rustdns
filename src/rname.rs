@@ -28,6 +28,36 @@ pub struct Rname {
 }
 
 impl Rname {
+    pub(crate) fn from_wire(wire: Vec<u8>) -> Result<Self, FromStrError> {
+        let invalid = |reason| FromStrError::InvalidRname {
+            rname: format!("{wire:?}"),
+            reason,
+        };
+        if wire.len() > limits::MAX_DNS_NAME_WIRE_LEN {
+            return Err(invalid("name exceeds 255 wire octets"));
+        }
+        let mut remaining = wire.as_slice();
+        loop {
+            let Some((&length, rest)) = remaining.split_first() else {
+                return Err(invalid("missing root label"));
+            };
+            if length == 0 {
+                if !rest.is_empty() {
+                    return Err(invalid("bytes after root label"));
+                }
+                break;
+            }
+            if usize::from(length) > limits::MAX_DNS_LABEL_WIRE_LEN {
+                return Err(invalid("label exceeds 63 octets"));
+            }
+            remaining = rest
+                .get(usize::from(length)..)
+                .ok_or_else(|| invalid("truncated label"))?;
+        }
+        let presentation = Self::render(&wire);
+        Ok(Self { wire, presentation })
+    }
+
     /// Parses an escaped DNS mailbox name, preserving case and label bytes.
     ///
     /// Non-ASCII text is interpreted as UTF-8 label bytes, not IDNA. Use
@@ -196,13 +226,19 @@ impl Rname {
         Ok(format!("{local}@{}", Self::render(&self.wire[end..])))
     }
 
-    pub(crate) fn append_to_vec(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.wire);
+    /// Returns this mailbox name in lowercase DNSSEC canonical form.
+    ///
+    /// Per RFC 4034, canonicalization lowercases ASCII octets in every label,
+    /// including the mailbox local-part label.
+    #[must_use]
+    pub fn to_canonical(&self) -> Self {
+        let wire: Vec<u8> = self.wire.iter().map(u8::to_ascii_lowercase).collect();
+        let presentation = Self::render(&wire);
+        Self { wire, presentation }
     }
 
-    #[cfg(any(feature = "dnssec", test))]
-    pub(crate) fn append_canonical_to_vec(&self, buf: &mut Vec<u8>) {
-        buf.extend(self.wire.iter().map(u8::to_ascii_lowercase));
+    pub(crate) fn append_to_vec(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.wire);
     }
 }
 
@@ -296,14 +332,31 @@ mod tests {
             use crate::io::DNSReadExt;
             let decoded = std::io::Cursor::new(wire.as_slice()).read_rname().unwrap();
             assert_eq!(decoded, name);
+            assert_eq!(Rname::from_wire(wire).unwrap(), name);
         }
+    }
+
+    #[test]
+    fn wire_constructor_rejects_invalid_labels_and_termination() {
+        for wire in [
+            vec![],
+            vec![1],
+            vec![1, b'a'],
+            vec![0, 0],
+            vec![64, 0],
+            vec![0; 256],
+        ] {
+            assert!(Rname::from_wire(wire).is_err());
+        }
+        assert_eq!(Rname::from_wire(vec![0]).unwrap().as_str(), ".");
     }
 
     #[test]
     fn canonical_wire_lowercases_without_splitting_labels() {
         let name = Rname::new(r"Action\.domains.ISI.EDU.").unwrap();
+        assert_eq!(name.to_canonical().as_str(), r"action\.domains.isi.edu.");
         let mut wire = Vec::new();
-        name.append_canonical_to_vec(&mut wire);
+        name.to_canonical().append_to_vec(&mut wire);
         assert_eq!(wire, b"\x0eaction.domains\x03isi\x03edu\0");
     }
 

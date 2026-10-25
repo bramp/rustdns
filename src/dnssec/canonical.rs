@@ -67,7 +67,7 @@ fn append_canonical_rdata_to_vec(
         }
         Resource::SOA(soa) => {
             soa.mname.to_canonical().append_to_vec(buf);
-            soa.rname.append_canonical_to_vec(buf);
+            soa.rname.to_canonical().append_to_vec(buf);
             let duration_to_u32 = |duration: Duration| {
                 u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
                     max: u64::from(u32::MAX),

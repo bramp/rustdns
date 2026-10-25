@@ -105,6 +105,22 @@ jobs:
       - name: Run tests (no default features)
         run: cargo test --workspace --no-default-features --verbose
 
+      - name: Test isolated wire and text features
+        run: |
+          cargo test -p rustdns --no-default-features
+          cargo test -p rustdns --no-default-features --features text
+          cargo test -p rustdns --no-default-features --features zones
+          cargo test -p rustdns --no-default-features --features json
+          cargo check -p rustdns --no-default-features --features do53,dot,doh
+
+      - name: Check wire-only dependencies
+        run: |
+          dependencies="$(cargo tree -p rustdns --no-default-features --edges normal,build --prefix none)"
+          if printf '%s\n' "$dependencies" | grep -E '^(pest|pest_derive|pest_consume|regex|lazy_static) v'; then
+            echo "Wire-only builds must not include record-text parser dependencies" >&2
+            exit 1
+          fi
+
       - name: Run tests (all features)
         run: cargo test --workspace --all-features --verbose
 

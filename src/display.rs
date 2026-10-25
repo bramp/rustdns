@@ -535,6 +535,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "text")]
     fn test_from_str() {
         for (resource, display) in (*DISPLAY_TESTS).iter() {
             match Resource::parse_text(resource.r#type(), display) {
@@ -551,6 +552,7 @@ mod tests {
 
     /// Test resource->display->from_string to make sure we can round trip between types.
     #[test]
+    #[cfg(feature = "text")]
     fn test_identity() {
         for (resource, _) in (*DISPLAY_TESTS).iter() {
             let display = format!("{}", resource);

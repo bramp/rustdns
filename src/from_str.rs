@@ -13,57 +13,15 @@ use crate::SRV;
 use crate::TXT;
 use crate::Type;
 use crate::ZONEMD;
-use core::num::ParseIntError;
 use core::str::FromStr;
 use regex::Regex;
-use std::net::AddrParseError;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use thiserror::Error;
 
 #[derive(pest_derive::Parser)]
 #[grammar = "character_string.pest"]
 struct CharacterStringParser;
 
-/// An error encountered when parsing human-readable DNS text representations.
-#[derive(Error, Debug)]
-#[non_exhaustive]
-pub enum FromStrError {
-    /// The specified resource record type has no standard textual format.
-    #[error("that resource type doesn't have a text representation")]
-    UnsupportedType,
-
-    /// The input string does not match the expected field pattern for the record type.
-    #[error("string doesn't match expected format")]
-    InvalidFormat,
-
-    /// The mailbox domain name (`rname`) in an SOA record is malformed.
-    #[error("invalid rname '{rname}': {reason}")]
-    InvalidRname {
-        /// The invalid rname string.
-        rname: String,
-        /// Description of the validation failure.
-        reason: &'static str,
-    },
-
-    /// A TXT character-string contains an invalid escape sequence.
-    #[error("invalid TXT escape: {reason}")]
-    InvalidTxtEscape {
-        /// Description of the malformed escape.
-        reason: &'static str,
-    },
-
-    /// An integer field could not be parsed.
-    #[error(transparent)]
-    Int(#[from] ParseIntError),
-
-    /// An IP address field could not be parsed.
-    #[error(transparent)]
-    Addr(#[from] AddrParseError),
-
-    /// A domain name field could not be parsed or validated.
-    #[error(transparent)]
-    Name(#[from] crate::EncodeError),
-}
+use crate::FromStrError;
 
 impl Resource {
     /// Parses resource text using the supplied record type.

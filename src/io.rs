@@ -93,13 +93,44 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
     /// Returns a [`DecodeError`] when the name is malformed, uses unsupported
     /// compression, or runs past the end of the message.
     fn read_qname(&mut self) -> Result<Name, DecodeError> {
-        let name_str = read_qname_at_depth(self, 0, false)?;
+        let wire = read_qname_at_depth(self, 0)?;
+        let mut name_str = String::new();
+        let mut remaining = wire.as_slice();
+        while let Some((&length, rest)) = remaining.split_first() {
+            if length == 0 {
+                break;
+            }
+            let (label, rest) = rest
+                .split_at_checked(usize::from(length))
+                .ok_or(DecodeError::UnexpectedEof)?;
+            let label = std::str::from_utf8(label).map_err(DecodeError::LabelNotUtf8)?;
+            if !label.is_ascii() {
+                return Err(DecodeError::LabelNotAscii {
+                    label: label.to_string(),
+                });
+            }
+            let label = if label.to_ascii_lowercase().starts_with("xn--") {
+                let (decoded, result) = idna::domain_to_unicode(label);
+                result.map_err(|_| DecodeError::LabelNotIdna {
+                    label: decoded.clone(),
+                })?;
+                decoded
+            } else {
+                label.to_string()
+            };
+            name_str.push_str(&label);
+            name_str.push('.');
+            remaining = rest;
+        }
+        if name_str.is_empty() {
+            name_str.push('.');
+        }
         Name::new(&name_str).map_err(|_| DecodeError::LabelNotIdna { label: name_str })
     }
 
     fn read_rname(&mut self) -> Result<crate::Rname, DecodeError> {
-        let text = read_qname_at_depth(self, 0, true)?;
-        crate::Rname::new(&text).map_err(DecodeError::InvalidRname)
+        let wire = read_qname_at_depth(self, 0)?;
+        crate::Rname::from_wire(wire).map_err(DecodeError::InvalidRname)
     }
 
     /// Reads a DNS Type.
@@ -122,15 +153,14 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
 fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
     reader: &mut R,
     depth: usize,
-    mailbox: bool,
-) -> Result<String, DecodeError> {
+) -> Result<Vec<u8>, DecodeError> {
     if depth > MAX_QNAME_POINTER_DEPTH {
         return Err(DecodeError::NamePointerDepthExceeded {
             max: MAX_QNAME_POINTER_DEPTH,
         });
     }
 
-    let mut qname = String::new();
+    let mut qname = Vec::new();
     let start = reader.stream_position()?;
 
     // Read each label one at a time, to build up the full domain name.
@@ -138,9 +168,7 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
         // Length of the first label
         let len = reader.read_u8()?;
         if len == 0 {
-            if qname.is_empty() {
-                qname.push('.') // Root domain
-            }
+            qname.push(0);
             break;
         }
 
@@ -150,47 +178,14 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
                 let mut label = vec![0; len.into()];
                 reader.read_exact(&mut label)?;
 
-                if mailbox {
-                    use std::fmt::Write;
-                    for byte in label {
-                        let _ = write!(qname, "\\{byte:03}");
-                    }
-                    qname.push('.');
-                    if qname.len() > crate::limits::MAX_DNS_NAME_WIRE_LEN * 4 {
-                        return Err(DecodeError::InvalidRname(
-                            crate::FromStrError::InvalidRname {
-                                rname: qname,
-                                reason: "name exceeds 255 wire octets",
-                            },
-                        ));
-                    }
-                    continue;
-                }
-
-                // Really this is meant to be ASCII, but we read as utf8
-                // (as that what Rust provides).
-                let label = match std::str::from_utf8(&label) {
-                    Err(e) => return Err(DecodeError::LabelNotUtf8(e)),
-                    Ok(s) => s,
-                };
-
-                if !label.is_ascii() {
-                    return Err(DecodeError::LabelNotAscii {
-                        label: label.to_string(),
+                qname.push(len);
+                qname.extend_from_slice(&label);
+                if qname.len() >= crate::limits::MAX_DNS_NAME_WIRE_LEN {
+                    return Err(DecodeError::NameTooLong {
+                        max: crate::limits::MAX_DNS_NAME_WIRE_LEN,
+                        len: qname.len() + 1,
                     });
                 }
-
-                let label = if label.to_ascii_lowercase().starts_with("xn--") {
-                    match idna::domain_to_unicode(label) {
-                        (label, Err(_)) => return Err(DecodeError::LabelNotIdna { label }),
-                        (label, Ok(_)) => label,
-                    }
-                } else {
-                    label.to_string()
-                };
-
-                qname.push_str(&label);
-                qname.push('.');
             }
 
             // Compression
@@ -210,10 +205,8 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
 
                 // Jump and start reading the qname again.
                 reader.seek(SeekFrom::Start(ptr))?;
-                let suffix = read_qname_at_depth(reader, depth + 1, mailbox)?;
-                if !(mailbox && suffix == "." && !qname.is_empty()) {
-                    qname.push_str(&suffix);
-                }
+                let suffix = read_qname_at_depth(reader, depth + 1)?;
+                qname.extend_from_slice(&suffix);
 
                 // Reset ourselves.
                 reader.seek(SeekFrom::Start(current))?;
@@ -230,6 +223,12 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
         }
     }
 
+    if qname.len() > crate::limits::MAX_DNS_NAME_WIRE_LEN {
+        return Err(DecodeError::NameTooLong {
+            max: crate::limits::MAX_DNS_NAME_WIRE_LEN,
+            len: qname.len(),
+        });
+    }
     Ok(qname)
 }
 
@@ -265,6 +264,50 @@ mod tests {
         cursor.set_position(512);
 
         assert!(cursor.read_qname().is_err());
+        cursor.set_position(512);
+        assert!(cursor.read_rname().is_err());
+    }
+
+    #[test]
+    fn compressed_names_enforce_expanded_wire_length() {
+        for (last_label_length, valid) in [(59, true), (60, false)] {
+            let mut input = Vec::new();
+            for length in [63, 63, 63, last_label_length] {
+                input.push(length);
+                input.extend(std::iter::repeat_n(b'a', usize::from(length)));
+            }
+            input.push(0);
+            let start = input.len() as u64;
+            input.extend_from_slice(b"\x01x\xc0\x00");
+            let mut cursor = Cursor::new(input.as_slice());
+            cursor.set_position(start);
+            let hostname = cursor.read_qname();
+            cursor.set_position(start);
+            let mailbox = cursor.read_rname();
+            if valid {
+                assert!(hostname.is_ok());
+                assert!(mailbox.is_ok());
+            } else {
+                assert!(matches!(
+                    hostname,
+                    Err(crate::DecodeError::NameTooLong { .. })
+                ));
+                assert!(matches!(
+                    mailbox,
+                    Err(crate::DecodeError::NameTooLong { .. })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn compressed_root_suffix_preserves_single_label_names() {
+        let input = b"\0\x05local\xc0\x00";
+        let mut cursor = Cursor::new(input.as_slice());
+        cursor.set_position(1);
+        assert_eq!(cursor.read_qname().unwrap().as_ascii(), "local.");
+        cursor.set_position(1);
+        assert_eq!(cursor.read_rname().unwrap().as_str(), "local.");
     }
 
     #[test]
