@@ -113,8 +113,8 @@ impl FromStr for SOA {
     ///
     /// # Errors
     ///
-    /// Returns an error when the text does not contain the seven required SOA fields
-    /// or a numeric field is invalid.
+    /// Returns an error when the text does not contain the seven required SOA fields,
+    /// a domain name or `rname` is invalid, or a numeric field is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         lazy_static! {
             // "ns1.google.com. dns-admin.google.com. 376337657 900 900 1800 60"
@@ -123,9 +123,10 @@ impl FromStr for SOA {
         }
 
         if let Some(caps) = RE.captures(s) {
+            let rname = caps[2].parse()?;
             Ok(SOA {
                 mname: Name::new(&caps[1])?,
-                rname: caps[2].to_string(),
+                rname,
                 serial: caps[3].parse()?,
                 refresh: Duration::from_secs(caps[4].parse()?),
                 retry: Duration::from_secs(caps[5].parse()?),
@@ -383,8 +384,34 @@ impl FromStr for TXT {
 
 #[cfg(test)]
 mod tests {
-    use super::{FromStrError, Resource, TXT};
+    use super::{FromStrError, Resource, SOA, TXT};
     use crate::Type;
+
+    #[test]
+    fn soa_text_rejects_invalid_rnames() {
+        for rname in ["", "bad..name", "bad\\", "bad\\12", "bad\\256"] {
+            let input = format!("ns.example. {rname} 1 2 3 4 5");
+            assert!(
+                input.parse::<SOA>().is_err(),
+                "accepted invalid SOA rname {rname:?}"
+            );
+        }
+
+        let soa: SOA = "ns.example. Action\\.domains 1 2 3 4 5"
+            .parse()
+            .expect("escaped SOA rname should parse");
+        assert_eq!(soa.rname.as_str(), r"Action\.domains.");
+    }
+
+    #[test]
+    fn resource_text_rejects_invalid_domain_names() {
+        assert!(Resource::parse_text(Type::CNAME, "bad..example").is_err());
+        assert!(
+            "ns..example admin.example 1 2 3 4 5"
+                .parse::<SOA>()
+                .is_err()
+        );
+    }
 
     #[test]
     fn txt_text_decodes_escaped_characters_and_decimal_bytes() {

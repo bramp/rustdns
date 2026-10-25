@@ -358,6 +358,7 @@ mod io;
 pub mod limits;
 pub mod names;
 pub mod resource;
+pub mod rname;
 pub mod types;
 pub mod util;
 
@@ -394,6 +395,7 @@ pub use crate::types::*;
 
 #[doc(inline)]
 pub use crate::names::{IntoName, Name};
+pub use crate::rname::Rname;
 
 #[doc(inline)]
 pub use crate::edns::*;

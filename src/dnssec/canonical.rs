@@ -67,7 +67,7 @@ fn append_canonical_rdata_to_vec(
         }
         Resource::SOA(soa) => {
             soa.mname.to_canonical().append_to_vec(buf);
-            Name::new(&soa.rname)?.to_canonical().append_to_vec(buf);
+            soa.rname.append_canonical_to_vec(buf);
             let duration_to_u32 = |duration: Duration| {
                 u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
                     max: u64::from(u32::MAX),
@@ -204,6 +204,23 @@ mod tests {
     use super::*;
     use crate::{Class, Resource, Type};
     use std::time::Duration;
+
+    #[test]
+    fn canonical_soa_preserves_mailbox_label_boundaries() {
+        let resource = Resource::SOA(crate::SOA {
+            mname: Name::new("NS.ISI.EDU.").unwrap(),
+            rname: r"Action\.domains.ISI.EDU.".parse().unwrap(),
+            serial: 1,
+            refresh: Duration::from_secs(2),
+            retry: Duration::from_secs(3),
+            expire: Duration::from_secs(4),
+            minimum: Duration::from_secs(5),
+        });
+        let mut bytes = Vec::new();
+        append_canonical_rdata_to_vec(&resource, &mut bytes).unwrap();
+        let prefix = b"\x02ns\x03isi\x03edu\0\x0eaction.domains\x03isi\x03edu\0";
+        assert_eq!(&bytes[..prefix.len()], prefix);
+    }
 
     #[test]
     fn test_count_labels() {

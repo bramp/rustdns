@@ -17,8 +17,9 @@ The current baseline is `0.7.0`.
 ## 1. Version 1.0.0: Public API Cleanup
 
 - [x] Enforce `MAX_DNS_MESSAGE_LEN` in `Message::to_vec` and document across transports.
-- [ ] Tighten text resource parsing: validate domain names, SOA rnames, and TXT escapes.
+- [x] Tighten text resource parsing: validate domain names, SOA rnames, and TXT escapes.
   - [x] Parse TXT/SPF quoting and RFC 1035 escapes with Pest.
+  - [x] Validate SOA mailbox labels with `Rname`, preserving escaped octets through text, zone, wire, and DNSSEC paths.
 - [ ] Migrate the remaining RDATA text parsers to Pest, sharing grammar with zone parsing where appropriate and retaining `FromStr` entry points (TXT/SPF already use Pest).
 - [ ] Deprecate [src/from_str.rs](src/from_str.rs) and unify text RDATA parsing with `zones::parse_rdata`.
 - [ ] Add validated constructors/builders for public DNS and EDNS structs.
@@ -132,7 +133,7 @@ Transition from stringly-typed domain names (`String` / `&str`) to a strongly-ty
 - [x] Migrate RDATA domain name fields from `String` to `Name`:
   - [x] `MX.exchange`
   - [x] `SOA.mname`
-  - [ ] `SOA.rname` (encoded mailbox local-part; consider dedicated `Mailbox` or `Rname` type)
+  - [x] `SOA.rname` uses the dedicated, label-preserving `Rname` type; zone AST fields remain strings.
   - [x] `SRV.name`
   - [x] `RRSIG.signer_name`
   - [x] `NSEC.next_domain`

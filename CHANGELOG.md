@@ -6,6 +6,12 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- **Breaking (planned for 1.0):** Resource `SOA.rname` is now a validated `Rname`
+  instead of `String`; the zone-file AST remains string-based until origin
+  resolution. Use `"hostmaster.example.".parse()?` or `Rname::from_email(...)`.
+  Presentation strings normalize to a trailing root dot, including email
+  conversion output. Escaped mailbox labels now survive wire, compression,
+  and DNSSEC canonicalization without losing their label boundaries.
 - TXT/SPF text parsing now uses Pest to validate complete quoted input and
   decode RFC 1035 character and decimal octet escapes while preserving separate
   character-strings. Pest and its derive macro are now core dependencies;

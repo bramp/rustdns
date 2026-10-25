@@ -36,7 +36,7 @@ domain = @{
 	// TODO Handle escape characters
 	// TODO Handle quoted strings
 }
-string = @{ (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ }
+string = @{ "@" | (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ }
 ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
 number = @{ ASCII_DIGIT+ }
@@ -127,4 +127,3 @@ record = {
 	// Finally no domain.
 	| resource
 }
-

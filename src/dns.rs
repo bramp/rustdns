@@ -738,7 +738,7 @@ mod tests {
             }),
             Resource::SOA(SOA {
                 mname: Name::new("ns.example.com.").unwrap(),
-                rname: "admin.example.com.".to_string(),
+                rname: "admin.example.com.".parse().unwrap(),
                 serial: 1,
                 refresh: std::time::Duration::from_secs(2),
                 retry: std::time::Duration::from_secs(3),

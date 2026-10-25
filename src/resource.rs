@@ -209,11 +209,12 @@ pub struct SOA {
     /// The name server that was the original or primary source of data for this zone.
     pub mname: Name,
 
-    /// The mailbox domain name of the person responsible for this zone,
-    /// e.g. "dns-admin.google.com.". This is an encoded email address "dns-admin@google.com".
-    /// Use [`SOA::email`] or [`SOA::rname_to_email`] to convert to an email address, or [`SOA::email_to_rname`] to construct
-    /// an `rname` from an email address.
-    pub rname: String,
+    /// The responsible person's mailbox encoded as a [`crate::Rname`].
+    ///
+    /// The entire mailbox local-part occupies one DNS label, including literal
+    /// dots. Construct with `"dns-admin.google.com.".parse()?` or
+    /// [`crate::Rname::from_email`]. Use [`SOA::email`] to recover an email address.
+    pub rname: crate::Rname,
 
     /// Unsigned 32-bit version number of the original copy of the zone ([RFC 1982]).
     pub serial: u32,
@@ -942,7 +943,7 @@ impl TXT {
 impl SOA {
     pub(crate) fn parse(cur: &mut Cursor<&[u8]>) -> Result<SOA, DecodeError> {
         let mname = cur.read_qname()?;
-        let rname = cur.read_qname()?.to_unicode();
+        let rname = cur.read_rname()?;
 
         let serial = cur.read_u32::<BE>()?;
         let refresh = cur.read_u32::<BE>()?;
@@ -964,7 +965,7 @@ impl SOA {
 
     pub(crate) fn append_rdata_to_vec(&self, buf: &mut Vec<u8>) -> Result<(), EncodeError> {
         self.mname.append_to_vec(buf);
-        Name::new(&self.rname)?.append_to_vec(buf);
+        self.rname.append_to_vec(buf);
 
         let duration_to_u32 = |duration: Duration| {
             u32::try_from(duration.as_secs()).map_err(|_| EncodeError::DurationTooLong {
@@ -989,46 +990,25 @@ impl SOA {
     ///
     /// # Errors
     ///
-    /// Returns [`FromStrError::InvalidRname`] if `rname` does not contain an
-    /// unescaped dot separating the mailbox local-part from the domain.
+    /// Returns [`FromStrError::InvalidRname`] when the name has no mailbox/domain
+    /// pair or the mailbox local-part is not UTF-8.
     ///
     /// [RFC 1035 §8]: https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub fn email(&self) -> Result<String, FromStrError> {
-        Self::rname_to_email(&self.rname)
+        self.rname.to_email()
     }
 
     /// Converts rnames to email address, for example, "admin.example.com" is
-    /// converted to "admin@example.com", per the rules in [RFC 1035 §8].
+    /// converted to "admin@example.com.", per the rules in [RFC 1035 §8].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FromStrError::InvalidRname`] for invalid DNS presentation syntax,
+    /// length violations, a missing mailbox/domain pair, or a non-UTF-8 local-part.
     ///
     /// [RFC 1035 §8]: https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub fn rname_to_email(domain: &str) -> Result<String, FromStrError> {
-        // Find the first unescaped dot and replace with '@'.
-        // RFC 1035 §8: only '\.' is an escaped dot in the mailbox local-part.
-        let mut result = String::with_capacity(domain.len());
-        let mut chars = domain.chars().peekable();
-        let mut done = false;
-
-        while let Some(c) = chars.next() {
-            if c == '\\' && chars.peek() == Some(&'.') {
-                // '\.' escapes a dot: emit literal '.' without treating it as the '@' delimiter.
-                chars.next();
-                result.push('.');
-            } else if c == '.' && !done {
-                result.push('@');
-                done = true;
-            } else {
-                result.push(c);
-            }
-        }
-
-        if !done || result.starts_with('@') || result.ends_with('@') {
-            return Err(FromStrError::InvalidRname {
-                rname: domain.to_string(),
-                reason: "missing unescaped dot separating mailbox and domain",
-            });
-        }
-
-        Ok(result)
+        crate::Rname::new(domain)?.to_email()
     }
 
     /// Converts an email address into an SOA responsible person mailbox domain name (`rname`).
@@ -1039,7 +1019,7 @@ impl SOA {
     /// # Errors
     ///
     /// Returns [`FromStrError::InvalidRname`] if `email` lacks an `@` character or has an
-    /// empty local-part or domain.
+    /// empty local-part or domain, multiple `@` separators, or DNS length violations.
     ///
     /// # Examples
     ///
@@ -1047,28 +1027,13 @@ impl SOA {
     /// use rustdns::resource::SOA;
     ///
     /// let rname = SOA::email_to_rname("dns-admin@google.com")?;
-    /// assert_eq!(rname, "dns-admin.google.com");
+    /// assert_eq!(rname, "dns-admin.google.com.");
     /// # Ok::<(), rustdns::FromStrError>(())
     /// ```
     ///
     /// [RFC 1035 §8]: https://datatracker.ietf.org/doc/html/rfc1035#section-8
     pub fn email_to_rname(email: &str) -> Result<String, FromStrError> {
-        match email.split_once('@') {
-            None => Err(FromStrError::InvalidRname {
-                rname: email.to_string(),
-                reason: "missing '@' separator",
-            }),
-            Some((left, right)) if left.is_empty() || right.is_empty() => {
-                Err(FromStrError::InvalidRname {
-                    rname: email.to_string(),
-                    reason: "empty mailbox or domain in email address",
-                })
-            }
-
-            // RFC 1035 §8: escape all the dots to the left of the '@',
-            // and replace the '@' with a '.'.
-            Some((left, right)) => Ok(left.replace('.', "\\.") + "." + right),
-        }
+        Ok(crate::Rname::from_email(email)?.to_string())
     }
 }
 
@@ -1133,13 +1098,13 @@ mod tests {
     use std::time::Duration;
 
     static RNAME_TESTS: &[(&str, &str)] = &[
-        ("username.example.com", "username@example.com"),
-        ("root.localhost", "root@localhost"),
-        ("Action\\.domains.ISI.EDU", "Action.domains@ISI.EDU"),
-        ("a\\.b\\.c.ISI.EDU", "a.b.c@ISI.EDU"),
+        ("username.example.com.", "username@example.com."),
+        ("root.localhost.", "root@localhost."),
+        ("Action\\.domains.ISI.EDU.", "Action.domains@ISI.EDU."),
+        ("a\\.b\\.c.ISI.EDU.", "a.b.c@ISI.EDU."),
         // Edge cases found by fuzzing:
-        ("\\..example.com", ".@example.com"),
-        ("\\0.example.com", "\\0@example.com"), // 0 should not be unescaped.
+        ("\\..example.com.", ".@example.com."),
+        ("\\\\0.example.com.", "\\0@example.com."),
     ];
 
     #[test]
@@ -1172,6 +1137,128 @@ mod tests {
         }
     }
 
+    fn soa_with_rname(rname: &str) -> SOA {
+        SOA {
+            mname: Name::new("ns.ISI.EDU.").unwrap(),
+            rname: rname.parse().unwrap(),
+            serial: 1,
+            refresh: Duration::from_secs(2),
+            retry: Duration::from_secs(3),
+            expire: Duration::from_secs(4),
+            minimum: Duration::from_secs(5),
+        }
+    }
+
+    fn soa_rdata_with_mailbox_label(label: &[u8], compressed: bool) -> Vec<u8> {
+        let mut wire = b"\x02ns\x03ISI\x03EDU\x00".to_vec();
+        wire.push(u8::try_from(label.len()).unwrap());
+        wire.extend_from_slice(label);
+        if compressed {
+            // The ISI label starts at offset 3 in this RDATA fixture.
+            wire.extend_from_slice(&[0xc0, 3]);
+        } else {
+            wire.extend_from_slice(b"\x03ISI\x03EDU\x00");
+        }
+        for value in 1_u32..=5 {
+            wire.extend_from_slice(&value.to_be_bytes());
+        }
+        wire
+    }
+
+    #[test]
+    fn soa_rfc1035_mailbox_encoding_uses_one_local_part_label() {
+        // RFC 1035 section 8: Action.domains@ISI.EDU.
+        let expected = soa_rdata_with_mailbox_label(b"Action.domains", false);
+        for rname in [r"Action\.domains.ISI.EDU.", r"Action\046domains.ISI.EDU."] {
+            let mut encoded = Vec::new();
+            soa_with_rname(rname)
+                .append_rdata_to_vec(&mut encoded)
+                .expect("valid mailbox should encode");
+            assert_eq!(encoded, expected, "{rname}");
+        }
+    }
+
+    fn check_soa_mailbox_decoding(compressed: bool) {
+        let wire = soa_rdata_with_mailbox_label(b"Action.domains", compressed);
+        let mut cursor = Cursor::new(wire.as_slice());
+        let soa = SOA::parse(&mut cursor).expect("valid mailbox should decode");
+        assert_eq!(soa.rname.as_str(), r"Action\.domains.ISI.EDU.");
+        assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU.");
+        assert_eq!(soa.serial, 1);
+        assert_eq!(soa.minimum, Duration::from_secs(5));
+        assert_eq!(cursor.position(), u64::try_from(wire.len()).unwrap());
+    }
+
+    #[test]
+    fn soa_rfc1035_mailbox_decoding_preserves_label_boundaries() {
+        check_soa_mailbox_decoding(false);
+    }
+
+    #[test]
+    fn soa_rfc1035_compressed_mailbox_preserves_label_boundaries() {
+        check_soa_mailbox_decoding(true);
+    }
+
+    #[test]
+    fn soa_rfc1035_decimal_escapes_decode_before_email_conversion() {
+        assert_eq!(
+            SOA::rname_to_email(r"Action\046domains.ISI.EDU.").unwrap(),
+            "Action.domains@ISI.EDU."
+        );
+        assert_eq!(
+            SOA::rname_to_email(r"a\\b.ISI.EDU.").unwrap(),
+            r"a\b@ISI.EDU."
+        );
+    }
+
+    #[test]
+    fn soa_rfc1035_escaped_labels_use_decoded_length_limits() {
+        let accepted = format!(r"{}\.{}.ISI.EDU.", "a".repeat(31), "b".repeat(31));
+        let mut wire = Vec::new();
+        soa_with_rname(&accepted)
+            .append_rdata_to_vec(&mut wire)
+            .expect("63-octet local-part label should encode");
+        assert_eq!(wire[12], 63);
+    }
+
+    #[test]
+    fn soa_rfc1035_rejects_oversized_decoded_mailbox_label() {
+        let rejected = format!(r"{}\.{}.ISI.EDU.", "a".repeat(32), "b".repeat(31));
+        assert!(
+            crate::Rname::new(&rejected).is_err(),
+            "64-octet local-part label must be rejected"
+        );
+    }
+
+    #[test]
+    fn soa_rfc1035_simple_mailbox_wire_round_trip() {
+        let expected = soa_rdata_with_mailbox_label(b"HOSTMASTER", false);
+        let mut encoded = Vec::new();
+        soa_with_rname("HOSTMASTER.ISI.EDU.")
+            .append_rdata_to_vec(&mut encoded)
+            .unwrap();
+        assert_eq!(encoded, expected);
+        let decoded = SOA::parse(&mut Cursor::new(expected.as_slice())).unwrap();
+        assert_eq!(decoded.email().unwrap(), "HOSTMASTER@ISI.EDU.");
+    }
+
+    #[test]
+    #[cfg(feature = "json")]
+    fn soa_mailbox_survives_json_and_message_wire_round_trips() {
+        let mut message = crate::Message::default();
+        message.answers.push(Record::new(
+            Name::new("ISI.EDU.").unwrap(),
+            Class::Internet,
+            Duration::from_secs(60),
+            Resource::SOA(soa_with_rname(r"Action\.domains.ISI.EDU.")),
+        ));
+        let json = crate::json::to_string(&message).unwrap();
+        let parsed = crate::json::from_str(&json).unwrap();
+        assert_eq!(parsed.answers, message.answers);
+        let wire = message.to_vec().unwrap();
+        assert_eq!(crate::Message::from_slice(&wire).unwrap(), message);
+    }
+
     #[test]
     fn invalid_soa_email_returns_error() {
         let input = [
@@ -1186,7 +1273,7 @@ mod tests {
         ];
 
         let soa = SOA::parse(&mut Cursor::new(&input)).expect("wire parsing should succeed");
-        assert_eq!(soa.rname, "notan.");
+        assert_eq!(soa.rname.as_str(), "notan.");
         assert!(soa.email().is_err());
     }
 
@@ -1194,7 +1281,7 @@ mod tests {
     fn test_soa_email_and_email_to_rname() {
         let mut soa = SOA {
             mname: Name::new("ns1.example.com.").unwrap(),
-            rname: "root.localhost.".to_string(),
+            rname: "root.localhost.".parse().unwrap(),
             serial: 1,
             refresh: Duration::from_secs(3600),
             retry: Duration::from_secs(600),
@@ -1202,13 +1289,13 @@ mod tests {
             minimum: Duration::from_secs(300),
         };
 
-        soa.rname = SOA::email_to_rname("admin@example.com").expect("email_to_rname failed");
-        assert_eq!(soa.rname, "admin.example.com");
-        assert_eq!(soa.email().unwrap(), "admin@example.com");
+        soa.rname = crate::Rname::from_email("admin@example.com").unwrap();
+        assert_eq!(soa.rname.as_str(), "admin.example.com.");
+        assert_eq!(soa.email().unwrap(), "admin@example.com.");
 
-        soa.rname = SOA::email_to_rname("Action.domains@ISI.EDU").expect("email_to_rname failed");
-        assert_eq!(soa.rname, "Action\\.domains.ISI.EDU");
-        assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU");
+        soa.rname = crate::Rname::from_email("Action.domains@ISI.EDU").unwrap();
+        assert_eq!(soa.rname.as_str(), "Action\\.domains.ISI.EDU.");
+        assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU.");
 
         assert!(SOA::email_to_rname("invalid_no_at").is_err());
     }

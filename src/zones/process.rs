@@ -52,7 +52,7 @@ pub enum ProcessError {
         name: String,
     },
     /// An SOA record contained an invalid `rname` (responsible person mailbox) format.
-    #[error("entry {entry_index} ({record_name}): invalid SOA rname '{rname}'")]
+    #[error("entry {entry_index} ({record_name}): {reason}")]
     InvalidRname {
         /// Index of the offending entry in the zone file.
         entry_index: usize,
@@ -60,6 +60,8 @@ pub enum ProcessError {
         record_name: String,
         /// The invalid rname string.
         rname: String,
+        /// The detailed mailbox validation error.
+        reason: String,
     },
 }
 
@@ -210,8 +212,11 @@ impl File {
         record_name: &str,
     ) -> Result<String, ProcessError> {
         // Absolute domain name
-        if let Some(name) = name.strip_suffix('.') {
-            return Ok(name.to_string());
+        if let Some(prefix) = name.strip_suffix('.') {
+            let backslashes = prefix.bytes().rev().take_while(|&byte| byte == b'\\').count();
+            if backslashes % 2 == 0 {
+                return Ok(name.to_string());
+            }
         }
 
         // Everything past here requires an origin
@@ -222,7 +227,7 @@ impl File {
         })?;
 
         if name == "@" {
-            return Ok(origin.to_string());
+            return Ok(if origin.is_empty() { ".".to_string() } else { origin.to_string() });
         }
 
         // Relative domain name
@@ -271,6 +276,12 @@ impl File {
             crate::zones::Resource::SOA(soa) => {
                 let mname = Self::resolve_name(&soa.mname, origin, entry_index, record_name)?;
                 let rname = Self::resolve_rname(&soa.rname, origin, entry_index, record_name)?;
+                let rname = crate::Rname::new(&rname).map_err(|error| ProcessError::InvalidRname {
+                    entry_index,
+                    record_name: record_name.to_string(),
+                    rname: rname.clone(),
+                    reason: error.to_string(),
+                })?;
                 Ok(crate::Resource::SOA(crate::resource::SOA {
                     mname,
                     rname,
@@ -354,7 +365,7 @@ mod tests {
                 vec![
                     Record::new(example.clone(), Class::Internet, Duration::new(3600, 0), Resource::SOA(SOA {
                         mname: ns_example.clone(),
-                        rname: "username.example.com".to_string(),
+                        rname: "username.example.com".parse().unwrap(),
                         serial: 2020091025,
                         refresh: Duration::new(7200, 0),
                         retry: Duration::new(3600, 0),
@@ -522,6 +533,54 @@ mod tests {
             assert_eq!(target.as_ascii(), "TaRgEt.ExAmPlE.cOm.");
         } else {
             panic!("expected CNAME");
+        }
+    }
+
+    #[test]
+    fn try_into_records_rejects_invalid_soa_rname() {
+        for rname in ["bad..name", "bad..", ".."] {
+            let input = format!("$ORIGIN example.com.\n$TTL 300\n@ SOA ns {rname} 1 2 3 4 5");
+            let file = File::from_str(&input).expect("zone syntax should parse");
+            let Err(ProcessError::InvalidRname { reason, .. }) = file.try_into_records() else {
+                panic!("expected invalid rname");
+            };
+            assert!(reason.contains("empty label"), "{reason}");
+        }
+    }
+
+    #[test]
+    fn soa_rfc1035_relative_mailbox_preserves_escaped_local_part() {
+        let file = File::from_str(
+            "$ORIGIN ISI.EDU.\n$TTL 300\n@ SOA ns Action\\.domains 1 2 3 4 5",
+        )
+        .expect("RFC 1035 section 5.3 mailbox syntax should parse");
+        let records = file.try_into_records().expect("zone should resolve");
+        let Resource::SOA(soa) = &records[0].resource else {
+            panic!("expected SOA record");
+        };
+        assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU.");
+
+        let mut wire = Vec::new();
+        soa.append_rdata_to_vec(&mut wire).expect("SOA should encode");
+        let mailbox = b"\x0eAction.domains\x03ISI\x03EDU\x00";
+        assert_eq!(&wire[12..12 + mailbox.len()], mailbox);
+    }
+
+    #[test]
+    fn soa_mailbox_origin_resolution_distinguishes_escaped_final_dots() {
+        for (text, expected) in [
+            (r"local\.", r"local\..ISI.EDU."),
+            (r"local\\.", r"local\\."),
+            (r"local\046", r"local\..ISI.EDU."),
+            (".", "."),
+            ("@", "ISI.EDU."),
+        ] {
+            let input = format!("$ORIGIN ISI.EDU.\n$TTL 300\n@ SOA ns {text} 1 2 3 4 5");
+            let records = File::from_str(&input).unwrap().try_into_records().unwrap();
+            let Resource::SOA(soa) = &records[0].resource else {
+                panic!("expected SOA");
+            };
+            assert_eq!(soa.rname.as_str(), expected, "{text}");
         }
     }
 }

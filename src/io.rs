@@ -93,8 +93,13 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
     /// Returns a [`DecodeError`] when the name is malformed, uses unsupported
     /// compression, or runs past the end of the message.
     fn read_qname(&mut self) -> Result<Name, DecodeError> {
-        let name_str = read_qname_at_depth(self, 0)?;
+        let name_str = read_qname_at_depth(self, 0, false)?;
         Name::new(&name_str).map_err(|_| DecodeError::LabelNotIdna { label: name_str })
+    }
+
+    fn read_rname(&mut self) -> Result<crate::Rname, DecodeError> {
+        let text = read_qname_at_depth(self, 0, true)?;
+        crate::Rname::new(&text).map_err(DecodeError::InvalidRname)
     }
 
     /// Reads a DNS Type.
@@ -117,6 +122,7 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
 fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
     reader: &mut R,
     depth: usize,
+    mailbox: bool,
 ) -> Result<String, DecodeError> {
     if depth > MAX_QNAME_POINTER_DEPTH {
         return Err(DecodeError::NamePointerDepthExceeded {
@@ -143,6 +149,23 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
             0x00 => {
                 let mut label = vec![0; len.into()];
                 reader.read_exact(&mut label)?;
+
+                if mailbox {
+                    use std::fmt::Write;
+                    for byte in label {
+                        let _ = write!(qname, "\\{byte:03}");
+                    }
+                    qname.push('.');
+                    if qname.len() > crate::limits::MAX_DNS_NAME_WIRE_LEN * 4 {
+                        return Err(DecodeError::InvalidRname(
+                            crate::FromStrError::InvalidRname {
+                                rname: qname,
+                                reason: "name exceeds 255 wire octets",
+                            },
+                        ));
+                    }
+                    continue;
+                }
 
                 // Really this is meant to be ASCII, but we read as utf8
                 // (as that what Rust provides).
@@ -187,7 +210,10 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
 
                 // Jump and start reading the qname again.
                 reader.seek(SeekFrom::Start(ptr))?;
-                qname.push_str(&read_qname_at_depth(reader, depth + 1)?);
+                let suffix = read_qname_at_depth(reader, depth + 1, mailbox)?;
+                if !(mailbox && suffix == "." && !qname.is_empty()) {
+                    qname.push_str(&suffix);
+                }
 
                 // Reset ourselves.
                 reader.seek(SeekFrom::Start(current))?;

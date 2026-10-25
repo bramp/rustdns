@@ -419,7 +419,7 @@ mod tests {
                 (
                     Resource::SOA(SOA {
                         mname: crate::Name::new("ns1.google.com.").unwrap(),
-                        rname: "dns-admin.google.com.".to_string(),
+                        rname: "dns-admin.google.com.".parse().unwrap(),
 
                         serial: 379031418,
 
