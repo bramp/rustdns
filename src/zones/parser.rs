@@ -25,7 +25,27 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 fn rdata_text(input: &str) -> Cow<'_, str> {
     // The preprocessor flattens grouped lines but leaves the parentheses.
     if input.contains(['(', ')']) {
-        Cow::Owned(input.replace(['(', ')'], " "))
+        let mut text = String::with_capacity(input.len());
+        let mut quoted = false;
+        let mut escaped = false;
+        for character in input.chars() {
+            if escaped {
+                text.push(character);
+                escaped = false;
+                continue;
+            }
+            match character {
+                '\\' => escaped = true,
+                '"' => quoted = !quoted,
+                '(' | ')' if !quoted => {
+                    text.push(' ');
+                    continue;
+                }
+                _ => {}
+            }
+            text.push(character);
+        }
+        Cow::Owned(text)
     } else {
         Cow::Borrowed(input)
     }
@@ -265,6 +285,51 @@ impl ZoneParser {
     }
 
     fn zonemd_rdata(input: Node<'_>) -> Result<crate::ZONEMD> {
+        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+    }
+
+    #[alias(resource)]
+    fn resource_txt(input: Node<'_>) -> Result<Resource> {
+        Ok(match_nodes!(input.into_children();
+            [txt_rdata(txt)] => Resource::TXT(txt),
+        ))
+    }
+
+    #[alias(resource)]
+    fn resource_spf(input: Node<'_>) -> Result<Resource> {
+        Ok(match_nodes!(input.into_children();
+            [txt_rdata(txt)] => Resource::SPF(txt),
+        ))
+    }
+
+    fn txt_rdata(input: Node<'_>) -> Result<crate::TXT> {
+        let txt = crate::from_str::parse_zone_txt(&rdata_text(input.as_str()))
+            .map_err(|error| input.error(error))?;
+        if txt.0.iter().any(|string| string.len() > usize::from(u8::MAX)) {
+            return Err(input.error("TXT/SPF character-string exceeds 255 octets"));
+        }
+        Ok(txt)
+    }
+
+    #[alias(resource)]
+    fn resource_nsec3(input: Node<'_>) -> Result<Resource> {
+        Ok(match_nodes!(input.into_children();
+            [nsec3_rdata(nsec3)] => Resource::NSEC3(nsec3),
+        ))
+    }
+
+    fn nsec3_rdata(input: Node<'_>) -> Result<crate::NSEC3> {
+        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+    }
+
+    #[alias(resource)]
+    fn resource_nsec3param(input: Node<'_>) -> Result<Resource> {
+        Ok(match_nodes!(input.into_children();
+            [nsec3param_rdata(parameters)] => Resource::NSEC3PARAM(parameters),
+        ))
+    }
+
+    fn nsec3param_rdata(input: Node<'_>) -> Result<crate::NSEC3PARAM> {
         rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
     }
 

@@ -1,20 +1,22 @@
 //! DNS Zone file parsing (pre-processor)
 //!
-//! Due to the rules around braces we preprocess the file, 
-//! and write out something easier to parse.
+//! Flatten parenthesized continuations before the newline-delimited zone grammar,
+//! keeping quoted and escaped punctuation separate from grouping and comments.
 
 
 comment = { ";" ~ (!NEWLINE ~ ANY)* }
 open = { "(" }
 close = { ")" }
 newline = { NEWLINE }
-token = { (!(comment | open | close | newline) ~ ANY)+ }
-
-// TODO We might want to capture " strings
+quoted = @{ "\"" ~ ("\\" ~ ANY | !("\"" | "\\") ~ ANY)* ~ "\"" }
+escaped = @{ "\\" ~ ANY }
+token = { (!(comment | open | close | newline | "\"" | "\\") ~ ANY)+ }
 
 tokens = {
 	(
-	    comment
+	    quoted
+	  | escaped
+	  | comment
 	  | open
 	  | close
 	  | newline

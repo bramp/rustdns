@@ -16,7 +16,7 @@ struct FuzzInput<'a> {
 
 fuzz_target!(|input: FuzzInput<'_>| {
     // Parse through Resource::parse_text, which dispatches to the individual
-    // FromStr parsers (A, AAAA, NS, CNAME, PTR, MX, SRV, SOA, SPF, TXT).
+    // FromStr parsers, including DNSSEC and character-string records.
     if let Ok(resource) = Resource::parse_text(input.record_type, input.text) {
         let _ = format!("{resource}");
         let _ = format!("{resource:?}");

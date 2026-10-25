@@ -13,6 +13,7 @@ use crate::TXT;
 use crate::Type;
 use crate::ZONEMD;
 use crate::resource::{Mx, Nsec, Rrsig, Soa, Srv};
+use crate::{NSEC3, NSEC3PARAM};
 use core::str::FromStr;
 use pest::Parser;
 use pest::iterators::{Pair, Pairs};
@@ -79,10 +80,11 @@ impl Resource {
             Type::DNSKEY => Resource::DNSKEY(s.parse()?),
             Type::RRSIG => Resource::RRSIG(s.parse()?),
             Type::NSEC => Resource::NSEC(s.parse()?),
+            Type::NSEC3 => Resource::NSEC3(s.parse()?),
+            Type::NSEC3PARAM => Resource::NSEC3PARAM(s.parse()?),
             Type::ZONEMD => Resource::ZONEMD(s.parse()?),
 
-            // TODO Implement NSEC3 and NSEC3PARAM parsing
-            Type::NSEC3 | Type::NSEC3PARAM | Type::Unknown(_) => {
+            Type::Unknown(_) => {
                 return Err(FromStrError::UnsupportedType);
             }
 
@@ -334,6 +336,136 @@ impl FromStr for ZONEMD {
     }
 }
 
+fn parse_nsec3_parameters(fields: &mut Pairs<'_, Rule>) -> Result<NSEC3PARAM, FromStrError> {
+    let hash_algorithm = next_field(fields)?.as_str().parse::<u8>()?.into();
+    let flags = next_field(fields)?.as_str().parse()?;
+    let iterations = next_field(fields)?.as_str().parse()?;
+    let salt = next_field(fields)?;
+    let salt = if salt.as_str() == "-" {
+        Vec::new()
+    } else {
+        if salt.as_str().len() > usize::from(u8::MAX) * 2 {
+            return Err(FromStrError::InvalidFormat);
+        }
+        crate::util::hex_decode(salt.as_str()).map_err(|_| FromStrError::InvalidFormat)?
+    };
+    Ok(NSEC3PARAM {
+        hash_algorithm,
+        flags,
+        iterations,
+        salt,
+    })
+}
+
+impl FromStr for NSEC3PARAM {
+    type Err = FromStrError;
+
+    /// Parses NSEC3 parameters, accepting `-` for an empty salt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing or extra fields, out-of-range numbers,
+    /// malformed hexadecimal salt, or salt longer than 255 octets.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // "1 0 12 aabbccdd"
+        // "{hash_algorithm} {flags} {iterations} {salt}"
+        let mut fields = parse_record_text(s, Rule::nsec3param)?.into_inner();
+        parse_nsec3_parameters(&mut fields)
+    }
+}
+
+impl FromStr for NSEC3 {
+    type Err = FromStrError;
+
+    /// Parses NSEC3 RDATA with an unpadded base32hex next-owner hash.
+    ///
+    /// Parsing preserves unknown algorithm codes; it does not validate a denial
+    /// of existence proof.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed or out-of-range fields, invalid salt or
+    /// base32hex encoding, salt or hash longer than 255 octets, or unknown type tokens.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // "1 0 12 aabbccdd 0P9MHAVEQVM6T7VBL5LOP2U3T2RP3TOM A NS SOA MX RRSIG DNSKEY NSEC3PARAM"
+        // "{hash_algorithm} {flags} {iterations} {salt} {next_hashed_owner_name} {types...}"
+        let mut fields = parse_record_text(s, Rule::nsec3)?.into_inner();
+        let parameters = parse_nsec3_parameters(&mut fields)?;
+        let next_hash = next_field(&mut fields)?;
+        let encoded = next_hash.as_str();
+        if encoded.len() > (usize::from(u8::MAX) * 8).div_ceil(5) {
+            return Err(FromStrError::InvalidFormat);
+        }
+        let next_hashed_owner_name =
+            crate::util::base32hex_decode(encoded).map_err(|_| FromStrError::InvalidFormat)?;
+        // Reject incomplete octets and nonzero padding bits rather than discarding them.
+        if !crate::util::base32hex_encode(&next_hashed_owner_name).eq_ignore_ascii_case(encoded) {
+            return Err(FromStrError::InvalidFormat);
+        }
+        let types = fields
+            .filter(|field| field.as_rule() != Rule::EOI)
+            .map(|field| {
+                field
+                    .as_str()
+                    .parse()
+                    .map_err(|_| FromStrError::InvalidFormat)
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(NSEC3 {
+            hash_algorithm: parameters.hash_algorithm,
+            flags: parameters.flags,
+            iterations: parameters.iterations,
+            salt: parameters.salt,
+            next_hashed_owner_name,
+            types,
+        })
+    }
+}
+
+#[cfg(feature = "zones")]
+pub(crate) fn parse_zone_txt(input: &str) -> Result<TXT, FromStrError> {
+    parse_character_strings(input, Rule::zone_txt)
+}
+
+fn parse_character_strings(input: &str, rule: Rule) -> Result<TXT, FromStrError> {
+    let parsed = parse_record_text(input, rule)?;
+    let mut strings = Vec::new();
+    for string in parsed
+        .into_inner()
+        .filter(|pair| matches!(pair.as_rule(), Rule::quoted | Rule::unquoted))
+    {
+        let mut bytes = Vec::new();
+        for token in string.into_inner() {
+            match token.as_rule() {
+                Rule::decimal_escape => {
+                    let digits = token
+                        .as_str()
+                        .strip_prefix('\\')
+                        .ok_or(FromStrError::InvalidFormat)?;
+                    bytes.push(digits.parse::<u8>().map_err(|_| {
+                        FromStrError::InvalidTxtEscape {
+                            reason: "decimal escape is greater than 255",
+                        }
+                    })?);
+                }
+                Rule::character_escape => {
+                    let character = token
+                        .as_str()
+                        .strip_prefix('\\')
+                        .ok_or(FromStrError::InvalidFormat)?;
+                    bytes.extend_from_slice(character.as_bytes());
+                }
+                Rule::text | Rule::unquoted_text => {
+                    bytes.extend_from_slice(token.as_str().as_bytes())
+                }
+                _ => return Err(FromStrError::InvalidFormat),
+            }
+        }
+        strings.push(bytes);
+    }
+    Ok(TXT(strings))
+}
+
 impl FromStr for TXT {
     type Err = FromStrError;
 
@@ -356,43 +488,7 @@ impl FromStr for TXT {
             return Ok(TXT::from(s));
         }
 
-        let parsed = TextParser::parse(Rule::txt, s)
-            .map_err(|_| FromStrError::InvalidFormat)?
-            .next()
-            .ok_or(FromStrError::InvalidFormat)?;
-        let mut strings = Vec::new();
-        for quoted in parsed
-            .into_inner()
-            .filter(|pair| pair.as_rule() == Rule::quoted)
-        {
-            let mut bytes = Vec::new();
-            for token in quoted.into_inner() {
-                match token.as_rule() {
-                    Rule::decimal_escape => {
-                        let digits = token
-                            .as_str()
-                            .strip_prefix('\\')
-                            .ok_or(FromStrError::InvalidFormat)?;
-                        bytes.push(digits.parse::<u8>().map_err(|_| {
-                            FromStrError::InvalidTxtEscape {
-                                reason: "decimal escape is greater than 255",
-                            }
-                        })?);
-                    }
-                    Rule::character_escape => {
-                        let character = token
-                            .as_str()
-                            .strip_prefix('\\')
-                            .ok_or(FromStrError::InvalidFormat)?;
-                        bytes.extend_from_slice(character.as_bytes());
-                    }
-                    Rule::text => bytes.extend_from_slice(token.as_str().as_bytes()),
-                    _ => return Err(FromStrError::InvalidFormat),
-                }
-            }
-            strings.push(bytes);
-        }
-        Ok(TXT(strings))
+        parse_character_strings(s, Rule::txt)
     }
 }
 
@@ -400,6 +496,76 @@ impl FromStr for TXT {
 mod tests {
     use super::{DNSKEY, DS, FromStrError, MX, NSEC, RRSIG, Resource, SOA, SRV, TXT, ZONEMD};
     use crate::Type;
+
+    #[test]
+    fn nsec3_text_round_trips_and_preserves_type_bitmaps() {
+        for text in [
+            "1 1 12 aabbccdd 0p9mhaveqvm6t7vbl5lop2u3t2rp3tom A NS SOA MX TXT RRSIG DNSKEY NSEC3PARAM TYPE65400",
+            "1 0 0 - 00",
+            "255 255 65535 - 00",
+        ] {
+            let record: crate::NSEC3 = text.parse().unwrap();
+            assert_eq!(record, record.to_string().parse().unwrap());
+            assert_eq!(
+                Resource::parse_text(Type::NSEC3, text).unwrap(),
+                Resource::NSEC3(record),
+            );
+        }
+        let record: crate::NSEC3 = "1 1 12 aabbccdd 00 A NS TYPE65400".parse().unwrap();
+        assert_eq!(record.salt, [0xaa, 0xbb, 0xcc, 0xdd]);
+        assert_eq!(record.next_hashed_owner_name, [0]);
+        assert_eq!(record.types, [Type::A, Type::NS, Type::Unknown(65400)]);
+        assert!(record.is_opt_out());
+        for text in ["1 0 12 aabbccdd", "1 0 0 -", "255 255 65535 FF"] {
+            let record: crate::NSEC3PARAM = text.parse().unwrap();
+            assert_eq!(record, record.to_string().parse().unwrap());
+            assert_eq!(
+                Resource::parse_text(Type::NSEC3PARAM, text).unwrap(),
+                Resource::NSEC3PARAM(record),
+            );
+        }
+    }
+
+    #[test]
+    fn nsec3_text_rejects_malformed_fields_and_enforces_wire_lengths() {
+        for text in [
+            "",
+            "1 0 0 -",
+            "256 0 0 - 00",
+            "1 256 0 - 00",
+            "1 0 65536 - 00",
+            "1 0 0 abc 00",
+            "1 0 0 gg 00",
+            "1 0 0 - W0",
+            "1 0 0 - 00=",
+            "1 0 0 - 0",
+            "1 0 0 - 000",
+            "1 0 0 - 01",
+            "1 0 0 - 00 INVALID",
+            "1 0 0 - 00 TYPE65536",
+        ] {
+            assert!(text.parse::<crate::NSEC3>().is_err(), "{text}");
+        }
+        for text in ["", "1 0 0", "1 0 0 abc", "1 0 0 - extra", "1 0 65536 -"] {
+            assert!(text.parse::<crate::NSEC3PARAM>().is_err(), "{text}");
+        }
+        for length in [255, 256] {
+            let salt = "ab".repeat(length);
+            let hash = crate::util::base32hex_encode(&vec![0xff; length]);
+            assert_eq!(
+                format!("1 0 0 {salt}").parse::<crate::NSEC3PARAM>().is_ok(),
+                length == 255,
+            );
+            assert_eq!(
+                format!("1 0 0 {salt} 00").parse::<crate::NSEC3>().is_ok(),
+                length == 255,
+            );
+            assert_eq!(
+                format!("1 0 0 - {hash}").parse::<crate::NSEC3>().is_ok(),
+                length == 255,
+            );
+        }
+    }
 
     #[test]
     fn unresolved_rdata_parsers_borrow_names() {

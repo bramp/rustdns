@@ -59,6 +59,10 @@ resource = _{
 	| resource_dnskey
 	| resource_rrsig
 	| resource_zonemd
+	| resource_txt
+	| resource_spf
+	| resource_nsec3param
+	| resource_nsec3
 }
 
 resource_a      = {^"A"      ~ ws ~ ip4}
@@ -78,6 +82,13 @@ resource_ds     = {^"DS"     ~ ws ~ ds_rdata}
 resource_dnskey = {^"DNSKEY" ~ ws ~ dnskey_rdata}
 resource_rrsig  = {^"RRSIG"  ~ ws ~ rrsig_rdata}
 resource_zonemd = {^"ZONEMD" ~ ws ~ zonemd_rdata}
+resource_txt    = {^"TXT"    ~ ws ~ txt_rdata}
+resource_spf    = {^"SPF"    ~ ws ~ txt_rdata}
+resource_nsec3param = {^"NSEC3PARAM" ~ ws ~ nsec3param_rdata}
+resource_nsec3  = {^"NSEC3"  ~ ws ~ nsec3_rdata}
+txt_rdata      = @{ (quoted | unquoted) ~ (separator ~ (quoted | unquoted))* }
+nsec3_rdata    = @{ nsec3_fields }
+nsec3param_rdata = @{ nsec3param_fields }
 mx_rdata       = @{ mx_fields }
 srv_rdata      = @{ srv_fields }
 ds_rdata       = @{ ds_fields }
@@ -93,10 +104,8 @@ signature_time = _{ number }
 hex_data       = _{ hex_string }
 base64_data    = _{ base64_string }
 
-// Entry for full file.
+// Entry for a full file after preprocessing parenthesized continuations.
 file = {
-	// TODO records can be split across many lines
-	//NEWLINE* ~ (entry? ~ NEWLINE?)* ~ EOI
 	entry ~ (NEWLINE ~ entry)* ~ EOI
 }
 

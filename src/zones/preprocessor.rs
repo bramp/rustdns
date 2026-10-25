@@ -13,8 +13,9 @@ type Result<T> = result::Result<T, Error<Rule>>;
 fn parse_tokens(pair: Pair<'_, Rule>) -> Result<String> {
     assert_eq!(pair.as_rule(), Rule::tokens);
 
+    let span = pair.as_span();
     let mut result = String::new();
-    let mut opens = 0;
+    let mut opens = 0_usize;
 
     for pair in pair.into_inner() {
         match pair.as_rule() {
@@ -23,7 +24,14 @@ fn parse_tokens(pair: Pair<'_, Rule>) -> Result<String> {
                 result.push_str(pair.as_str());
             }
             Rule::close => {
-                opens -= 1;
+                opens = opens.checked_sub(1).ok_or_else(|| {
+                    Error::new_from_span(
+                        pest::error::ErrorVariant::CustomError {
+                            message: "unmatched closing parenthesis".to_owned(),
+                        },
+                        pair.as_span(),
+                    )
+                })?;
                 result.push_str(pair.as_str());
             }
             Rule::newline | Rule::comment => {
@@ -40,12 +48,28 @@ fn parse_tokens(pair: Pair<'_, Rule>) -> Result<String> {
         }
     }
 
+    if opens != 0 {
+        return Err(Error::new_from_span(
+            pest::error::ErrorVariant::CustomError {
+                message: "unclosed parenthesized record".to_owned(),
+            },
+            span,
+        ));
+    }
+
     Ok(result)
 }
 
-/// Preprocess the input to handle braces. Specifically
-/// ( and ) allow a record to span multiple lines, so this
-/// replaces new lines with spaces when they are within braces.
+/// Flattens parenthesized continuations for the newline-delimited zone grammar.
+///
+/// Replaces newlines and comments inside grouping parentheses with equal-length
+/// spaces, preserving byte offsets. Quoted and escaped punctuation is data, not
+/// grouping or comment syntax; parentheses remain for the zone grammar to consume.
+///
+/// # Errors
+///
+/// Returns a parsing error for unmatched parentheses, unterminated quotes, or
+/// trailing escape characters.
 pub(crate) fn preprocess(input: &str) -> Result<String> {
     let mut result = String::new();
     let Some(file) = ZonePreprocessor::parse(Rule::file, input)?.next() else {
@@ -65,6 +89,29 @@ pub(crate) fn preprocess(input: &str) -> Result<String> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn quotes_and_escapes_protect_comment_and_grouping_characters() {
+        for text in [
+            "@ TXT \"semi;colon (unbalanced\"\n@ TXT \"next\"",
+            r#"@ TXT escaped\;semicolon escaped\(paren \) \"quote"#,
+            "@ TXT \"quote: \\\"; still text\"\r\n@ TXT \"next\"",
+        ] {
+            assert_eq!(preprocess(text).unwrap(), text);
+        }
+        let text = "@ TXT (\"(literal; text)\" ; comment )\r\n\"next\")";
+        assert_eq!(
+            preprocess(text).unwrap(),
+            "@ TXT (\"(literal; text)\"              \"next\")",
+        );
+    }
+
+    #[test]
+    fn malformed_grouping_and_quotes_return_errors() {
+        for text in ["(", ")", ")(", "@ TXT (\"value\"", "@ TXT \"value\")", "\"", "\\"] {
+            assert!(preprocess(text).is_err(), "{text}");
+        }
+    }
 
     // Test Full files
     #[test]

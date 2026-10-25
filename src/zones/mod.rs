@@ -144,21 +144,7 @@ impl FromStr for File {
     /// }
     /// ```
     fn from_str(input_str: &str) -> Result<Self, Self::Err> {
-        // TODO Why do we preprocess the input - should our parse handle this automatically?
-        let input_str = preprocess(input_str).map_err(|err| {
-            let start = match err.location {
-                pest::error::InputLocation::Pos(pos) => pos,
-                pest::error::InputLocation::Span((start, _end)) => start,
-            };
-            let pos = pest::Position::new(input_str, start)
-                .unwrap_or_else(|| pest::Position::from_start(input_str));
-            pest_consume::Error::new_from_pos(
-                pest::error::ErrorVariant::CustomError {
-                    message: format!("preprocessor error: {err}"),
-                },
-                pos,
-            )
-        })?;
+        let input_str = preprocess_input(input_str)?;
 
         let inputs = ZoneParser::parse(Rule::file, &input_str)?;
         let input = inputs.single()?;
@@ -173,6 +159,26 @@ impl FromStr for File {
             )
         }))
     }
+}
+
+fn preprocess_input(input: &str) -> Result<String, pest_consume::Error<Rule>> {
+    // The zone grammar treats newlines as record boundaries. Flatten newlines and
+    // comments inside parenthesized continuations first, preserving quoted and
+    // escaped punctuation and byte offsets for subsequent parse errors.
+    preprocess(input).map_err(|error| {
+        let start = match error.location {
+            pest::error::InputLocation::Pos(pos) => pos,
+            pest::error::InputLocation::Span((start, _)) => start,
+        };
+        let position = pest::Position::new(input, start)
+            .unwrap_or_else(|| pest::Position::from_start(input));
+        pest_consume::Error::new_from_pos(
+            pest::error::ErrorVariant::CustomError {
+                message: format!("preprocessor error: {error}"),
+            },
+            position,
+        )
+    })
 }
 
 /// An entry in an unprocessed zone file.
@@ -251,7 +257,8 @@ impl FromStr for Record {
     ///
     /// Returns a Pest parsing error when the record syntax or resource data is invalid.
     fn from_str(input_str: &str) -> Result<Self, Self::Err> {
-        let inputs = ZoneParser::parse(Rule::single_record, input_str)?;
+        let input_str = preprocess_input(input_str)?;
+        let inputs = ZoneParser::parse(Rule::single_record, &input_str)?;
         let input = inputs.single()?;
         ZoneParser::single_record(input)
     }

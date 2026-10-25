@@ -15,3 +15,14 @@ rrsig_fields = _{
 }
 nsec_fields = _{ rdata_name ~ (separator ~ record_type)* }
 zonemd_fields = _{ number ~ separator ~ number ~ separator ~ number ~ separator ~ hex_data }
+nsec3param_fields = _{ number ~ separator ~ number ~ separator ~ number ~ separator ~ salt }
+nsec3_fields = _{ nsec3param_fields ~ separator ~ next_hash ~ (separator ~ record_type)* }
+salt = @{ "-" | ASCII_HEX_DIGIT+ }
+next_hash = @{ (ASCII_DIGIT | 'A'..'V' | 'a'..'v')+ }
+
+quoted = ${ "\"" ~ (decimal_escape | character_escape | text)* ~ "\"" }
+unquoted = ${ (decimal_escape | character_escape | unquoted_text)+ }
+decimal_escape = @{ "\\" ~ ASCII_DIGIT{3} }
+character_escape = @{ "\\" ~ !ASCII_DIGIT ~ ANY }
+text = @{ (!("\"" | "\\") ~ ANY)+ }
+unquoted_text = @{ (!(" " | "\t" | "\r" | "\n" | "\"" | "\\" | ";" | "(" | ")") ~ ANY)+ }

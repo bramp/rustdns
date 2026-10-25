@@ -1,10 +1,7 @@
 // RFC 1035 section 5.1. Adjacent quoted strings are also accepted for DoH JSON.
 txt = ${ SOI ~ space* ~ quoted ~ (space* ~ quoted)* ~ space* ~ EOI }
 space = _{ " " | "\t" | "\r" | "\n" }
-quoted = { "\"" ~ (decimal_escape | character_escape | text)* ~ "\"" }
-decimal_escape = @{ "\\" ~ ASCII_DIGIT{3} }
-character_escape = @{ "\\" ~ !ASCII_DIGIT ~ ANY }
-text = @{ (!("\"" | "\\") ~ ANY)+ }
+zone_txt = ${ SOI ~ space* ~ (quoted | unquoted) ~ (space+ ~ (quoted | unquoted))* ~ space* ~ EOI }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
@@ -31,3 +28,5 @@ dnskey = ${ SOI ~ space* ~ dnskey_fields ~ space* ~ EOI }
 rrsig = ${ SOI ~ space* ~ rrsig_fields ~ space* ~ EOI }
 nsec = ${ SOI ~ space* ~ nsec_fields ~ space* ~ EOI }
 zonemd = ${ SOI ~ space* ~ zonemd_fields ~ space* ~ EOI }
+nsec3 = ${ SOI ~ space* ~ nsec3_fields ~ space* ~ EOI }
+nsec3param = ${ SOI ~ space* ~ nsec3param_fields ~ space* ~ EOI }

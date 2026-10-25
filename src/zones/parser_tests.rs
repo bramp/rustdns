@@ -14,6 +14,102 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     #[test]
+    fn checked_in_fixture_covers_all_supported_zone_record_types() {
+        let records = include_str!("fixtures/records.zone")
+            .parse::<File>().unwrap().try_into_records().unwrap();
+        assert_eq!(records.len(), 21);
+        let actual: std::collections::BTreeSet<_> =
+            records.iter().map(|record| record.resource.r#type()).collect();
+        let expected = [
+            crate::Type::A, crate::Type::AAAA, crate::Type::CNAME, crate::Type::PTR,
+            crate::Type::NS, crate::Type::MX, crate::Type::SRV, crate::Type::SOA,
+            crate::Type::DS, crate::Type::DNSKEY, crate::Type::RRSIG, crate::Type::NSEC,
+            crate::Type::ZONEMD, crate::Type::TXT, crate::Type::SPF,
+            crate::Type::NSEC3, crate::Type::NSEC3PARAM,
+        ].into_iter().collect();
+        assert_eq!(actual, expected);
+        for record in &records {
+            let resource = &record.resource;
+            assert_eq!(
+                crate::Resource::parse_text(resource.r#type(), &resource.to_string()).unwrap(),
+                *resource,
+            );
+        }
+        let message = crate::Message { answers: records, ..Default::default() };
+        let encoded = message.to_vec().unwrap();
+        assert_eq!(crate::Message::from_slice(&encoded).unwrap(), message);
+    }
+
+    #[test]
+    fn txt_and_spf_preserve_character_strings_and_punctuation() {
+        for (rdata, expected) in [
+            (r#""v=spf1 " "ip4:192.0.2.0/24 -all""#,
+                vec![b"v=spf1 ".to_vec(), b"ip4:192.0.2.0/24 -all".to_vec()]),
+            (r#"("semi;colon (literal)" ; ignored )
+                "quote: \" slash: \\ bytes: \000\255")"#,
+                vec![b"semi;colon (literal)".to_vec(), b"quote: \" slash: \\ bytes: \0\xff".to_vec()]),
+            (r#"hello\ world semi\;colon \(literal\) \065"#,
+                vec![b"hello world".to_vec(), b"semi;colon".to_vec(), b"(literal)".to_vec(), b"A".to_vec()]),
+            (r#""""#, vec![Vec::new()]),
+            (r#""(" ")" "\;" "\(""#, vec![b"(".to_vec(), b")".to_vec(), b";".to_vec(), b"(".to_vec()]),
+            ("(\"caf\u{e9};(\"\r\n\"second\")", vec!["caf\u{e9};(".as_bytes().to_vec(), b"second".to_vec()]),
+        ] {
+            for kind in [crate::Type::TXT, crate::Type::SPF] {
+                let line = format!("owner IN {kind} {rdata}");
+                let record: Record = line.parse().unwrap();
+                let expected_resource = match kind {
+                    crate::Type::TXT => Resource::TXT(crate::TXT(expected.clone())),
+                    crate::Type::SPF => Resource::SPF(crate::TXT(expected.clone())),
+                    _ => unreachable!(),
+                };
+                assert_eq!(record.resource, expected_resource, "{line}");
+                let file: File = format!("$ORIGIN example.\n$TTL 300\n{line}").parse().unwrap();
+                assert_eq!(file.entries[2], Entry::Record(record), "{line}");
+            }
+        }
+    }
+
+    #[test]
+    fn new_record_types_preserve_owner_type_ambiguity_and_inheritance() {
+        for line in [
+            r#"TXT TXT "value""#, r#"SPF SPF "value""#,
+            "NSEC3 NSEC3 1 0 0 - 00", "NSEC3PARAM NSEC3PARAM 1 0 0 -",
+        ] {
+            let record: Record = line.parse().unwrap();
+            assert_eq!(record.name.as_deref(), line.split_whitespace().next());
+            let file: File = format!("$ORIGIN example.\n$TTL 300\n{line}\n IN TXT \"inherited\"")
+                .parse().unwrap();
+            let records = file.try_into_records().unwrap();
+            assert_eq!(records[0].name, records[1].name);
+        }
+    }
+
+    #[test]
+    fn new_zone_records_reject_malformed_input() {
+        for line in [
+            "@ TXT", "@ SPF", "@ NSEC3", "@ NSEC3PARAM",
+            r#"@ TXT "unterminated"#, r#"@ TXT "bad\12""#,
+            r#"@ TXT "bad\256""#, "@ TXT trailing\\",
+            r#"@ TXT ("unclosed""#, r#"@ TXT "extra")"#,
+            "@ NSEC3 1 0 0 - W0", "@ NSEC3 1 0 0 - 0", "@ NSEC3 1 0 0 - 01",
+            "@ NSEC3 1 0 0 - 00 NOTATYPE", "@ NSEC3 1 0 0 - 00 TYPE65536",
+            "@ NSEC3 1 256 0 - 00", "@ NSEC3 256 0 0 - 00",
+            "@ NSEC3 1 0 65536 - 00", "@ NSEC3 1 0 0 abc 00",
+            "@ NSEC3PARAM 1 0 0 abc", "@ NSEC3PARAM 1 0 0 - extra",
+            "@ NSEC3PARAM 1 0 65536 -",
+        ] {
+            assert!(line.parse::<Record>().is_err(), "{line}");
+            assert!(format!("$ORIGIN example.\n{line}").parse::<File>().is_err(), "{line}");
+        }
+        for kind in ["TXT", "SPF"] {
+            for length in [255, 256] {
+                let line = format!("@ {kind} \"{}\"", "x".repeat(length));
+                assert_eq!(line.parse::<Record>().is_ok(), length == 255, "{length}");
+            }
+        }
+    }
+
+    #[test]
     fn unresolved_payloads_are_core_record_specializations() {
         for line in [
             "@ MX 10 mail",

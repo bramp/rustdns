@@ -15,7 +15,7 @@ libfuzzer-sys = "0.4.13"
 
 [dependencies.rustdns]
 path = ".."
-features = ["arbitrary", "json"]
+features = ["arbitrary", "json", "zones"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -54,5 +54,11 @@ doc = false
 [[bin]]
 name = "rname"
 path = "fuzz_targets/rname.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "zones"
+path = "fuzz_targets/zones.rs"
 test = false
 doc = false

@@ -158,10 +158,11 @@ Transition from stringly-typed domain names (`String` / `&str`) to a strongly-ty
 Authoritative root zone (`root.zone`) and root hints (`named.root`) are supported (see [DESIGN.md](DESIGN.md#5-zone-file-parser--rfc-conformance-specification)). Remaining tasks for general master files:
 
 - [ ] Support `$INCLUDE <path> [<domain>]` directive with cyclic include guards (RFC 1035 §5).
-- [ ] Add quoted string parsing and character escape sequences (`\`, `\DDD`) in [src/zones/zones.pest](src/zones/zones.pest).
+- [x] Add quoted and unquoted TXT/SPF character-string parsing with RFC 1035 escapes (`\`, `\DDD`), preserving quoted punctuation during preprocessing.
+- [ ] Support escaped domain names consistently in [src/zones/zones.pest](src/zones/zones.pest).
 - [ ] Support standard BIND duration abbreviations (`w`, `d`, `h`, `m`, `s`) in `$TTL` and record TTLs.
 - [x] Add `SRV` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.
-- [ ] Add `TXT`, `SPF`, `NSEC3`, and `NSEC3PARAM` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.
+- [x] Add `TXT`, `SPF`, `NSEC3`, and `NSEC3PARAM` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.
 - [ ] Enforce RFC 2181 §5.2 TTL consistency across RRsets in [src/zones/process.rs](src/zones/process.rs).
 - [x] Share the overlapping text/zone RDATA parsers as tracked in section 1.
 - [ ] Validate domain label ($\le 63$) and name ($\le 255$) lengths during zone processing.
@@ -183,7 +184,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 
 ## 7. Fuzzing Strategy
 
-- [ ] **Zone File Fuzzing (`fuzz_zones`)**: Fuzz Pest grammar, preprocessor bracket counting, and `Record::from_str`.
+- [x] **Zone File Fuzzing (`zones`)**: Exercise single-record and full-file parsing, quote-safe preprocessing, origin resolution, and wire encoding with a 16 KiB input bound.
 - [x] **Round-Trip Serialization (`from_slice`)**: Exercised in [fuzz/fuzz_targets/from_slice.rs](fuzz/fuzz_targets/from_slice.rs).
 - [x] **Structured Encoding and Limits (`encode`)**: Exercised in [fuzz/fuzz_targets/encode.rs](fuzz/fuzz_targets/encode.rs).
 - [x] **Text Resource Parsing (`from-str`)**: Exercised in [fuzz/fuzz_targets/from-str.rs](fuzz/fuzz_targets/from-str.rs).

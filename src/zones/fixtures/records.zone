@@ -1,0 +1,28 @@
+; Hand-authored master-file regression fixture, not a cryptographically signed zone.
+$ORIGIN example.
+$TTL 300
+@ IN SOA ns hostmaster (2026102501 3600 900 604800 300)
+@ IN NS ns
+ns IN A 192.0.2.53
+ns IN AAAA 2001:db8::53
+alias IN CNAME ns
+ptr IN PTR ns
+@ IN MX 10 mail
+service IN SRV 10 20 443 ns
+@ IN DS 12345 8 2 aabbccdd
+@ IN DNSKEY 257 3 8 AQID
+@ IN RRSIG A 8 1 300 20300101000000 20200101000000 12345 example. AQID
+@ IN NSEC alias A NS SOA MX TXT RRSIG NSEC DNSKEY
+@ IN ZONEMD 2026102501 1 1 aabbccdd
+text IN TXT (
+    "v=DKIM1; k=rsa; p=" ; punctuation inside quotes is data
+    "AQID(keep)" "quote: \" slash: \\ bytes: \000\255"
+)
+spf IN SPF "v=spf1 " "ip4:192.0.2.0/24 -all"
+unquoted IN TXT hello\ world semi\;colon \(literal\) \065
+empty IN TXT ""
+hash IN NSEC3 (1 1 12 aabbccdd
+    0p9mhaveqvm6t7vbl5lop2u3t2rp3tom A NS SOA MX TXT RRSIG DNSKEY NSEC3PARAM)
+@ IN NSEC3PARAM 1 0 12 aabbccdd
+nosalt IN NSEC3 1 0 0 - 00
+nosalt IN NSEC3PARAM 1 0 0 -

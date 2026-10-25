@@ -6,6 +6,9 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- Zone preprocessing preserves quoted and escaped semicolons and parentheses,
+  and rejects unmatched grouping parentheses. Single-record parsing now uses
+  the same preprocessing as full files, including multiline grouped records.
 - Unified core and unresolved MX, SRV, SOA, RRSIG, and NSEC payloads using internal
   generic name storage. Public core names are concrete aliases with validated
   `Name`/`Rname`; zone `Unresolved*` aliases use owned strings. Borrowed parsers
@@ -46,6 +49,15 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- Zone-file TXT, SPF, NSEC3, and NSEC3PARAM parsing, with a checked-in mixed-record
+  regression fixture that runs independently of downloaded root-zone fixtures.
+  TXT/SPF support quoted and unquoted character-strings, RFC 1035 escapes, and
+  multiline grouping; each decoded string is limited to 255 octets.
+- NSEC3 and NSEC3PARAM `FromStr` and `Resource::parse_text` support under `text`,
+  shared with zone parsing. Salt and next-owner hashes respect wire length limits;
+  unpadded base32hex hashes are checked for complete octets and zero padding bits.
+- A bounded `zones` fuzz target covering preprocessing, record/file parsing,
+  origin resolution, and wire encoding.
 - Zone-file SRV parsing, including relative target names and origin resolution.
 - Added `web-dig`, an in-browser WebAssembly DNS query tool supporting DoH
   (RFC 8484) and JSON DoH APIs with authentic dig output formatting.
