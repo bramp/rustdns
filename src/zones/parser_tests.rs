@@ -14,6 +14,27 @@ mod tests {
     use std::time::UNIX_EPOCH;
 
     #[test]
+    fn dname_zone_targets_resolve_without_rewriting_other_records() {
+        for (target, expected) in [
+            ("new", "new.example."),
+            ("@", "example."),
+            ("other.", "other."),
+            (r"new\.label", r"new\.label.example."),
+        ] {
+            let input =
+                format!("$ORIGIN example.\n$TTL 60\nold DNAME {target}\nwww.old A 192.0.2.1");
+            let records = input.parse::<File>().unwrap().try_into_records().unwrap();
+            assert_eq!(
+                records[0].resource,
+                crate::Resource::DNAME(crate::Name::from_presentation(expected).unwrap())
+            );
+            assert_eq!(records[1].name.as_ascii(), "www.old.example.");
+        }
+        for input in ["old DNAME", "old DNAME target extra"] {
+            assert!(input.parse::<Record>().is_err(), "{input}");
+        }
+    }
+    #[test]
     fn dns_names_support_service_wildcard_and_escaped_labels() {
         let text = r#"$ORIGIN example.
 $TTL 300
@@ -91,7 +112,7 @@ a\. A 192.0.2.1",
             .unwrap()
             .try_into_records()
             .unwrap();
-        assert_eq!(records.len(), 21);
+        assert_eq!(records.len(), 22);
         let actual: std::collections::BTreeSet<_> = records
             .iter()
             .map(|record| record.resource.r#type())
@@ -100,6 +121,7 @@ a\. A 192.0.2.1",
             crate::Type::A,
             crate::Type::AAAA,
             crate::Type::CNAME,
+            crate::Type::DNAME,
             crate::Type::PTR,
             crate::Type::NS,
             crate::Type::MX,
@@ -189,6 +211,7 @@ a\. A 192.0.2.1",
         for line in [
             r#"TXT TXT "value""#,
             r#"SPF SPF "value""#,
+            "DNAME DNAME target",
             "NSEC3 NSEC3 1 0 0 - 00",
             "NSEC3PARAM NSEC3PARAM 1 0 0 -",
         ] {

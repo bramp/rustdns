@@ -161,6 +161,7 @@ impl fmt::Display for Resource {
 
             Resource::NS(name) => name.fmt(f),
             Resource::CNAME(name) => name.fmt(f),
+            Resource::DNAME(name) => name.fmt(f),
             Resource::PTR(name) => name.fmt(f),
 
             Resource::SOA(soa) => soa.fmt(f),

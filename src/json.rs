@@ -237,8 +237,8 @@ impl TryInto<Question> for QuestionJson {
 
     fn try_into(self) -> Result<Question, Self::Error> {
         let r#type = Type::from(self.r#type);
-        let name = crate::names::Name::new(&self.name)
-            .map_err(|_| JsonError::InvalidName(self.name))?;
+        let name =
+            crate::names::Name::new(&self.name).map_err(|_| JsonError::InvalidName(self.name))?;
 
         Ok(Question {
             name,
@@ -271,8 +271,8 @@ impl TryInto<Record> for RecordJson {
 
     fn try_into(self) -> Result<Record, Self::Error> {
         let r#type = Type::from(self.r#type);
-        let name = crate::names::Name::new(&self.name)
-            .map_err(|_| JsonError::InvalidName(self.name))?;
+        let name =
+            crate::names::Name::new(&self.name).map_err(|_| JsonError::InvalidName(self.name))?;
 
         let resource = Resource::parse_text(r#type, &self.data)
             .map_err(|x| JsonError::InvalidResource(r#type, x))?;
@@ -445,16 +445,35 @@ mod tests {
     }
 
     #[test]
+    fn dname_json_round_trips_typed_targets() {
+        let text = r#"{
+            "Status": 0,
+            "Question": [{"name": "www.old.example.", "type": 1}],
+            "Answer": [{"name": "old.example.", "type": 39, "TTL": 300, "data": "new.example."}]
+        }"#;
+        let message = from_str(text).unwrap();
+        assert!(
+            matches!(&message.answers[0].resource, crate::Resource::DNAME(name)
+            if name == "new.example.")
+        );
+        let decoded = from_str(&to_string(&message).unwrap()).unwrap();
+        assert_eq!(decoded.answers, message.answers);
+    }
+
+    #[test]
     fn test_record_json_punycode_serialization() {
         let mut msg = Message::default();
         msg.try_add_question("🍕.ws", Type::A, Class::Internet)
             .expect("valid question");
-        msg.answers.push(Record::try_new(
-            "🍕.ws",
-            Class::Internet,
-            Duration::from_secs(300),
-            Resource::A("208.100.42.200".parse().unwrap()),
-        ).expect("valid record"));
+        msg.answers.push(
+            Record::try_new(
+                "🍕.ws",
+                Class::Internet,
+                Duration::from_secs(300),
+                Resource::A("208.100.42.200".parse().unwrap()),
+            )
+            .expect("valid record"),
+        );
 
         let json_str = to_string(&msg).expect("serialization succeeds");
 

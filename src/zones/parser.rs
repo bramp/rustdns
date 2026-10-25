@@ -136,6 +136,13 @@ impl ZoneParser {
     }
 
     #[alias(resource)]
+    fn resource_dname(input: Node<'_>) -> Result<Resource> {
+        Ok(match_nodes!(input.into_children();
+            [domain(name)] => Resource::DNAME(name.to_owned()),
+        ))
+    }
+
+    #[alias(resource)]
     fn resource_ns(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_ns);
 

@@ -707,6 +707,51 @@ mod tests {
     }
 
     #[test]
+    fn dname_round_trips_without_compressing_its_target() {
+        assert_eq!(Type::from(39), Type::DNAME);
+        assert_eq!(Type::DNAME.code(), 39);
+        assert_eq!("dname".parse::<Type>().unwrap(), Type::DNAME);
+        assert_eq!("TYPE39".parse::<Type>().unwrap(), Type::DNAME);
+        let resource = Resource::DNAME(Name::from_presentation(r"TaRget\.label.example.").unwrap());
+        let mut rdata = Vec::new();
+        resource.append_rdata_to_vec(&mut rdata).unwrap();
+        assert_eq!(rdata, b"\x0cTaRget.label\x07example\0");
+        let message = Message {
+            answers: vec![Record::new(
+                Name::new("old.example.").unwrap(),
+                Class::Internet,
+                std::time::Duration::from_secs(300),
+                resource,
+            )],
+            ..Default::default()
+        };
+        assert_eq!(
+            Message::from_slice(&message.to_vec().unwrap()).unwrap(),
+            message
+        );
+    }
+
+    #[test]
+    fn dname_rejects_compressed_missing_truncated_and_extra_targets() {
+        fn packet(rdata: &[u8]) -> Vec<u8> {
+            let mut bytes = vec![0; 12];
+            bytes[7] = 1;
+            bytes.extend_from_slice(&[0, 0, 39, 0, 1, 0, 0, 0, 60]);
+            bytes.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+            bytes.extend_from_slice(rdata);
+            bytes
+        }
+        assert!(matches!(
+            Message::from_slice(&packet(&[0xc0, 12])),
+            Err(crate::DecodeError::NameCompressionForbidden),
+        ));
+        for rdata in [&[][..], &[3, b'a'], &[0, 0], &[0x40, 0]] {
+            assert!(Message::from_slice(&packet(rdata)).is_err(), "{rdata:?}");
+        }
+        assert!(Message::from_slice(&packet(&[0])).is_ok());
+    }
+
+    #[test]
     fn question_ascii_name_encodes_punycode() {
         let mut msg = Message::default();
         msg.try_add_question("🍕.ws", Type::A, Class::Internet)

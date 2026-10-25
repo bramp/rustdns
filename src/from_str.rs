@@ -68,6 +68,7 @@ impl Resource {
             // Simple strings (domains)
             Type::NS => Resource::NS(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
             Type::CNAME => Resource::CNAME(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
+            Type::DNAME => Resource::DNAME(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
             Type::PTR => Resource::PTR(s.parse().map_err(|_| FromStrError::InvalidFormat)?),
 
             // Complex types
@@ -497,6 +498,18 @@ mod tests {
     use super::{DNSKEY, DS, FromStrError, MX, NSEC, RRSIG, Resource, SOA, SRV, TXT, ZONEMD};
     use crate::Type;
 
+    #[test]
+    fn dname_text_parses_targets_without_aliasing_the_owner() {
+        let target = crate::Name::from_presentation(r"new\.label.example.").unwrap();
+        let resource = Resource::parse_text(Type::DNAME, r"new\.label.example.").unwrap();
+        assert_eq!(resource, Resource::DNAME(target));
+        assert_eq!(resource.r#type(), Type::DNAME);
+        assert_eq!(
+            Resource::parse_text(Type::DNAME, &resource.to_string()).unwrap(),
+            resource
+        );
+        assert!(Resource::parse_text(Type::DNAME, "bad..target.").is_err());
+    }
     #[test]
     fn nsec3_text_round_trips_and_preserves_type_bitmaps() {
         for text in [

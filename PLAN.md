@@ -166,7 +166,7 @@ Authoritative root zone (`root.zone`) and root hints (`named.root`) are supporte
   - Accept service labels, wildcard owners, and other legal DNS presentation characters.
 - [ ] <a id="zone-record-types"></a> Extend typed zone RDATA support to BIND fixture record types not yet implemented
   (retain explicit exclusions for types outside the intended library scope).
-  - [ ] <a id="zone-dname"></a> Add DNAME records and origin resolution.
+  - [x] <a id="zone-dname"></a> Add DNAME records and origin resolution (not resolver-side subtree substitution).
   - [ ] <a id="zone-cds"></a> Add CDS and CDNSKEY RDATA parsing.
   - [ ] <a id="zone-svcb"></a> Add SVCB/HTTPS service binding RDATA parsing and parameter validation.
   - [ ] <a id="zone-deleg"></a> Evaluate DELEG/DELEGPARAM support against the pinned BIND syntax.

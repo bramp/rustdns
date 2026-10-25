@@ -132,9 +132,9 @@ cases:
   - {file: good-generate-modifier.db, expect: todo, failure: parse, reason: "TODO: implement bounded $GENERATE expansion; [roadmap](../PLAN.md#zone-generate)."}
   - {file: good-nsap.db, expect: todo, failure: parse, reason: "TODO: implement NSAP RDATA; [roadmap](../PLAN.md#zone-nsap)."}
   - {file: good-nsec3-nopadhash.db, expect: accept}
-  - {file: good-occulted-ns-by-dname.db, expect: todo, failure: parse, reason: "TODO: implement DNAME RDATA; [roadmap](../PLAN.md#zone-dname)."}
+  - {file: good-occulted-ns-by-dname.db, expect: accept}
   - {file: good-occulted-ns-by-ns.db, expect: accept}
   - {file: good-rpz-prefix.db, expect: accept, origin: db.}
   - {file: good-spf-exception.db, expect: accept}
   - {file: good-svcb.db, expect: todo, failure: parse, reason: "TODO: implement SVCB RDATA; [roadmap](../PLAN.md#zone-svcb)."}
-  - {file: good1.db, expect: todo, failure: parse, reason: "TODO: implement DNAME RDATA; [roadmap](../PLAN.md#zone-dname)."}
+  - {file: good1.db, expect: accept}

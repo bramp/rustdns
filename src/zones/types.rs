@@ -1,7 +1,7 @@
 //! Zone file AST data structures before directive inheritance and name resolution.
 
-use crate::resource::{A, AAAA, DNSKEY, DS, NSEC3, NSEC3PARAM, RawResource, TXT, ZONEMD};
 use super::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
+use crate::resource::{A, AAAA, DNSKEY, DS, NSEC3, NSEC3PARAM, RawResource, TXT, ZONEMD};
 
 /// An unprocessed zone file resource record data payload before origin resolution.
 ///
@@ -16,6 +16,8 @@ pub enum Resource {
     AAAA(AAAA),
     /// Canonical name (CNAME) record before origin resolution.
     CNAME(String),
+    /// DNAME target before origin resolution.
+    DNAME(String),
     /// Name Server (NS) record before origin resolution.
     NS(String),
     /// Pointer (PTR) record before origin resolution.

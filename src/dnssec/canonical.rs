@@ -61,7 +61,10 @@ fn append_canonical_rdata_to_vec(
     buf: &mut Vec<u8>,
 ) -> Result<(), EncodeError> {
     match resource {
-        Resource::CNAME(name) | Resource::NS(name) | Resource::PTR(name) => {
+        Resource::CNAME(name)
+        | Resource::DNAME(name)
+        | Resource::NS(name)
+        | Resource::PTR(name) => {
             name.to_canonical().append_to_vec(buf);
         }
         Resource::MX(mx) => {
@@ -251,6 +254,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dname_target_is_canonicalized_as_uncompressed_labels() {
+        let resource = Resource::DNAME(Name::from_presentation(r"TaRget\.Label.Example.").unwrap());
+        let mut rdata = Vec::new();
+        append_canonical_rdata_to_vec(&resource, &mut rdata).unwrap();
+        assert_eq!(rdata, b"\x0ctarget.label\x07example\0");
+    }
     #[test]
     fn test_canonical_record_sorting() {
         let owner = Name::new("example.com.").unwrap();

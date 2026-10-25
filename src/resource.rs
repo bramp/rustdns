@@ -33,6 +33,17 @@ pub type NS = Name;
 #[allow(clippy::upper_case_acronyms)]
 pub type CNAME = Name;
 
+/// DNAME target for redirecting descendants of the owner to another subtree.
+///
+/// The owner itself is not aliased. For example, `old.example. DNAME new.example.`
+/// redirects `www.old.example.` to `www.new.example.`, but does not redirect
+/// `old.example.`. This payload models the record; it does not perform resolver
+/// substitution or synthesize CNAME responses. Targets are encoded without name
+/// compression, as required by [RFC 6672 §2.1].
+///
+/// [RFC 6672 §2.1]: https://www.rfc-editor.org/rfc/rfc6672#section-2.1
+pub type DNAME = Name;
+
 /// Pointer (PTR) record most commonly used for most common use is for
 /// implementing reverse DNS lookups.
 #[allow(clippy::upper_case_acronyms)]
@@ -49,7 +60,10 @@ impl Resource {
         match self {
             Resource::A(address) => buf.extend_from_slice(&address.octets()),
             Resource::AAAA(address) => buf.extend_from_slice(&address.octets()),
-            Resource::CNAME(name) | Resource::NS(name) | Resource::PTR(name) => {
+            Resource::CNAME(name)
+            | Resource::DNAME(name)
+            | Resource::NS(name)
+            | Resource::PTR(name) => {
                 name.append_to_vec(buf);
             }
             Resource::TXT(txt) | Resource::SPF(txt) => txt.append_rdata_to_vec(buf)?,
@@ -143,6 +157,7 @@ impl Record {
             Type::NS => Resource::NS(record.read_qname()?),
             Type::SOA => Resource::SOA(SOA::parse(&mut record)?),
             Type::CNAME => Resource::CNAME(record.read_qname()?),
+            Type::DNAME => Resource::DNAME(record.read_uncompressed_qname()?),
             Type::PTR => Resource::PTR(record.read_qname()?),
             Type::MX => Resource::MX(MX::parse(&mut record)?),
             Type::TXT => Resource::TXT(TXT::parse(&mut record)?),

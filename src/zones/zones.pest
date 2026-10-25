@@ -43,6 +43,7 @@ resource = _{
 	  resource_a
 	| resource_aaaa
 	| resource_cname
+	| resource_dname
 	| resource_nsec
 	| resource_ns
 	| resource_mx
@@ -62,6 +63,7 @@ resource = _{
 resource_a      = {^"A"      ~ ws ~ ip4}
 resource_aaaa   = {^"AAAA"   ~ ws ~ ip6}
 resource_cname  = {^"CNAME"  ~ ws ~ domain}
+resource_dname  = {^"DNAME"  ~ ws ~ domain}
 resource_nsec   = {^"NSEC"   ~ ws ~ nsec_rdata}
 resource_ns     = {^"NS"     ~ ws ~ domain}
 resource_mx     = {^"MX"     ~ ws ~ mx_rdata}

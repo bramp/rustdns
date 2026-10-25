@@ -106,6 +106,10 @@ pub enum DecodeError {
     #[error("compressed name pointer refers to later bytes")]
     NamePointerNotBackwards,
 
+    /// A field requiring an uncompressed domain name contained a compression pointer.
+    #[error("name compression is forbidden in this field")]
+    NameCompressionForbidden,
+
     /// A name label used compression bits this crate does not support.
     #[error("unsupported name compression bits '{bits:02b}'")]
     UnsupportedNameCompression {

@@ -93,12 +93,17 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
     /// Returns a [`DecodeError`] when the name is malformed, uses unsupported
     /// compression, or runs past the end of the message.
     fn read_qname(&mut self) -> Result<Name, DecodeError> {
-        let wire = read_qname_at_depth(self, 0)?;
+        let wire = read_qname_at_depth(self, 0, true)?;
+        Ok(Name::from_wire(wire))
+    }
+
+    fn read_uncompressed_qname(&mut self) -> Result<Name, DecodeError> {
+        let wire = read_qname_at_depth(self, 0, false)?;
         Ok(Name::from_wire(wire))
     }
 
     fn read_rname(&mut self) -> Result<crate::Rname, DecodeError> {
-        let wire = read_qname_at_depth(self, 0)?;
+        let wire = read_qname_at_depth(self, 0, true)?;
         crate::Rname::from_wire(wire).map_err(DecodeError::InvalidRname)
     }
 
@@ -122,6 +127,7 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
 fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
     reader: &mut R,
     depth: usize,
+    allow_compression: bool,
 ) -> Result<Vec<u8>, DecodeError> {
     if depth > MAX_QNAME_POINTER_DEPTH {
         return Err(DecodeError::NamePointerDepthExceeded {
@@ -159,6 +165,9 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
 
             // Compression
             0xC0 => {
+                if !allow_compression {
+                    return Err(DecodeError::NameCompressionForbidden);
+                }
                 // Read the 14 bit pointer.
                 let b2 = reader.read_u8()? as u16;
                 let ptr = ((len as u16 & !0xC0) << 8 | b2) as u64;
@@ -174,7 +183,7 @@ fn read_qname_at_depth<R: io::Read + io::Seek + ?Sized>(
 
                 // Jump and start reading the qname again.
                 reader.seek(SeekFrom::Start(ptr))?;
-                let suffix = read_qname_at_depth(reader, depth + 1)?;
+                let suffix = read_qname_at_depth(reader, depth + 1, allow_compression)?;
                 qname.extend_from_slice(&suffix);
 
                 // Reset ourselves.

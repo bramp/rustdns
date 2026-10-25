@@ -6,6 +6,7 @@ $TTL 300
 ns IN A 192.0.2.53
 ns IN AAAA 2001:db8::53
 alias IN CNAME ns
+subtree IN DNAME target
 ptr IN PTR ns
 @ IN MX 10 mail
 service IN SRV 10 20 443 ns

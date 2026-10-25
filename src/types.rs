@@ -13,8 +13,8 @@ pub use crate::edns::{
 };
 use crate::names::Name;
 use crate::resource::{
-    A, AAAA, CNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, PTR, RRSIG, RawResource, SOA, SRV,
-    TXT, ZONEMD,
+    A, AAAA, CNAME, DNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, PTR, RRSIG, RawResource,
+    SOA, SRV, TXT, ZONEMD,
 };
 use std::time::Duration;
 use strum_macros::{Display, EnumString};
@@ -599,6 +599,9 @@ pub enum Type {
     /// Canonical name for an alias.
     CNAME,
 
+    /// Redirects descendants of the owner to another domain subtree (RFC 6672).
+    DNAME,
+
     /// Start of a zone of authority.
     SOA,
 
@@ -684,6 +687,7 @@ impl Type {
             Type::A => 1,
             Type::NS => 2,
             Type::CNAME => 5,
+            Type::DNAME => 39,
             Type::SOA => 6,
             Type::PTR => 12,
             Type::MX => 15,
@@ -712,6 +716,7 @@ impl From<u16> for Type {
             1 => Type::A,
             2 => Type::NS,
             5 => Type::CNAME,
+            39 => Type::DNAME,
             6 => Type::SOA,
             12 => Type::PTR,
             15 => Type::MX,
@@ -740,6 +745,7 @@ impl std::fmt::Display for Type {
             Type::A => "A",
             Type::NS => "NS",
             Type::CNAME => "CNAME",
+            Type::DNAME => "DNAME",
             Type::SOA => "SOA",
             Type::PTR => "PTR",
             Type::MX => "MX",
@@ -772,6 +778,7 @@ impl std::str::FromStr for Type {
             "A" => Ok(Type::A),
             "NS" => Ok(Type::NS),
             "CNAME" => Ok(Type::CNAME),
+            "DNAME" => Ok(Type::DNAME),
             "SOA" => Ok(Type::SOA),
             "PTR" => Ok(Type::PTR),
             "MX" => Ok(Type::MX),
@@ -1164,6 +1171,8 @@ pub enum Resource {
 
     /// Canonical name (CNAME) record, for aliasing one name to another.
     CNAME(CNAME),
+    /// DNAME target for redirecting names below the owner, not the owner itself.
+    DNAME(DNAME),
     /// Name Server (NS) record for delegating to the given authoritative name servers.
     NS(NS),
     /// Pointer (PTR) record most commonly used for implementing reverse DNS lookups.
@@ -1217,6 +1226,7 @@ impl Resource {
             Resource::A(_) => Type::A,
             Resource::AAAA(_) => Type::AAAA,
             Resource::CNAME(_) => Type::CNAME,
+            Resource::DNAME(_) => Type::DNAME,
             Resource::NS(_) => Type::NS,
             Resource::PTR(_) => Type::PTR,
             Resource::TXT(_) => Type::TXT,

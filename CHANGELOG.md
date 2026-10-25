@@ -55,6 +55,11 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- DNAME (type 39) support in protocol types, wire encoding/decoding, text and JSON
+  parsing, formatting, zone origin resolution, and DNSSEC canonicalization.
+  DNAME targets are emitted uncompressed; compressed targets are rejected.
+  Resolver-side DNAME substitution and CNAME synthesis are not implemented.
+  Two additional BIND valid-zone fixtures now pass.
 - Zone domain-name syntax for service labels, wildcards, quoted names, and RFC
   1035 escapes, with escape-aware origin resolution and decoded wire-length
   validation. Three BIND name fixtures are now passing instead of TODOs.

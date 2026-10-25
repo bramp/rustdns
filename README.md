@@ -9,7 +9,7 @@ rustdns is a simple, fast, and fully fledged DNS library for interacting
 with domain name services at a high or low level.
 
 ## Features
-* Parsing and generating record types: A, AAAA, CNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, OPT, PTR, RRSIG, SOA, SPF, SRV, TXT, and ZONEMD (plus raw/unrecognized record fallback).
+* Parsing and generating record types: A, AAAA, CNAME, DNAME, DNSKEY, DS, MX, NS, NSEC, NSEC3, NSEC3PARAM, OPT, PTR, RRSIG, SOA, SPF, SRV, TXT, and ZONEMD (plus raw/unrecognized record fallback).
 * Multiple client transports ([`clients::Exchanger`] / [`clients::AsyncExchanger`]): UDP, TCP, combined Do53, DNS-over-TLS (DoT, [RFC 7858]), DNS-over-HTTPS (DoH, [RFC 8484]), and DNS-over-HTTPS JSON.
 * High-level asynchronous [`Resolver`] with multi-upstream failover, exponential backoff, deadline budgets, and concurrent dual-stack address lookups.
 * Full DNSSEC cryptographic validation ([RFC 4034], [RFC 4035], [RFC 5155], [RFC 6840]) with built-in IANA root trust anchors and delegation chain verification.

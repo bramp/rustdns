@@ -268,6 +268,10 @@ impl File {
                 let name = Self::resolve_name(domain, origin, entry_index, record_name)?;
                 Ok(crate::Resource::CNAME(name))
             }
+            crate::zones::Resource::DNAME(domain) => {
+                let name = Self::resolve_name(domain, origin, entry_index, record_name)?;
+                Ok(crate::Resource::DNAME(name))
+            }
             crate::zones::Resource::NS(domain) => {
                 let name = Self::resolve_name(domain, origin, entry_index, record_name)?;
                 Ok(crate::Resource::NS(name))
