@@ -102,6 +102,18 @@ jobs:
       - name: Run tests (default features)
         run: cargo test --workspace --verbose
 
+      - name: Cache pinned BIND checkzone fixtures
+        uses: actions/cache@v6
+        with:
+          path: tests/fixtures/bind-checkzone
+          key: bind-checkzone-${{ hashFiles('tests/bind_checkzone.yaml', 'scripts/fetch_bind_fixtures.sh') }}
+
+      - name: Fetch BIND checkzone fixtures
+        run: ./scripts/fetch_bind_fixtures.sh
+
+      - name: Run BIND checkzone conformance suite
+        run: cargo test -p rustdns --test bind_checkzone -- --include-ignored --nocapture
+
       - name: Run tests (no default features)
         run: cargo test --workspace --no-default-features --verbose
 

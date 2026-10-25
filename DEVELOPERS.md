@@ -79,6 +79,51 @@ Root hint (`named.root`), root zone (`root.zone`), and IANA trust anchor (`root-
   ./scripts/fetch_root_fixtures.sh --force
   ```
 
+### BIND Checkzone Conformance
+
+Fetch the pinned upstream master files and run the opt-in conformance suite:
+
+```sh
+./scripts/fetch_bind_fixtures.sh
+cargo test -p rustdns --test bind_checkzone -- --include-ignored --nocapture
+```
+
+The script downloads the exact BIND commit in [tests/bind_checkzone.yaml](tests/bind_checkzone.yaml)
+to ignored `tests/fixtures/bind-checkzone/`, retaining upstream `LICENSE`,
+`COPYRIGHT`, and `tests.sh`. Repeat fetches reuse complete matching fixtures;
+`--force` refreshes them. No BIND executable or network access is needed by the
+tests. CI fetches and explicitly runs the suite on stable Rust and the MSRV.
+Ordinary test runs validate the configuration without requiring downloaded data;
+the corpus test is explicitly ignored, not silently skipped when fixtures are absent.
+
+The inventory covers every `good*.db` and `bad*.db` in BIND's checkzone `zones/`
+directory. Binary files, generated templates, and unrelated inputs used by the
+rest of BIND's shell harness are outside this initial suite.
+
+Every file has an explicit disposition:
+
+- `accept`: parsing and origin resolution must succeed and produce records.
+- `reject`: parsing/RDATA validation must fail at the configured `error_line`,
+  rather than passing because of an unrelated processing error or later record.
+- `todo`: a valid upstream fixture currently fails in the specified `failure`
+  stage (`parse` or `process`). Unexpected success or a stage change fails the
+  test, requiring the exception to be reviewed.
+- `excluded`: not executed. Reasons distinguish authoritative-zone/BIND policy
+  from deferred negative tests for unsupported functionality. Deferred cases
+  carry a `TODO` and a link to a specific [PLAN.md](PLAN.md) feature anchor; do
+  not count their unsupported-syntax errors as correct RDATA validation.
+
+Origins default to `example.`; special origins from BIND's runner are explicit.
+Missing fixtures, revision mismatches, unlisted files, stale/duplicate entries,
+unknown configuration fields, and broken TODO anchors fail the suite.
+
+When updating the pin, fetch again and account for every added or removed master
+file. Review upstream `tests.sh` for changed expectations and special options.
+When implementing a feature, promote passing TODOs to `accept` and review its
+deferred negative cases for promotion to `reject`. Rejection locations alone are
+not a substitute for checking BIND's intended failure reason. This is an
+acceptance/rejection baseline, not full BIND policy or normalized-record equivalence.
+
 ## Minimum Supported Rust Version (MSRV) Policy
 
 `rustdns` targets a modern and predictable Rust baseline:

@@ -157,9 +157,24 @@ Transition from stringly-typed domain names (`String` / `&str`) to a strongly-ty
 
 Authoritative root zone (`root.zone`) and root hints (`named.root`) are supported (see [DESIGN.md](DESIGN.md#5-zone-file-parser--rfc-conformance-specification)). Remaining tasks for general master files:
 
-- [ ] Support `$INCLUDE <path> [<domain>]` directive with cyclic include guards (RFC 1035 §5).
+- [x] Establish a pinned BIND checkzone acceptance/rejection baseline with
+  [per-file exceptions](tests/bind_checkzone.yaml), feature-linked TODOs, and an
+  explicit CI run. This does not include all BIND policy or harness tests.
+- [ ] <a id="zone-includes"></a> Support `$INCLUDE <path> [<domain>]` directive with cyclic include guards (RFC 1035 §5).
 - [x] Add quoted and unquoted TXT/SPF character-string parsing with RFC 1035 escapes (`\`, `\DDD`), preserving quoted punctuation during preprocessing.
-- [ ] Support escaped domain names consistently in [src/zones/zones.pest](src/zones/zones.pest).
+- [ ] <a id="zone-names"></a> Support escaped domain names consistently in [src/zones/zones.pest](src/zones/zones.pest).
+  - Accept service labels, wildcard owners, and other legal DNS presentation characters.
+- [ ] <a id="zone-record-types"></a> Extend typed zone RDATA support to BIND fixture record types not yet implemented
+  (retain explicit exclusions for types outside the intended library scope).
+  - [ ] <a id="zone-dname"></a> Add DNAME records and origin resolution.
+  - [ ] <a id="zone-cds"></a> Add CDS and CDNSKEY RDATA parsing.
+  - [ ] <a id="zone-svcb"></a> Add SVCB/HTTPS service binding RDATA parsing and parameter validation.
+  - [ ] <a id="zone-deleg"></a> Evaluate DELEG/DELEGPARAM support against the pinned BIND syntax.
+  - [ ] <a id="zone-nsap"></a> Evaluate NSAP presentation support and hexadecimal syntax validation.
+  - [ ] Add RFC 3597 generic RDATA parsing and triage remaining legacy types individually.
+- [ ] <a id="zone-generate"></a> Support BIND `$GENERATE` syntax with explicit expansion limits.
+- [ ] <a id="zone-nsec3-validation"></a> Validate NSEC3 algorithm-dependent hash lengths and owner syntax without
+  mistaking general domain-name grammar rejection for NSEC3 validation.
 - [ ] Support standard BIND duration abbreviations (`w`, `d`, `h`, `m`, `s`) in `$TTL` and record TTLs.
 - [x] Add `SRV` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.
 - [x] Add `TXT`, `SPF`, `NSEC3`, and `NSEC3PARAM` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.

@@ -49,6 +49,9 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- A pinned BIND checkzone fixture fetcher and opt-in conformance suite, run
+  explicitly in CI. Per-file configuration tracks acceptance, targeted rejection,
+  known gaps, and policy exclusions, with feature TODO links into the roadmap.
 - Zone-file TXT, SPF, NSEC3, and NSEC3PARAM parsing, with a checked-in mixed-record
   regression fixture that runs independently of downloaded root-zone fixtures.
   TXT/SPF support quoted and unquoted character-strings, RFC 1035 escapes, and

@@ -1,0 +1,140 @@
+# Pinned good*.db and bad*.db master files, not BIND binary/generated harness inputs.
+# Exact filenames only. TODOs fail on unexpected success; excluded cases are not run.
+revision: b156e8eae40686133ee0d7b3b02c9dc5e943b7c1
+cases:
+  - {file: bad-_dns-svcb1.db, expect: excluded, reason: "TODO: validate _dns-svcb1 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-_dns-svcb2.db, expect: excluded, reason: "TODO: validate _dns-svcb2 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-_dns-svcb3.db, expect: excluded, reason: "TODO: validate _dns-svcb3 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-_dns-svcb4.db, expect: excluded, reason: "TODO: validate _dns-svcb4 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-_dns-svcb5.db, expect: excluded, reason: "TODO: validate _dns-svcb5 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-_dns-svcb6.db, expect: excluded, reason: "TODO: validate _dns-svcb6 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-caa-rr.db, expect: excluded, reason: "TODO: validate caa-rr RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-cdnskey.db, expect: excluded, reason: "Excluded: CDS/CDNSKEY consistency is authoritative-zone policy. TODO: add CDS/CDNSKEY parsing before evaluating these fixtures; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-cds.db, expect: excluded, reason: "Excluded: CDS/CDNSKEY consistency is authoritative-zone policy. TODO: add CDS/CDNSKEY parsing before evaluating these fixtures; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-cname-and-a.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-a6.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-aaaa.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-afsdb.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-amtrelay.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-apl.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-atma.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-avc.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-brid.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-caa.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-cdnskey.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-cds.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-cert.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-csync.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-dhcid.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-dlv.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-dname.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-doa.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-dsync.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-eid.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-eui48.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-eui64.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-gpos.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-hhit.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-hinfo.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-hip.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-https.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-ipseckey.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-isdn.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-key.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-kx.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-l32.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-l64.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-loc.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-lp.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-md.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-mg.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-minfo.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-mx.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-naptr.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-nid.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-nimloc.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-ninfo.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-ns-soa.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-nsap-ptr.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-nsap.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-openpgpkey.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-ptr.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-px.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-resinfo.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-rkey.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-rp.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-rt.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-sink.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-smimea.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-spf.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-srv.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-sshfp.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-svcb.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-ta.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-talink.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-tlsa.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-txt.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-type-540.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-type69.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-uri.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-wallet.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-wks.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-x25.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-cname-and-zonemd.db, expect: excluded, reason: "Excluded: CNAME coexistence is authoritative-zone policy, not parser validation."}
+  - {file: bad-deleg-apex.db, expect: excluded, reason: "Excluded: delegation placement is authoritative-zone policy."}
+  - {file: bad-deleg-into-zone.db, expect: excluded, reason: "Excluded: delegation placement is authoritative-zone policy."}
+  - {file: bad-dhcid.db, expect: excluded, reason: "TODO: validate dhcid RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-dns-sd-reverse.db, expect: excluded, origin: 0.0.0.0.in-addr.arpa., reason: "Excluded: BIND check-names/RPZ policy, not DNS presentation syntax."}
+  - {file: bad-ds-2.db, expect: excluded, reason: "Excluded: delegation placement is authoritative-zone policy."}
+  - {file: bad-ds.db, expect: excluded, reason: "Excluded: delegation placement is authoritative-zone policy."}
+  - {file: bad-eid.db, expect: excluded, reason: "TODO: validate eid RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui48-no-leading-zero.db, expect: excluded, reason: "TODO: validate eui48-no-leading-zero RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui48-three-digits.db, expect: excluded, reason: "TODO: validate eui48-three-digits RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui48-too-short.db, expect: excluded, reason: "TODO: validate eui48-too-short RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui48-trailing-garbage.db, expect: excluded, reason: "TODO: validate eui48-trailing-garbage RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui64-no-leading-zero.db, expect: excluded, reason: "TODO: validate eui64-no-leading-zero RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui64-three-digits.db, expect: excluded, reason: "TODO: validate eui64-three-digits RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui64-too-short.db, expect: excluded, reason: "TODO: validate eui64-too-short RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-eui64-trailing-garbage.db, expect: excluded, reason: "TODO: validate eui64-trailing-garbage RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-generate-garbage.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: bad-generate-missing-brace.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: bad-generate-range.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: bad-generate-tkey.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: bad-include-directory.db, expect: excluded, reason: "TODO: test filesystem errors after $INCLUDE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-includes)."}
+  - {file: bad-nsap-empty.db, expect: excluded, reason: "TODO: validate nsap-empty RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-nsap-odd-nibble.db, expect: excluded, reason: "TODO: validate nsap-odd-nibble RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-nsec3-length.db, expect: excluded, reason: "TODO: validate algorithm-dependent hash lengths and NSEC3 owner names, not unrelated grammar rejection; [roadmap](../PLAN.md#zone-nsec3-validation)."}
+  - {file: bad-nsec3-padded.db, expect: reject, error_line: 8}
+  - {file: bad-nsec3owner-padded.db, expect: excluded, reason: "TODO: validate algorithm-dependent hash lengths and NSEC3 owner names, not unrelated grammar rejection; [roadmap](../PLAN.md#zone-nsec3-validation)."}
+  - {file: bad-rpz-prefix.db, expect: excluded, reason: "Excluded: BIND check-names/RPZ policy, not DNS presentation syntax."}
+  - {file: bad-svcb-alpn1.db, expect: excluded, reason: "TODO: validate svcb-alpn1 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-alpn2.db, expect: excluded, reason: "TODO: validate svcb-alpn2 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-alpn3.db, expect: excluded, reason: "TODO: validate svcb-alpn3 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-alpn4.db, expect: excluded, reason: "TODO: validate svcb-alpn4 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-alpn5.db, expect: excluded, reason: "TODO: validate svcb-alpn5 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-alpn6.db, expect: excluded, reason: "TODO: validate svcb-alpn6 RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-mandatory.db, expect: excluded, reason: "TODO: validate svcb-mandatory RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-svcb-servername.db, expect: excluded, reason: "Excluded: BIND check-names/RPZ policy, not DNS presentation syntax."}
+  - {file: bad-svcb.db, expect: excluded, reason: "TODO: validate svcb RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-tkey.db, expect: excluded, reason: "TODO: validate tkey RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad-unspec.db, expect: excluded, reason: "TODO: validate unspec RDATA after implementing the type; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-record-types)."}
+  - {file: bad1.db, expect: reject, error_line: 6}
+  - {file: bad2.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: bad3.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: bad4.db, expect: excluded, reason: "TODO: test directive validation after bounded $GENERATE support; current rejection is unsupported syntax; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: badttl.db, expect: reject, error_line: 1}
+  - {file: good-cdnskey.db, expect: todo, failure: parse, reason: "TODO: implement CDNSKEY RDATA; [roadmap](../PLAN.md#zone-cds)."}
+  - {file: good-cds-unsigned.db, expect: todo, failure: parse, reason: "TODO: implement CDS and CDNSKEY RDATA; [roadmap](../PLAN.md#zone-cds)."}
+  - {file: good-cds.db, expect: todo, failure: parse, reason: "TODO: implement CDS RDATA; [roadmap](../PLAN.md#zone-cds)."}
+  - {file: good-deleg-root.db, expect: todo, failure: parse, origin: ., reason: "TODO: implement DELEG and DELEGPARAM RDATA; [roadmap](../PLAN.md#zone-deleg)."}
+  - {file: good-dns-sd-reverse.db, expect: todo, failure: parse, origin: 0.0.0.0.in-addr.arpa., reason: "TODO: accept service labels and non-hostname DNS names; [roadmap](../PLAN.md#zone-names)."}
+  - {file: good-gc-msdcs.db, expect: todo, failure: parse, reason: "TODO: accept service labels and non-hostname DNS names; [roadmap](../PLAN.md#zone-names)."}
+  - {file: good-generate-modifier.db, expect: todo, failure: parse, reason: "TODO: implement bounded $GENERATE expansion; [roadmap](../PLAN.md#zone-generate)."}
+  - {file: good-nsap.db, expect: todo, failure: parse, reason: "TODO: implement NSAP RDATA; [roadmap](../PLAN.md#zone-nsap)."}
+  - {file: good-nsec3-nopadhash.db, expect: accept}
+  - {file: good-occulted-ns-by-dname.db, expect: todo, failure: parse, reason: "TODO: implement DNAME RDATA; [roadmap](../PLAN.md#zone-dname)."}
+  - {file: good-occulted-ns-by-ns.db, expect: accept}
+  - {file: good-rpz-prefix.db, expect: accept, origin: db.}
+  - {file: good-spf-exception.db, expect: todo, failure: parse, reason: "TODO: accept service labels and non-hostname DNS names; [roadmap](../PLAN.md#zone-names)."}
+  - {file: good-svcb.db, expect: todo, failure: parse, reason: "TODO: implement SVCB RDATA; [roadmap](../PLAN.md#zone-svcb)."}
+  - {file: good1.db, expect: todo, failure: parse, reason: "TODO: implement DNAME RDATA; [roadmap](../PLAN.md#zone-dname)."}
