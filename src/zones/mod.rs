@@ -7,10 +7,10 @@
 //!
 //! [RFC 1035]: https://datatracker.ietf.org/doc/html/rfc1035
 
-use crate::zones::preprocessor::preprocess;
+use crate::Class;
 use crate::zones::parser::Rule;
 use crate::zones::parser::ZoneParser;
-use crate::Class;
+use crate::zones::preprocessor::preprocess;
 use pest_consume::Parser;
 use std::str::FromStr;
 use std::time::Duration;
@@ -97,13 +97,10 @@ impl File {
     ///
     /// Returns [`ProcessError::OriginNotAbsolute`] when `origin` is present but
     /// does not end in a root label (`.`).
-    pub fn try_new(
-        mut origin: Option<String>,
-        entries: Vec<Entry>,
-    ) -> Result<File, ProcessError> {
+    pub fn try_new(mut origin: Option<String>, entries: Vec<Entry>) -> Result<File, ProcessError> {
         if let Some(domain) = origin {
-            if let Some(domain) = domain.strip_suffix('.') {
-                origin = Some(domain.to_owned())
+            if crate::names::presentation::is_absolute(&domain) {
+                origin = domain.strip_suffix('.').map(str::to_owned);
             } else {
                 return Err(ProcessError::OriginNotAbsolute {
                     entry_index: 0,
@@ -150,14 +147,16 @@ impl FromStr for File {
         let input = inputs.single()?;
         let position = input.as_span().start_pos();
 
-        ZoneParser::file(input).and_then(|x| File::try_new(None, x).map_err(|error| {
-            pest_consume::Error::new_from_pos(
-                pest::error::ErrorVariant::CustomError {
-                    message: error.to_string(),
-                },
-                position,
-            )
-        }))
+        ZoneParser::file(input).and_then(|x| {
+            File::try_new(None, x).map_err(|error| {
+                pest_consume::Error::new_from_pos(
+                    pest::error::ErrorVariant::CustomError {
+                        message: error.to_string(),
+                    },
+                    position,
+                )
+            })
+        })
     }
 }
 
@@ -170,8 +169,8 @@ fn preprocess_input(input: &str) -> Result<String, pest_consume::Error<Rule>> {
             pest::error::InputLocation::Pos(pos) => pos,
             pest::error::InputLocation::Span((start, _)) => start,
         };
-        let position = pest::Position::new(input, start)
-            .unwrap_or_else(|| pest::Position::from_start(input));
+        let position =
+            pest::Position::new(input, start).unwrap_or_else(|| pest::Position::from_start(input));
         pest_consume::Error::new_from_pos(
             pest::error::ErrorVariant::CustomError {
                 message: format!("preprocessor error: {error}"),

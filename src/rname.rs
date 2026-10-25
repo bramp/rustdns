@@ -72,100 +72,13 @@ impl Rname {
             rname: text.to_string(),
             reason,
         };
-        if text.is_empty() {
-            return Err(invalid("empty name"));
-        }
-        let mut wire = Vec::new();
-        if text != "." {
-            let mut chars = text.chars();
-            let mut label = Vec::new();
-            while let Some(character) = chars.next() {
-                match character {
-                    '.' => {
-                        Self::push_label(&mut wire, &label).map_err(invalid)?;
-                        label.clear();
-                    }
-                    '\\' => {
-                        let escaped = chars.next().ok_or_else(|| invalid("trailing backslash"))?;
-                        if escaped.is_ascii_digit() {
-                            let mut value = escaped as u16 - u16::from(b'0');
-                            for _ in 0..2 {
-                                let digit =
-                                    chars.next().filter(char::is_ascii_digit).ok_or_else(|| {
-                                        invalid("decimal escape requires three digits")
-                                    })?;
-                                value = value * 10 + digit as u16 - u16::from(b'0');
-                            }
-                            label.push(
-                                u8::try_from(value)
-                                    .map_err(|_| invalid("decimal escape exceeds 255"))?,
-                            );
-                        } else {
-                            label.extend_from_slice(escaped.encode_utf8(&mut [0; 4]).as_bytes());
-                        }
-                    }
-                    c => label.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
-                }
-                if label.len() > limits::MAX_DNS_LABEL_WIRE_LEN {
-                    return Err(invalid("label exceeds 63 octets"));
-                }
-            }
-            if !label.is_empty() {
-                Self::push_label(&mut wire, &label).map_err(invalid)?;
-            }
-        }
-        wire.push(0);
-        if wire.len() > limits::MAX_DNS_NAME_WIRE_LEN {
-            return Err(invalid("name exceeds 255 wire octets"));
-        }
+        let wire = crate::names::presentation::parse(text).map_err(invalid)?;
         let presentation = Self::render(&wire);
         Ok(Self { wire, presentation })
     }
 
-    fn push_label(wire: &mut Vec<u8>, label: &[u8]) -> Result<(), &'static str> {
-        if label.is_empty() {
-            return Err("empty label");
-        }
-        if label.len() > limits::MAX_DNS_LABEL_WIRE_LEN {
-            return Err("label exceeds 63 octets");
-        }
-        let length = u8::try_from(label.len()).map_err(|_| "label exceeds 63 octets")?;
-        wire.push(length);
-        wire.extend_from_slice(label);
-        if wire.len() >= limits::MAX_DNS_NAME_WIRE_LEN {
-            return Err("name exceeds 255 wire octets");
-        }
-        Ok(())
-    }
-
     fn render(wire: &[u8]) -> String {
-        use fmt::Write;
-        let mut text = String::new();
-        let mut remaining = wire;
-        while let Some((&length, rest)) = remaining.split_first() {
-            if length == 0 {
-                break;
-            }
-            let (label, rest) = rest.split_at(usize::from(length));
-            for &byte in label {
-                match byte {
-                    b'.' | b'\\' | b'"' | b';' | b'(' | b')' | b'@' => {
-                        text.push('\\');
-                        text.push(char::from(byte));
-                    }
-                    0x21..=0x7e => text.push(char::from(byte)),
-                    _ => {
-                        let _ = write!(text, "\\{byte:03}");
-                    }
-                }
-            }
-            text.push('.');
-            remaining = rest;
-        }
-        if text.is_empty() {
-            text.push('.');
-        }
-        text
+        crate::names::presentation::render(wire)
     }
 
     /// Returns the normalized escaped presentation string.

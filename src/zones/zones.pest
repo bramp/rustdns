@@ -29,13 +29,7 @@ ws = _{
 // Standard comment until end of line
 COMMENT = _{";" ~ (!NEWLINE ~ ANY)*}
 
-// TODO Merge domain and string together
-domain = @{
-	  "@"
-	| (ASCII_ALPHANUMERIC | "." | "-" )+
-	// TODO Handle escape characters
-	// TODO Handle quoted strings
-}
+domain = @{ quoted | unquoted }
 ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
 number = @{ ASCII_DIGIT+ }
@@ -76,7 +70,7 @@ resource_ptr    = {^"PTR"    ~ ws ~ domain}
 resource_soa    = {^"SOA"    ~ ws ~ soa_rdata}
 soa_rdata      = @{ soa_fields }
 soa_mname      = _{ domain }
-soa_rname      = @{ "@" | (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ }
+soa_rname      = _{ domain }
 separator      = _{ ws }
 resource_ds     = {^"DS"     ~ ws ~ ds_rdata}
 resource_dnskey = {^"DNSKEY" ~ ws ~ dnskey_rdata}

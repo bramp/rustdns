@@ -1,16 +1,29 @@
 // Process a Zone File turning it into actual Records.
 
-use crate::zones::Entry;
-use crate::zones::File;
 use crate::Class;
 use crate::Name;
 use crate::Record;
+use crate::zones::Entry;
+use crate::zones::File;
 use core::time::Duration;
 use thiserror::Error;
 
 /// An error encountered while processing a zone file into concrete [`Record`] entries.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProcessError {
+    /// A resolved owner or resource name was not a valid DNS presentation name.
+    #[error("entry {entry_index} ({record_name}): invalid domain '{name}': {source}")]
+    InvalidName {
+        /// Index of the offending entry.
+        entry_index: usize,
+        /// Owner name providing error context.
+        record_name: String,
+        /// The resolved presentation name.
+        name: String,
+        /// The underlying name validation error.
+        #[source]
+        source: crate::EncodeError,
+    },
     /// An `$ORIGIN` directive contained a relative domain name rather than an absolute FQDN.
     #[error("entry {entry_index}: $ORIGIN '{origin}' must be an absolute domain")]
     OriginNotAbsolute {
@@ -26,7 +39,9 @@ pub enum ProcessError {
         entry_index: usize,
     },
     /// A record omitted its TTL, and no zone-level `$TTL` directive has been defined.
-    #[error("entry {entry_index} ({record_name}): record is missing a TTL and no default TTL is set")]
+    #[error(
+        "entry {entry_index} ({record_name}): record is missing a TTL and no default TTL is set"
+    )]
     MissingTtl {
         /// Index of the offending entry in the zone file.
         entry_index: usize,
@@ -34,7 +49,9 @@ pub enum ProcessError {
         record_name: String,
     },
     /// A record omitted its class, and no previous record existed to inherit a class from.
-    #[error("entry {entry_index} ({record_name}): record is missing a class and has no previous class")]
+    #[error(
+        "entry {entry_index} ({record_name}): record is missing a class and has no previous class"
+    )]
     MissingClass {
         /// Index of the offending entry in the zone file.
         entry_index: usize,
@@ -102,9 +119,8 @@ impl File {
         for (entry_index, entry) in self.entries.iter().enumerate() {
             match entry {
                 Entry::Origin(new_origin) => {
-                    // Always trim the dot from the end.
-                    if let Some(new_origin) = new_origin.strip_suffix('.') {
-                        origin = Some(new_origin)
+                    if crate::names::presentation::is_absolute(new_origin) {
+                        origin = new_origin.strip_suffix('.');
                     } else {
                         return Err(ProcessError::OriginNotAbsolute {
                             entry_index,
@@ -118,32 +134,25 @@ impl File {
                         Some(name_str) => {
                             Self::resolve_name(name_str, origin, entry_index, name_str)?
                         }
-                        None => {
-                            last_name
-                                .clone()
-                                .ok_or(ProcessError::MissingName { entry_index })?
-                        }
+                        None => last_name
+                            .clone()
+                            .ok_or(ProcessError::MissingName { entry_index })?,
                     };
                     last_name = Some(name.clone());
 
                     // Use the unadorned/resolved domain without trailing dot for error messages
                     let error_record_name = name.as_ascii().trim_end_matches('.').to_string();
 
-                    let ttl = record
-                        .ttl
-                        .as_ref()
-                        .or(default_ttl)
-                        .ok_or_else(|| ProcessError::MissingTtl {
+                    let ttl = record.ttl.as_ref().or(default_ttl).ok_or_else(|| {
+                        ProcessError::MissingTtl {
                             entry_index,
                             record_name: error_record_name.clone(),
-                        })?;
+                        }
+                    })?;
 
                     // Per RFC 1035 §5.1: "The <class> and <ttl> fields are optional...
                     // If the class is omitted, the default is IN."
-                    let class = record
-                        .class
-                        .or(last_class)
-                        .unwrap_or(Class::Internet);
+                    let class = record.class.or(last_class).unwrap_or(Class::Internet);
 
                     last_class = Some(class);
 
@@ -171,17 +180,12 @@ impl File {
         entry_index: usize,
         record_name: &str,
     ) -> Result<Name, ProcessError> {
-        // Absolute domain name
-        if let Some(stripped) = name.strip_suffix('.') {
-            let full = if stripped.is_empty() {
-                ".".to_string()
-            } else {
-                format!("{stripped}.")
-            };
-            return Name::new(&full).map_err(|_| ProcessError::RelativeNameWithoutOrigin {
+        if crate::names::presentation::is_absolute(name) {
+            return Name::from_presentation(name).map_err(|source| ProcessError::InvalidName {
                 entry_index,
                 record_name: record_name.to_string(),
-                name: full,
+                name: name.to_owned(),
+                source,
             });
         }
 
@@ -194,14 +198,17 @@ impl File {
 
         let full = if name == "@" {
             format!("{origin}.")
+        } else if origin.is_empty() {
+            format!("{name}.")
         } else {
             format!("{name}.{origin}.")
         };
 
-        Name::new(&full).map_err(|_| ProcessError::RelativeNameWithoutOrigin {
+        Name::from_presentation(&full).map_err(|source| ProcessError::InvalidName {
             entry_index,
             record_name: record_name.to_string(),
             name: full,
+            source,
         })
     }
 
@@ -212,11 +219,8 @@ impl File {
         record_name: &str,
     ) -> Result<String, ProcessError> {
         // Absolute domain name
-        if let Some(prefix) = name.strip_suffix('.') {
-            let backslashes = prefix.bytes().rev().take_while(|&byte| byte == b'\\').count();
-            if backslashes % 2 == 0 {
-                return Ok(name.to_string());
-            }
+        if crate::names::presentation::is_absolute(name) {
+            return Ok(name.to_string());
         }
 
         // Everything past here requires an origin
@@ -227,7 +231,11 @@ impl File {
         })?;
 
         if name == "@" {
-            return Ok(if origin.is_empty() { ".".to_string() } else { origin.to_string() });
+            return Ok(if origin.is_empty() {
+                ".".to_string()
+            } else {
+                origin.to_string()
+            });
         }
 
         // Relative domain name
@@ -248,7 +256,9 @@ impl File {
             crate::zones::Resource::DS(ds) => Ok(crate::Resource::DS(ds.clone())),
             crate::zones::Resource::DNSKEY(dnskey) => Ok(crate::Resource::DNSKEY(dnskey.clone())),
             crate::zones::Resource::NSEC3(nsec3) => Ok(crate::Resource::NSEC3(nsec3.clone())),
-            crate::zones::Resource::NSEC3PARAM(param) => Ok(crate::Resource::NSEC3PARAM(param.clone())),
+            crate::zones::Resource::NSEC3PARAM(param) => {
+                Ok(crate::Resource::NSEC3PARAM(param.clone()))
+            }
             crate::zones::Resource::ZONEMD(zonemd) => Ok(crate::Resource::ZONEMD(zonemd.clone())),
             crate::zones::Resource::Raw(raw) => Ok(crate::Resource::Raw(raw.clone())),
             crate::zones::Resource::OPT => Ok(crate::Resource::OPT),
@@ -276,12 +286,13 @@ impl File {
             crate::zones::Resource::SOA(soa) => {
                 let mname = Self::resolve_name(&soa.mname, origin, entry_index, record_name)?;
                 let rname = Self::resolve_rname(&soa.rname, origin, entry_index, record_name)?;
-                let rname = crate::Rname::new(&rname).map_err(|error| ProcessError::InvalidRname {
-                    entry_index,
-                    record_name: record_name.to_string(),
-                    rname: rname.clone(),
-                    reason: error.to_string(),
-                })?;
+                let rname =
+                    crate::Rname::new(&rname).map_err(|error| ProcessError::InvalidRname {
+                        entry_index,
+                        record_name: record_name.to_string(),
+                        rname: rname.clone(),
+                        reason: error.to_string(),
+                    })?;
                 Ok(crate::Resource::SOA(crate::resource::SOA {
                     mname,
                     rname,
@@ -302,7 +313,8 @@ impl File {
                 }))
             }
             crate::zones::Resource::RRSIG(rrsig) => {
-                let signer_name = Self::resolve_name(&rrsig.signer_name, origin, entry_index, record_name)?;
+                let signer_name =
+                    Self::resolve_name(&rrsig.signer_name, origin, entry_index, record_name)?;
                 Ok(crate::Resource::RRSIG(crate::resource::RRSIG {
                     type_covered: rrsig.type_covered,
                     algorithm: rrsig.algorithm,
@@ -316,7 +328,8 @@ impl File {
                 }))
             }
             crate::zones::Resource::NSEC(nsec) => {
-                let next_domain = Self::resolve_name(&nsec.next_domain, origin, entry_index, record_name)?;
+                let next_domain =
+                    Self::resolve_name(&nsec.next_domain, origin, entry_index, record_name)?;
                 Ok(crate::Resource::NSEC(crate::resource::NSEC {
                     next_domain,
                     types: nsec.types.clone(),
@@ -328,12 +341,12 @@ impl File {
 
 #[cfg(test)]
 mod tests {
-    use crate::resource::*;
-    use crate::zones::{Entry, File, ProcessError, Record as ZoneRecord, Resource as ZoneResource};
     use crate::Class;
     use crate::Name;
     use crate::Record;
     use crate::Resource;
+    use crate::resource::*;
+    use crate::zones::{Entry, File, ProcessError, Record as ZoneRecord, Resource as ZoneResource};
     use core::time::Duration;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
@@ -483,7 +496,9 @@ mod tests {
             ],
         };
 
-        let records = file.try_into_records().expect("missing class should default to IN");
+        let records = file
+            .try_into_records()
+            .expect("missing class should default to IN");
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].class, Class::Internet);
     }
@@ -528,7 +543,10 @@ mod tests {
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].name.as_ascii(), "wWw.ExAmPlE.cOm.");
-        assert_eq!(records[0].name.to_canonical().as_ascii(), "www.example.com.");
+        assert_eq!(
+            records[0].name.to_canonical().as_ascii(),
+            "www.example.com."
+        );
         if let Resource::CNAME(ref target) = records[0].resource {
             assert_eq!(target.as_ascii(), "TaRgEt.ExAmPlE.cOm.");
         } else {
@@ -550,10 +568,9 @@ mod tests {
 
     #[test]
     fn soa_rfc1035_relative_mailbox_preserves_escaped_local_part() {
-        let file = File::from_str(
-            "$ORIGIN ISI.EDU.\n$TTL 300\n@ SOA ns Action\\.domains 1 2 3 4 5",
-        )
-        .expect("RFC 1035 section 5.3 mailbox syntax should parse");
+        let file =
+            File::from_str("$ORIGIN ISI.EDU.\n$TTL 300\n@ SOA ns Action\\.domains 1 2 3 4 5")
+                .expect("RFC 1035 section 5.3 mailbox syntax should parse");
         let records = file.try_into_records().expect("zone should resolve");
         let Resource::SOA(soa) = &records[0].resource else {
             panic!("expected SOA record");
@@ -561,7 +578,8 @@ mod tests {
         assert_eq!(soa.email().unwrap(), "Action.domains@ISI.EDU.");
 
         let mut wire = Vec::new();
-        soa.append_rdata_to_vec(&mut wire).expect("SOA should encode");
+        soa.append_rdata_to_vec(&mut wire)
+            .expect("SOA should encode");
         let mailbox = b"\x0eAction.domains\x03ISI\x03EDU\x00";
         assert_eq!(&wire[12..12 + mailbox.len()], mailbox);
     }

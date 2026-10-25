@@ -162,7 +162,7 @@ Authoritative root zone (`root.zone`) and root hints (`named.root`) are supporte
   explicit CI run. This does not include all BIND policy or harness tests.
 - [ ] <a id="zone-includes"></a> Support `$INCLUDE <path> [<domain>]` directive with cyclic include guards (RFC 1035 §5).
 - [x] Add quoted and unquoted TXT/SPF character-string parsing with RFC 1035 escapes (`\`, `\DDD`), preserving quoted punctuation during preprocessing.
-- [ ] <a id="zone-names"></a> Support escaped domain names consistently in [src/zones/zones.pest](src/zones/zones.pest).
+- [x] <a id="zone-names"></a> Support escaped domain names consistently in [src/zones/zones.pest](src/zones/zones.pest).
   - Accept service labels, wildcard owners, and other legal DNS presentation characters.
 - [ ] <a id="zone-record-types"></a> Extend typed zone RDATA support to BIND fixture record types not yet implemented
   (retain explicit exclusions for types outside the intended library scope).
@@ -180,7 +180,7 @@ Authoritative root zone (`root.zone`) and root hints (`named.root`) are supporte
 - [x] Add `TXT`, `SPF`, `NSEC3`, and `NSEC3PARAM` grammar to [src/zones/zones.pest](src/zones/zones.pest) and AST parser.
 - [ ] Enforce RFC 2181 §5.2 TTL consistency across RRsets in [src/zones/process.rs](src/zones/process.rs).
 - [x] Share the overlapping text/zone RDATA parsers as tracked in section 1.
-- [ ] Validate domain label ($\le 63$) and name ($\le 255$) lengths during zone processing.
+- [x] Validate domain label ($\le 63$) and name ($\le 255$) lengths during zone processing.
 - [ ] Add streaming `File::from_reader` iterator for memory-efficient large zone parsing.
 
 ---

@@ -2,31 +2,121 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::Class;
     use crate::resource::{DNSKEY, DS, ZONEMD};
     use crate::zones::{
         Entry, File, Record, Resource, UnresolvedMx as MX, UnresolvedNsec as NSEC,
         UnresolvedRrsig as RRSIG, UnresolvedSoa as SOA,
     };
-    use crate::Class;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
     use std::time::UNIX_EPOCH;
 
     #[test]
+    fn dns_names_support_service_wildcard_and_escaped_labels() {
+        let text = r#"$ORIGIN example.
+$TTL 300
+_sip._tcp SRV 10 20 5060 sip
+* A 192.0.2.1
+a\.b MX 10 mail\046server
+semi\;colon NS ns\(one\)
+escaped\. CNAME target\.
+\@ PTR \@
+"quoted owner" CNAME "quoted target"
+@ SOA "ns name" "admin name" 1 2 3 4 5
+"#;
+        let records = text.parse::<File>().unwrap().try_into_records().unwrap();
+        assert_eq!(records.len(), 8);
+        assert_eq!(records[0].name.as_ascii(), "_sip._tcp.example.");
+        assert_eq!(records[1].name.as_ascii(), "*.example.");
+        assert_eq!(records[2].name.count_labels(), 2);
+        assert_eq!(records[2].name.as_ascii(), r"a\.b.example.");
+        assert_eq!(records[4].name.as_ascii(), r"escaped\..example.");
+        assert_eq!(records[5].name.as_ascii(), r"\@.example.");
+        assert_eq!(records[6].name.as_ascii(), r"quoted\032owner.example.");
+        let message = crate::Message {
+            answers: records,
+            ..Default::default()
+        };
+        assert_eq!(
+            crate::Message::from_slice(&message.to_vec().unwrap()).unwrap(),
+            message
+        );
+    }
+
+    #[test]
+    fn escaped_origins_and_root_origin_resolve_without_losing_boundaries() {
+        for (zone, expected) in [
+            (
+                r"$ORIGIN ex\.ample.
+$TTL 60
+a\. A 192.0.2.1",
+                r"a\..ex\.ample.",
+            ),
+            ("$ORIGIN .\n$TTL 60\nwww A 192.0.2.1", "www."),
+            ("$ORIGIN .\n$TTL 60\n@ A 192.0.2.1", "."),
+        ] {
+            let records = zone.parse::<File>().unwrap().try_into_records().unwrap();
+            assert_eq!(records[0].name.as_ascii(), expected);
+        }
+        assert!(File::try_new(Some(r"relative\.".to_owned()), Vec::new()).is_err());
+        assert!(
+            "$ORIGIN relative\\.\n$TTL 60\n@ A 192.0.2.1"
+                .parse::<File>()
+                .unwrap()
+                .try_into_records()
+                .is_err()
+        );
+        for text in [r"a\12 A 192.0.2.1", r"a\256 A 192.0.2.1"] {
+            if let Ok(file) = format!("$ORIGIN example.\n$TTL 60\n{text}").parse::<File>() {
+                assert!(file.try_into_records().is_err(), "{text}");
+            }
+        }
+        for label in ["a".repeat(64), "\\065".repeat(64)] {
+            let file = format!("$ORIGIN example.\n$TTL 60\n{label} A 192.0.2.1")
+                .parse::<File>()
+                .unwrap();
+            assert!(matches!(
+                file.try_into_records(),
+                Err(crate::zones::ProcessError::InvalidName { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn checked_in_fixture_covers_all_supported_zone_record_types() {
         let records = include_str!("fixtures/records.zone")
-            .parse::<File>().unwrap().try_into_records().unwrap();
+            .parse::<File>()
+            .unwrap()
+            .try_into_records()
+            .unwrap();
         assert_eq!(records.len(), 21);
-        let actual: std::collections::BTreeSet<_> =
-            records.iter().map(|record| record.resource.r#type()).collect();
+        let actual: std::collections::BTreeSet<_> = records
+            .iter()
+            .map(|record| record.resource.r#type())
+            .collect();
         let expected = [
-            crate::Type::A, crate::Type::AAAA, crate::Type::CNAME, crate::Type::PTR,
-            crate::Type::NS, crate::Type::MX, crate::Type::SRV, crate::Type::SOA,
-            crate::Type::DS, crate::Type::DNSKEY, crate::Type::RRSIG, crate::Type::NSEC,
-            crate::Type::ZONEMD, crate::Type::TXT, crate::Type::SPF,
-            crate::Type::NSEC3, crate::Type::NSEC3PARAM,
-        ].into_iter().collect();
+            crate::Type::A,
+            crate::Type::AAAA,
+            crate::Type::CNAME,
+            crate::Type::PTR,
+            crate::Type::NS,
+            crate::Type::MX,
+            crate::Type::SRV,
+            crate::Type::SOA,
+            crate::Type::DS,
+            crate::Type::DNSKEY,
+            crate::Type::RRSIG,
+            crate::Type::NSEC,
+            crate::Type::ZONEMD,
+            crate::Type::TXT,
+            crate::Type::SPF,
+            crate::Type::NSEC3,
+            crate::Type::NSEC3PARAM,
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(actual, expected);
         for record in &records {
             let resource = &record.resource;
@@ -35,7 +125,10 @@ mod tests {
                 *resource,
             );
         }
-        let message = crate::Message { answers: records, ..Default::default() };
+        let message = crate::Message {
+            answers: records,
+            ..Default::default()
+        };
         let encoded = message.to_vec().unwrap();
         assert_eq!(crate::Message::from_slice(&encoded).unwrap(), message);
     }
@@ -43,16 +136,36 @@ mod tests {
     #[test]
     fn txt_and_spf_preserve_character_strings_and_punctuation() {
         for (rdata, expected) in [
-            (r#""v=spf1 " "ip4:192.0.2.0/24 -all""#,
-                vec![b"v=spf1 ".to_vec(), b"ip4:192.0.2.0/24 -all".to_vec()]),
-            (r#"("semi;colon (literal)" ; ignored )
+            (
+                r#""v=spf1 " "ip4:192.0.2.0/24 -all""#,
+                vec![b"v=spf1 ".to_vec(), b"ip4:192.0.2.0/24 -all".to_vec()],
+            ),
+            (
+                r#"("semi;colon (literal)" ; ignored )
                 "quote: \" slash: \\ bytes: \000\255")"#,
-                vec![b"semi;colon (literal)".to_vec(), b"quote: \" slash: \\ bytes: \0\xff".to_vec()]),
-            (r#"hello\ world semi\;colon \(literal\) \065"#,
-                vec![b"hello world".to_vec(), b"semi;colon".to_vec(), b"(literal)".to_vec(), b"A".to_vec()]),
+                vec![
+                    b"semi;colon (literal)".to_vec(),
+                    b"quote: \" slash: \\ bytes: \0\xff".to_vec(),
+                ],
+            ),
+            (
+                r#"hello\ world semi\;colon \(literal\) \065"#,
+                vec![
+                    b"hello world".to_vec(),
+                    b"semi;colon".to_vec(),
+                    b"(literal)".to_vec(),
+                    b"A".to_vec(),
+                ],
+            ),
             (r#""""#, vec![Vec::new()]),
-            (r#""(" ")" "\;" "\(""#, vec![b"(".to_vec(), b")".to_vec(), b";".to_vec(), b"(".to_vec()]),
-            ("(\"caf\u{e9};(\"\r\n\"second\")", vec!["caf\u{e9};(".as_bytes().to_vec(), b"second".to_vec()]),
+            (
+                r#""(" ")" "\;" "\(""#,
+                vec![b"(".to_vec(), b")".to_vec(), b";".to_vec(), b"(".to_vec()],
+            ),
+            (
+                "(\"caf\u{e9};(\"\r\n\"second\")",
+                vec!["caf\u{e9};(".as_bytes().to_vec(), b"second".to_vec()],
+            ),
         ] {
             for kind in [crate::Type::TXT, crate::Type::SPF] {
                 let line = format!("owner IN {kind} {rdata}");
@@ -63,7 +176,9 @@ mod tests {
                     _ => unreachable!(),
                 };
                 assert_eq!(record.resource, expected_resource, "{line}");
-                let file: File = format!("$ORIGIN example.\n$TTL 300\n{line}").parse().unwrap();
+                let file: File = format!("$ORIGIN example.\n$TTL 300\n{line}")
+                    .parse()
+                    .unwrap();
                 assert_eq!(file.entries[2], Entry::Record(record), "{line}");
             }
         }
@@ -72,13 +187,16 @@ mod tests {
     #[test]
     fn new_record_types_preserve_owner_type_ambiguity_and_inheritance() {
         for line in [
-            r#"TXT TXT "value""#, r#"SPF SPF "value""#,
-            "NSEC3 NSEC3 1 0 0 - 00", "NSEC3PARAM NSEC3PARAM 1 0 0 -",
+            r#"TXT TXT "value""#,
+            r#"SPF SPF "value""#,
+            "NSEC3 NSEC3 1 0 0 - 00",
+            "NSEC3PARAM NSEC3PARAM 1 0 0 -",
         ] {
             let record: Record = line.parse().unwrap();
             assert_eq!(record.name.as_deref(), line.split_whitespace().next());
             let file: File = format!("$ORIGIN example.\n$TTL 300\n{line}\n IN TXT \"inherited\"")
-                .parse().unwrap();
+                .parse()
+                .unwrap();
             let records = file.try_into_records().unwrap();
             assert_eq!(records[0].name, records[1].name);
         }
@@ -87,19 +205,34 @@ mod tests {
     #[test]
     fn new_zone_records_reject_malformed_input() {
         for line in [
-            "@ TXT", "@ SPF", "@ NSEC3", "@ NSEC3PARAM",
-            r#"@ TXT "unterminated"#, r#"@ TXT "bad\12""#,
-            r#"@ TXT "bad\256""#, "@ TXT trailing\\",
-            r#"@ TXT ("unclosed""#, r#"@ TXT "extra")"#,
-            "@ NSEC3 1 0 0 - W0", "@ NSEC3 1 0 0 - 0", "@ NSEC3 1 0 0 - 01",
-            "@ NSEC3 1 0 0 - 00 NOTATYPE", "@ NSEC3 1 0 0 - 00 TYPE65536",
-            "@ NSEC3 1 256 0 - 00", "@ NSEC3 256 0 0 - 00",
-            "@ NSEC3 1 0 65536 - 00", "@ NSEC3 1 0 0 abc 00",
-            "@ NSEC3PARAM 1 0 0 abc", "@ NSEC3PARAM 1 0 0 - extra",
+            "@ TXT",
+            "@ SPF",
+            "@ NSEC3",
+            "@ NSEC3PARAM",
+            r#"@ TXT "unterminated"#,
+            r#"@ TXT "bad\12""#,
+            r#"@ TXT "bad\256""#,
+            "@ TXT trailing\\",
+            r#"@ TXT ("unclosed""#,
+            r#"@ TXT "extra")"#,
+            "@ NSEC3 1 0 0 - W0",
+            "@ NSEC3 1 0 0 - 0",
+            "@ NSEC3 1 0 0 - 01",
+            "@ NSEC3 1 0 0 - 00 NOTATYPE",
+            "@ NSEC3 1 0 0 - 00 TYPE65536",
+            "@ NSEC3 1 256 0 - 00",
+            "@ NSEC3 256 0 0 - 00",
+            "@ NSEC3 1 0 65536 - 00",
+            "@ NSEC3 1 0 0 abc 00",
+            "@ NSEC3PARAM 1 0 0 abc",
+            "@ NSEC3PARAM 1 0 0 - extra",
             "@ NSEC3PARAM 1 0 65536 -",
         ] {
             assert!(line.parse::<Record>().is_err(), "{line}");
-            assert!(format!("$ORIGIN example.\n{line}").parse::<File>().is_err(), "{line}");
+            assert!(
+                format!("$ORIGIN example.\n{line}").parse::<File>().is_err(),
+                "{line}"
+            );
         }
         for kind in ["TXT", "SPF"] {
             for length in [255, 256] {
@@ -151,7 +284,10 @@ mod tests {
                 crate::Type::RRSIG,
                 "A 255 255 3600 20300101000000 20200101000000 65535 example. AQ ID",
             ),
-            (crate::Type::NSEC, "next.example. A NS SOA MX RRSIG NSEC DNSKEY"),
+            (
+                crate::Type::NSEC,
+                "next.example. A NS SOA MX RRSIG NSEC DNSKEY",
+            ),
             (crate::Type::NSEC, "next.example."),
             (crate::Type::ZONEMD, "4294967295 255 255 aabb ccdd"),
         ] {
@@ -313,7 +449,8 @@ mod tests {
             ". . 4294967295 18446744073709551615 0 0 0",
         ] {
             let core: crate::SOA = rdata.parse().unwrap();
-            let input = format!("$TTL 300\nexample.com. IN SOA {rdata}\nnext.example.com. A 192.0.2.1");
+            let input =
+                format!("$TTL 300\nexample.com. IN SOA {rdata}\nnext.example.com. A 192.0.2.1");
             let records = input.parse::<File>().unwrap().try_into_records().unwrap();
             assert_eq!(records.len(), 2);
             assert_eq!(records[0].resource, crate::Resource::SOA(core));
@@ -413,7 +550,10 @@ mod tests {
         let input = "$TTL 900\nexample. SOA ns.example. admin.example. 4294967296 2 3 4 5";
         let error = input.parse::<File>().unwrap_err();
         assert!(
-            matches!(error.line_col, pest::error::LineColLocation::Span((2, _), _)),
+            matches!(
+                error.line_col,
+                pest::error::LineColLocation::Span((2, _), _)
+            ),
             "{error}"
         );
         assert!(error.to_string().contains("4294967296"), "{error}");
@@ -669,7 +809,10 @@ mod tests {
                         key_tag: 31852,
                         algorithm: crate::types::Algorithm::RSASHA256,
                         digest_type: crate::types::DigestType::Sha256,
-                        digest: crate::util::hex_decode("89F7670AFC091B199B47900E4CE4135B9463B7F74D3D19A1C732E78C345D4DE6").unwrap(),
+                        digest: crate::util::hex_decode(
+                            "89F7670AFC091B199B47900E4CE4135B9463B7F74D3D19A1C732E78C345D4DE6",
+                        )
+                        .unwrap(),
                     }),
                 },
             ),
@@ -699,7 +842,7 @@ mod tests {
                         labels: 0,
                         original_ttl: Duration::from_secs(86400),
                         expiration: UNIX_EPOCH + Duration::from_secs(1789880400), // 2026-09-20 05:00:00 UTC
-                        inception: UNIX_EPOCH + Duration::from_secs(1788753600),  // 2026-09-07 04:00:00 UTC
+                        inception: UNIX_EPOCH + Duration::from_secs(1788753600), // 2026-09-07 04:00:00 UTC
                         key_tag: 57780,
                         signer_name: ".".to_string(),
                         signature: crate::util::base64_decode("XfzAJ3WNy9rp+A==").unwrap(),
@@ -772,7 +915,6 @@ mod tests {
         let tests = vec![
             "invalid record syntax that cannot parse",
             "$ORIGIN",
-            "$ORIGIN relative_domain",
             "$TTL",
             "$TTL not_a_number",
         ];
@@ -784,6 +926,11 @@ mod tests {
                 input
             );
         }
+        let file: File = "$ORIGIN relative_domain".parse().unwrap();
+        assert!(matches!(
+            file.try_into_records(),
+            Err(crate::zones::ProcessError::OriginNotAbsolute { .. })
+        ));
     }
 
     // TODO Take test from https://datatracker.ietf.org/doc/html/rfc2308#section-10

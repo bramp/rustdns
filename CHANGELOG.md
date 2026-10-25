@@ -6,6 +6,12 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- DNS names decoded from wire preserve arbitrary label octets, including literal
+  dots, backslashes, and non-UTF-8 data, instead of joining labels into a lossy
+  string. Name hierarchy, equality, ordering, case randomization, and DNSSEC
+  wildcard canonicalization operate on decoded labels.
+- `Name` text parsing recognizes RFC 1035 escapes; `Name::new` retains its
+  existing literal-input and IDNA behavior.
 - Zone preprocessing preserves quoted and escaped semicolons and parentheses,
   and rejects unmatched grouping parentheses. Single-record parsing now uses
   the same preprocessing as full files, including multiline grouped records.
@@ -49,6 +55,11 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- Zone domain-name syntax for service labels, wildcards, quoted names, and RFC
+  1035 escapes, with escape-aware origin resolution and decoded wire-length
+  validation. Three BIND name fixtures are now passing instead of TODOs.
+- `Name::from_presentation` for DNS presentation names without IDNA conversion,
+  and `zones::ProcessError::InvalidName` preserving name-validation error context.
 - A pinned BIND checkzone fixture fetcher and opt-in conformance suite, run
   explicitly in CI. Per-file configuration tracks acceptance, targeted rejection,
   known gaps, and policy exclusions, with feature TODO links into the roadmap.

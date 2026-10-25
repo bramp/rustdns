@@ -1,7 +1,7 @@
 //! Domain name modeling, canonical normalization, and RFC 4034 ordering.
 //!
 //! Provides [`Name`], a strongly-typed representation of a fully-qualified domain name (FQDN)
-//! stored in canonical lowercase ASCII Punycode format with:
+//! stored with validated wire labels and case-preserving ASCII presentation with:
 //! - IDNA Punycode conversion and validation
 //! - RFC 1035 wire limits enforcement (labels $\le 63$ octets, names $\le 255$ octets)
 //! - Hierarchy inspection ([`Name::parent`], [`Name::count_labels`], [`Name::is_subdomain_of`])
@@ -16,6 +16,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+
+pub(crate) mod presentation;
 
 /// Trait for types that can be converted into a canonical domain [`Name`].
 ///
@@ -79,6 +81,8 @@ impl IntoName for &String {
 /// 4. **ASCII Only Wire Format**: Internationalized Domain Names (IDNs) with non-ASCII
 ///    labels are converted to ASCII Punycode (`xn--...`) via UTS #46. Pure ASCII labels
 ///    retain their original casing.
+///    [`Name::from_presentation`] and wire decoding also preserve arbitrary DNS
+///    label octets, rendering special bytes using RFC 1035 escapes.
 /// 5. **Bounded**: Every label is $\le 63$ octets; total wire format length is $\le 255$ octets
 ///    per [RFC 1035].
 /// 6. **FQDN**: Always terminates with a trailing dot (`.`). The DNS root domain is `"."`.
@@ -113,9 +117,9 @@ impl IntoName for &String {
 /// [RFC 5452 §9]: https://datatracker.ietf.org/doc/html/rfc5452#section-9
 #[derive(Clone)]
 pub struct Name {
-    /// Wire-format Punycode FQDN ending with a trailing dot (`.`).
-    /// Preserves original ASCII casing.
+    /// Case-preserving ASCII presentation ending with a root dot.
     ascii: String,
+    wire: Vec<u8>,
 }
 
 impl Name {
@@ -134,6 +138,7 @@ impl Name {
     pub fn root() -> Self {
         Self {
             ascii: ".".to_string(),
+            wire: vec![0],
         }
     }
 
@@ -220,7 +225,51 @@ impl Name {
             ascii.push('.');
         }
 
-        Ok(Self { ascii })
+        let mut wire = Vec::with_capacity(wire_len);
+        for label in ascii.split_terminator('.') {
+            wire.push(label.len() as u8);
+            wire.extend_from_slice(label.as_bytes());
+        }
+        wire.push(0);
+        Ok(Self { ascii, wire })
+    }
+
+    /// Parses a DNS presentation name with RFC 1035 character and decimal escapes.
+    ///
+    /// Unlike [`Name::new`], this preserves arbitrary label octets rather than
+    /// applying IDNA. Use explicit Punycode for internationalized zone names.
+    /// Relative input is normalized to a trailing root dot; zone origin resolution
+    /// must happen before calling this constructor.
+    /// [`FromStr`] also recognizes escapes; [`Name::new`] retains its literal
+    /// backslash and IDNA behavior for compatibility.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidName`] for malformed escapes or empty labels,
+    /// or when decoded labels exceed 63 octets or the name exceeds 255 wire octets.
+    ///
+    /// ```
+    /// use rustdns::Name;
+    /// let name = Name::from_presentation(r"service\.label.example.")?;
+    /// assert_eq!(name.count_labels(), 2);
+    /// assert_eq!(name.parent().unwrap().as_ascii(), "example.");
+    /// # Ok::<(), rustdns::EncodeError>(())
+    /// ```
+    pub fn from_presentation(text: &str) -> Result<Self, EncodeError> {
+        let wire = presentation::parse(text).map_err(|_| EncodeError::InvalidName {
+            name: text.to_owned(),
+        })?;
+        Ok(Self::from_wire(wire))
+    }
+
+    // The wire decoder and presentation parser validate lengths and termination.
+    pub(crate) fn from_wire(wire: Vec<u8>) -> Self {
+        let ascii = presentation::render(&wire);
+        Self { ascii, wire }
+    }
+
+    pub(crate) fn labels(&self) -> impl Iterator<Item = &[u8]> {
+        presentation::labels(&self.wire)
     }
 
     /// Creates a [`Name`] from an ASCII string that is already in Punycode format.
@@ -249,7 +298,9 @@ impl Name {
         Self::new(ascii)
     }
 
-    /// Returns the canonical lowercase ASCII (Punycode) representation with a trailing dot.
+    /// Returns the case-preserving ASCII presentation with a trailing root dot.
+    ///
+    /// Names parsed from presentation or wire format escape special label bytes.
     ///
     /// # Examples
     /// ```rust
@@ -303,13 +354,7 @@ impl Name {
     /// assert_eq!(buf, b"\x07example\x03com\x00");
     /// ```
     pub fn append_to_vec(&self, buf: &mut Vec<u8>) {
-        if !self.is_root() {
-            for label in self.ascii.split_terminator('.') {
-                buf.push(label.len() as u8);
-                buf.extend_from_slice(label.as_bytes());
-            }
-        }
-        buf.push(0);
+        buf.extend_from_slice(&self.wire);
     }
 
     /// Converts the domain name into its Unicode representation with a trailing dot.
@@ -330,17 +375,24 @@ impl Name {
     #[must_use]
     pub fn to_unicode(&self) -> String {
         if !self.ascii.contains("xn--") && !self.ascii.contains("XN--") {
-            return self.ascii.clone();
+            return presentation::render(&self.wire);
         }
         let mut unicode = String::with_capacity(self.ascii.len());
-        for label in self.ascii.split_terminator('.') {
-            if label.to_ascii_lowercase().starts_with("xn--") {
-                let (decoded, _) = idna::domain_to_unicode(label);
-                unicode.push_str(&decoded);
-            } else {
-                unicode.push_str(label);
+        for label in self.labels() {
+            if label.to_ascii_lowercase().starts_with(b"xn--") {
+                if let Ok(label) = std::str::from_utf8(label) {
+                    let (decoded, result) = idna::domain_to_unicode(label);
+                    if result.is_ok() {
+                        unicode.push_str(&decoded);
+                        unicode.push('.');
+                        continue;
+                    }
+                }
             }
-            unicode.push('.');
+            let mut wire = vec![label.len() as u8];
+            wire.extend_from_slice(label);
+            wire.push(0);
+            unicode.push_str(&presentation::render(&wire));
         }
         unicode
     }
@@ -374,12 +426,7 @@ impl Name {
     /// ```
     #[must_use]
     pub fn count_labels(&self) -> u8 {
-        let trimmed = self.ascii.trim_end_matches('.');
-        if trimmed.is_empty() {
-            0
-        } else {
-            trimmed.split('.').count().min(255) as u8
-        }
+        self.labels().count() as u8
     }
 
     /// Returns the parent domain of this domain name, or `None` if this is the root domain.
@@ -403,13 +450,10 @@ impl Name {
         if self.is_root() {
             return None;
         }
-        let trimmed = self.ascii.trim_end_matches('.');
-        match trimmed.split_once('.') {
-            Some((_, rest)) => Some(Self {
-                ascii: format!("{rest}."),
-            }),
-            None => Some(Self::root()),
-        }
+        self.wire.split_first().and_then(|(&length, rest)| {
+            rest.get(usize::from(length)..)
+                .map(|suffix| Self::from_wire(suffix.to_vec()))
+        })
     }
 
     /// Returns a new [`Name`] in lowercase canonical form.
@@ -430,6 +474,7 @@ impl Name {
     pub fn to_canonical(&self) -> Self {
         Self {
             ascii: self.ascii.to_ascii_lowercase(),
+            wire: self.wire.to_ascii_lowercase(),
         }
     }
 
@@ -475,7 +520,7 @@ impl Name {
     #[inline]
     #[must_use]
     pub fn case_sensitive_eq(&self, other: &Self) -> bool {
-        self.ascii == other.ascii
+        self.wire == other.wire
     }
 
     /// Returns a 0x20-bit randomized variant of this domain name using the default CSPRNG.
@@ -532,19 +577,17 @@ impl Name {
     /// ```
     #[must_use]
     pub fn to_0x20_with_rng(&self, mut rng: impl Rng) -> Self {
-        let mut ascii = String::with_capacity(self.ascii.len());
-        for b in self.ascii.bytes() {
+        let mut wire = self.wire.clone();
+        for b in &mut wire {
             if b.is_ascii_alphabetic() {
                 if rng.random() {
-                    ascii.push(b.to_ascii_uppercase() as char);
+                    *b = b.to_ascii_uppercase();
                 } else {
-                    ascii.push(b.to_ascii_lowercase() as char);
+                    *b = b.to_ascii_lowercase();
                 }
-            } else {
-                ascii.push(b as char);
             }
         }
-        Self { ascii }
+        Self::from_wire(wire)
     }
 
     /// Checks whether this domain name is a subdomain of (or equal to) `parent`.
@@ -570,8 +613,10 @@ impl Name {
         if self == parent {
             return true;
         }
-        let mut self_rev = self.ascii.trim_end_matches('.').split('.').rev();
-        let parent_rev = parent.ascii.trim_end_matches('.').split('.').rev();
+        let self_labels: Vec<_> = self.labels().collect();
+        let parent_labels: Vec<_> = parent.labels().collect();
+        let mut self_rev = self_labels.iter().rev();
+        let parent_rev = parent_labels.iter().rev();
 
         for p_label in parent_rev {
             match self_rev.next() {
@@ -586,7 +631,7 @@ impl Name {
 impl PartialEq for Name {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.ascii.eq_ignore_ascii_case(&other.ascii)
+        self.wire.eq_ignore_ascii_case(&other.wire)
     }
 }
 
@@ -594,7 +639,7 @@ impl Eq for Name {}
 
 impl Hash for Name {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        for b in self.ascii.bytes() {
+        for b in &self.wire {
             state.write_u8(b.to_ascii_lowercase());
         }
     }
@@ -602,30 +647,18 @@ impl Hash for Name {
 
 impl Ord for Name {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.ascii.eq_ignore_ascii_case(&other.ascii) {
+        if self == other {
             return Ordering::Equal;
         }
-        let a_trimmed = self.ascii.trim_end_matches('.');
-        let b_trimmed = other.ascii.trim_end_matches('.');
-
-        if a_trimmed.is_empty() && b_trimmed.is_empty() {
-            return Ordering::Equal;
-        }
-        if a_trimmed.is_empty() {
-            return Ordering::Less;
-        }
-        if b_trimmed.is_empty() {
-            return Ordering::Greater;
-        }
-
-        let a_count = a_trimmed.split('.').count();
-        let b_count = b_trimmed.split('.').count();
-
-        let a_rev = a_trimmed.split('.').rev();
-        let b_rev = b_trimmed.split('.').rev();
+        let a: Vec<_> = self.labels().collect();
+        let b: Vec<_> = other.labels().collect();
+        let a_count = a.len();
+        let b_count = b.len();
+        let a_rev = a.iter().rev();
+        let b_rev = b.iter().rev();
 
         for (la, lb) in a_rev.zip(b_rev) {
-            let cmp = cmp_label_bytes(la.as_bytes(), lb.as_bytes());
+            let cmp = cmp_label_bytes(la, lb);
             if cmp != Ordering::Equal {
                 return cmp;
             }
@@ -671,7 +704,11 @@ impl FromStr for Name {
 
     #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::new(s)
+        if s.contains('\\') {
+            Self::from_presentation(s)
+        } else {
+            Self::new(s)
+        }
     }
 }
 
@@ -710,12 +747,12 @@ impl AsRef<[u8]> for Name {
 impl PartialEq<str> for Name {
     #[inline]
     fn eq(&self, other: &str) -> bool {
-        if other.ends_with('.') {
-            self.ascii.eq_ignore_ascii_case(other)
-        } else {
-            let trimmed = self.ascii.trim_end_matches('.');
-            trimmed.eq_ignore_ascii_case(other)
-        }
+        self.ascii.eq_ignore_ascii_case(other)
+            || self
+                .ascii
+                .strip_suffix('.')
+                .is_some_and(|text| text.eq_ignore_ascii_case(other))
+            || other.parse::<Self>().is_ok_and(|name| self == &name)
     }
 }
 
@@ -760,7 +797,7 @@ impl serde::Serialize for Name {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(self.as_ascii())
+        serializer.serialize_str(&presentation::render(&self.wire))
     }
 }
 
@@ -771,7 +808,7 @@ impl<'de> serde::Deserialize<'de> for Name {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Name::new(&s).map_err(serde::de::Error::custom)
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
@@ -786,6 +823,90 @@ impl<'a> arbitrary::Arbitrary<'a> for Name {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escaped_names_preserve_wire_labels_and_hierarchy() {
+        use crate::io::DNSReadExt;
+        let name = Name::from_presentation(r"A\.B.\255\000\\.\065.example.").unwrap();
+        assert_eq!(name.count_labels(), 4);
+        let mut wire = Vec::new();
+        name.append_to_vec(&mut wire);
+        assert_eq!(wire, b"\x03A.B\x03\xff\0\\\x01A\x07example\0");
+        let decoded = std::io::Cursor::new(wire.as_slice()).read_qname().unwrap();
+        assert!(decoded.case_sensitive_eq(&name));
+        assert_eq!(decoded.to_string().parse::<Name>().unwrap(), name);
+        assert_eq!(name.parent().unwrap().count_labels(), 3);
+        assert!(name.is_subdomain_of(&Name::new("example").unwrap()));
+        assert!(
+            !Name::from_presentation(r"a\.example.")
+                .unwrap()
+                .is_subdomain_of(&Name::new("example").unwrap())
+        );
+        assert_eq!(
+            Name::from_presentation(r"\065\.B.example.").unwrap(),
+            Name::from_presentation(r"a\046b.example.").unwrap(),
+        );
+        assert_ne!(
+            Name::from_presentation(r"a\.b.example.").unwrap(),
+            Name::new("a.b.example.").unwrap(),
+        );
+        let mut lower = wire.clone();
+        lower.make_ascii_lowercase();
+        let mut canonical = Vec::new();
+        name.to_canonical().append_to_vec(&mut canonical);
+        assert_eq!(canonical, lower);
+        let random = name.to_0x20();
+        assert_eq!(random, name);
+        assert_eq!(random.count_labels(), name.count_labels());
+        let mut hash1 = std::collections::hash_map::DefaultHasher::new();
+        let mut hash2 = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut hash1);
+        name.to_canonical().hash(&mut hash2);
+        assert_eq!(hash1.finish(), hash2.finish());
+        assert_eq!(name.cmp(&name.to_canonical()), Ordering::Equal);
+    }
+
+    #[test]
+    fn presentation_names_validate_decoded_lengths_and_escapes() {
+        for text in ["", "a..b", r"a\12", r"a\256", "a\\"] {
+            assert!(Name::from_presentation(text).is_err(), "{text}");
+        }
+        for length in [63, 64] {
+            assert_eq!(
+                Name::from_presentation(&"\\065".repeat(length)).is_ok(),
+                length == 63
+            );
+        }
+        let valid = format!(
+            "{}.{}.{}.{}.",
+            "a".repeat(63),
+            "b".repeat(63),
+            "c".repeat(63),
+            "d".repeat(61)
+        );
+        assert!(Name::from_presentation(&valid).is_ok());
+        assert!(Name::from_presentation(&format!("x{valid}")).is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn escaped_names_round_trip_through_serde() {
+        for name in [
+            Name::from_presentation(r"A\.B.\000\255.example.").unwrap(),
+            Name::new(r"literal\backslash.example.").unwrap(),
+        ] {
+            let text = yaml_serde::to_string(&name).unwrap();
+            assert_eq!(yaml_serde::from_str::<Name>(&text).unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn invalid_punycode_and_binary_labels_display_losslessly() {
+        for text in [r"xn--\255.example.", "xn--.example."] {
+            let name = Name::from_presentation(text).unwrap();
+            assert_eq!(name.to_string().parse::<Name>().unwrap(), name);
+        }
+    }
 
     #[test]
     fn test_name_root() {

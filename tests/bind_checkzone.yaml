@@ -127,14 +127,14 @@ cases:
   - {file: good-cds-unsigned.db, expect: todo, failure: parse, reason: "TODO: implement CDS and CDNSKEY RDATA; [roadmap](../PLAN.md#zone-cds)."}
   - {file: good-cds.db, expect: todo, failure: parse, reason: "TODO: implement CDS RDATA; [roadmap](../PLAN.md#zone-cds)."}
   - {file: good-deleg-root.db, expect: todo, failure: parse, origin: ., reason: "TODO: implement DELEG and DELEGPARAM RDATA; [roadmap](../PLAN.md#zone-deleg)."}
-  - {file: good-dns-sd-reverse.db, expect: todo, failure: parse, origin: 0.0.0.0.in-addr.arpa., reason: "TODO: accept service labels and non-hostname DNS names; [roadmap](../PLAN.md#zone-names)."}
-  - {file: good-gc-msdcs.db, expect: todo, failure: parse, reason: "TODO: accept service labels and non-hostname DNS names; [roadmap](../PLAN.md#zone-names)."}
+  - {file: good-dns-sd-reverse.db, expect: accept, origin: 0.0.0.0.in-addr.arpa.}
+  - {file: good-gc-msdcs.db, expect: accept}
   - {file: good-generate-modifier.db, expect: todo, failure: parse, reason: "TODO: implement bounded $GENERATE expansion; [roadmap](../PLAN.md#zone-generate)."}
   - {file: good-nsap.db, expect: todo, failure: parse, reason: "TODO: implement NSAP RDATA; [roadmap](../PLAN.md#zone-nsap)."}
   - {file: good-nsec3-nopadhash.db, expect: accept}
   - {file: good-occulted-ns-by-dname.db, expect: todo, failure: parse, reason: "TODO: implement DNAME RDATA; [roadmap](../PLAN.md#zone-dname)."}
   - {file: good-occulted-ns-by-ns.db, expect: accept}
   - {file: good-rpz-prefix.db, expect: accept, origin: db.}
-  - {file: good-spf-exception.db, expect: todo, failure: parse, reason: "TODO: accept service labels and non-hostname DNS names; [roadmap](../PLAN.md#zone-names)."}
+  - {file: good-spf-exception.db, expect: accept}
   - {file: good-svcb.db, expect: todo, failure: parse, reason: "TODO: implement SVCB RDATA; [roadmap](../PLAN.md#zone-svcb)."}
   - {file: good1.db, expect: todo, failure: parse, reason: "TODO: implement DNAME RDATA; [roadmap](../PLAN.md#zone-dname)."}

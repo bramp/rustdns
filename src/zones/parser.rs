@@ -1,13 +1,13 @@
 // Parses a Zone File following [RFC 1035 §5](https://datatracker.ietf.org/doc/html/rfc1035#section-5).
 
+use crate::Class;
 use crate::zones::Entry;
 use crate::zones::Record;
 use crate::zones::Resource;
 use crate::zones::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
-use crate::Class;
-use pest_consume::match_nodes;
 use pest_consume::Error;
 use pest_consume::Parser;
+use pest_consume::match_nodes;
 use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
@@ -21,6 +21,12 @@ pub(crate) struct ZoneParser;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
+
+fn unquote_name(text: &str) -> &str {
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .unwrap_or(text)
+}
 
 fn rdata_text(input: &str) -> Cow<'_, str> {
     // The preprocessor flattens grouped lines but leaves the parentheses.
@@ -89,8 +95,8 @@ impl ZoneParser {
     fn domain(input: Node<'_>) -> Result<&str> {
         assert_eq!(input.as_rule(), Rule::domain);
 
-        // TODO Should I do some validation?
-        Ok(input.as_str())
+        let text = input.as_str();
+        Ok(unquote_name(text))
     }
 
     fn class(input: Node<'_>) -> Result<Class> {
@@ -152,7 +158,7 @@ impl ZoneParser {
         let fields = crate::from_str::parse_mx(&text).map_err(|error| input.error(error))?;
         Ok(UnresolvedMx {
             preference: fields.preference,
-            exchange: fields.exchange.to_owned(),
+            exchange: unquote_name(fields.exchange).to_owned(),
         })
     }
 
@@ -170,7 +176,7 @@ impl ZoneParser {
             priority: fields.priority,
             weight: fields.weight,
             port: fields.port,
-            name: fields.name.to_owned(),
+            name: unquote_name(fields.name).to_owned(),
         })
     }
 
@@ -196,8 +202,8 @@ impl ZoneParser {
         let text = rdata_text(input.as_str());
         let fields = crate::from_str::parse_soa(&text).map_err(|error| input.error(error))?;
         Ok(UnresolvedSoa {
-            mname: fields.mname.to_owned(),
-            rname: fields.rname.to_owned(),
+            mname: unquote_name(fields.mname).to_owned(),
+            rname: unquote_name(fields.rname).to_owned(),
             serial: fields.serial,
             refresh: fields.refresh,
             retry: fields.retry,
@@ -216,7 +222,9 @@ impl ZoneParser {
     }
 
     fn ds_rdata(input: Node<'_>) -> Result<crate::DS> {
-        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+        rdata_text(input.as_str())
+            .parse()
+            .map_err(|error| input.error(error))
     }
 
     #[alias(resource)]
@@ -229,7 +237,9 @@ impl ZoneParser {
     }
 
     fn dnskey_rdata(input: Node<'_>) -> Result<crate::DNSKEY> {
-        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+        rdata_text(input.as_str())
+            .parse()
+            .map_err(|error| input.error(error))
     }
 
     #[alias(resource)]
@@ -252,7 +262,7 @@ impl ZoneParser {
             expiration: fields.expiration,
             inception: fields.inception,
             key_tag: fields.key_tag,
-            signer_name: fields.signer_name.to_owned(),
+            signer_name: unquote_name(fields.signer_name).to_owned(),
             signature: fields.signature,
         })
     }
@@ -270,7 +280,7 @@ impl ZoneParser {
         let text = rdata_text(input.as_str());
         let fields = crate::from_str::parse_nsec(&text).map_err(|error| input.error(error))?;
         Ok(UnresolvedNsec {
-            next_domain: fields.next_domain.to_owned(),
+            next_domain: unquote_name(fields.next_domain).to_owned(),
             types: fields.types,
         })
     }
@@ -285,7 +295,9 @@ impl ZoneParser {
     }
 
     fn zonemd_rdata(input: Node<'_>) -> Result<crate::ZONEMD> {
-        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+        rdata_text(input.as_str())
+            .parse()
+            .map_err(|error| input.error(error))
     }
 
     #[alias(resource)]
@@ -305,7 +317,11 @@ impl ZoneParser {
     fn txt_rdata(input: Node<'_>) -> Result<crate::TXT> {
         let txt = crate::from_str::parse_zone_txt(&rdata_text(input.as_str()))
             .map_err(|error| input.error(error))?;
-        if txt.0.iter().any(|string| string.len() > usize::from(u8::MAX)) {
+        if txt
+            .0
+            .iter()
+            .any(|string| string.len() > usize::from(u8::MAX))
+        {
             return Err(input.error("TXT/SPF character-string exceeds 255 octets"));
         }
         Ok(txt)
@@ -319,7 +335,9 @@ impl ZoneParser {
     }
 
     fn nsec3_rdata(input: Node<'_>) -> Result<crate::NSEC3> {
-        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+        rdata_text(input.as_str())
+            .parse()
+            .map_err(|error| input.error(error))
     }
 
     #[alias(resource)]
@@ -330,7 +348,9 @@ impl ZoneParser {
     }
 
     fn nsec3param_rdata(input: Node<'_>) -> Result<crate::NSEC3PARAM> {
-        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
+        rdata_text(input.as_str())
+            .parse()
+            .map_err(|error| input.error(error))
     }
 
     #[alias(entry)]

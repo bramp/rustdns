@@ -5,10 +5,10 @@
 //! [RFC 4034 §3.1.8 & §6]: https://datatracker.ietf.org/doc/html/rfc4034#section-6
 //! [RFC 6840]: https://datatracker.ietf.org/doc/html/rfc6840
 
+use crate::EncodeError;
 use crate::names::Name;
 use crate::resource::RRSIG;
 use crate::types::{Record, Resource};
-use crate::EncodeError;
 use std::time::Duration;
 
 /// Adjusts an owner name for wildcard expansion if necessary ([RFC 4035 §5.3.2]).
@@ -40,10 +40,13 @@ pub(crate) fn canonical_owner_for_rrsig(record_name: &Name, rrsig_labels: u8) ->
     if rrsig_labels < current_count {
         // Wildcard substitution: keep the rightmost `rrsig_labels` and prepend "*."
         let excess = (current_count - rrsig_labels) as usize;
-        let trimmed = record_name.as_ascii().trim_end_matches('.');
-        let labels: Vec<&str> = trimmed.split('.').collect();
-        let suffix = labels[excess..].join(".");
-        Name::new(&format!("*.{suffix}.")).expect("valid wildcard domain name").to_canonical()
+        let mut wire = vec![1, b'*'];
+        for label in record_name.labels().skip(excess) {
+            wire.push(label.len() as u8);
+            wire.extend_from_slice(label);
+        }
+        wire.push(0);
+        Name::from_wire(wire).to_canonical()
     } else {
         record_name.to_canonical()
     }
@@ -144,9 +147,10 @@ pub(crate) fn append_signed_data_to_vec(
     rrsig: &RRSIG,
     rrset: &[Record],
 ) -> Result<(), EncodeError> {
-    let orig_ttl = u32::try_from(rrsig.original_ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
-        max: u64::from(u32::MAX),
-    })?;
+    let orig_ttl =
+        u32::try_from(rrsig.original_ttl.as_secs()).map_err(|_| EncodeError::TtlTooLong {
+            max: u64::from(u32::MAX),
+        })?;
     let expiration = rrsig.expiration_seconds()?;
     let inception = rrsig.inception_seconds()?;
 
@@ -234,14 +238,16 @@ mod tests {
     fn test_canonical_owner_wildcard() {
         let sub = Name::new("sub.example.com.").unwrap();
         // No wildcard expansion
-        assert_eq!(
-            canonical_owner_for_rrsig(&sub, 3),
-            sub
-        );
+        assert_eq!(canonical_owner_for_rrsig(&sub, 3), sub);
         // Wildcard expansion: labels = 2, owner has 3 labels -> "*.example.com."
         assert_eq!(
             canonical_owner_for_rrsig(&sub, 2),
             Name::new("*.example.com.").unwrap()
+        );
+        let escaped = Name::from_presentation(r"www.A\.B.example.").unwrap();
+        assert_eq!(
+            canonical_owner_for_rrsig(&escaped, 2),
+            Name::from_presentation(r"*.a\.b.example.").unwrap(),
         );
     }
 

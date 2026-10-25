@@ -94,38 +94,7 @@ pub(crate) trait DNSReadExt: io::Read + io::Seek {
     /// compression, or runs past the end of the message.
     fn read_qname(&mut self) -> Result<Name, DecodeError> {
         let wire = read_qname_at_depth(self, 0)?;
-        let mut name_str = String::new();
-        let mut remaining = wire.as_slice();
-        while let Some((&length, rest)) = remaining.split_first() {
-            if length == 0 {
-                break;
-            }
-            let (label, rest) = rest
-                .split_at_checked(usize::from(length))
-                .ok_or(DecodeError::UnexpectedEof)?;
-            let label = std::str::from_utf8(label).map_err(DecodeError::LabelNotUtf8)?;
-            if !label.is_ascii() {
-                return Err(DecodeError::LabelNotAscii {
-                    label: label.to_string(),
-                });
-            }
-            let label = if label.to_ascii_lowercase().starts_with("xn--") {
-                let (decoded, result) = idna::domain_to_unicode(label);
-                result.map_err(|_| DecodeError::LabelNotIdna {
-                    label: decoded.clone(),
-                })?;
-                decoded
-            } else {
-                label.to_string()
-            };
-            name_str.push_str(&label);
-            name_str.push('.');
-            remaining = rest;
-        }
-        if name_str.is_empty() {
-            name_str.push('.');
-        }
-        Name::new(&name_str).map_err(|_| DecodeError::LabelNotIdna { label: name_str })
+        Ok(Name::from_wire(wire))
     }
 
     fn read_rname(&mut self) -> Result<crate::Rname, DecodeError> {

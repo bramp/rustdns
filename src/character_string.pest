@@ -5,7 +5,7 @@ zone_txt = ${ SOI ~ space* ~ (quoted | unquoted) ~ (space+ ~ (quoted | unquoted)
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 
-field = @{ (!(" " | "\t" | "\r" | "\n") ~ ANY)+ }
+field = @{ quoted | (!(" " | "\t" | "\r" | "\n") ~ ANY)+ }
 number = @{ ASCII_DIGIT+ }
 hex_fragment = @{ ASCII_HEX_DIGIT+ }
 base64_fragment = @{ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+ }
