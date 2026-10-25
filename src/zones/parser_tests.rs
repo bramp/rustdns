@@ -3,12 +3,161 @@
 #[cfg(test)]
 mod tests {
     use crate::resource::{DNSKEY, DS, ZONEMD};
-    use crate::zones::{Entry, File, Record, Resource, MX, NSEC, RRSIG, UnresolvedSoa as SOA};
+    use crate::zones::{
+        Entry, File, Record, Resource, UnresolvedMx as MX, UnresolvedNsec as NSEC,
+        UnresolvedRrsig as RRSIG, UnresolvedSoa as SOA,
+    };
     use crate::Class;
     use core::time::Duration;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
     use std::time::UNIX_EPOCH;
+
+    #[test]
+    fn shared_rdata_zone_and_text_parsing_agree() {
+        for (kind, rdata) in [
+            (crate::Type::MX, "65535 mail.example."),
+            (crate::Type::SRV, "65535 65535 65535 ldap.example."),
+            (crate::Type::DS, "65535 255 255 aabb ccdd"),
+            (crate::Type::DNSKEY, "65535 255 255 AQ ID"),
+            (
+                crate::Type::RRSIG,
+                "A 255 255 3600 20300101000000 20200101000000 65535 example. AQ ID",
+            ),
+            (crate::Type::NSEC, "next.example. A NS SOA MX RRSIG NSEC DNSKEY"),
+            (crate::Type::NSEC, "next.example."),
+            (crate::Type::ZONEMD, "4294967295 255 255 aabb ccdd"),
+        ] {
+            let expected = crate::Resource::parse_text(kind, rdata).unwrap();
+            for grouped in [false, true] {
+                let rdata = if grouped {
+                    format!("(\n{rdata} ; grouped RDATA\n)")
+                } else {
+                    rdata.to_owned()
+                };
+                let input = format!(
+                    "$TTL 300\nexample. IN {kind} {rdata} ; record\nnext.example. A 192.0.2.1"
+                );
+                let records = input.parse::<File>().unwrap().try_into_records().unwrap();
+                assert_eq!(records.len(), 2, "{input}");
+                assert_eq!(records[0].resource, expected, "{input}");
+            }
+        }
+    }
+
+    #[test]
+    fn unresolved_resources_preserve_relative_names_and_own_them() {
+        for (kind, relative, absolute) in [
+            (crate::Type::MX, "10 mail", "10 mail.example."),
+            (crate::Type::SRV, "5 10 389 ldap", "5 10 389 ldap.example."),
+            (
+                crate::Type::RRSIG,
+                "A 8 2 3600 2000000000 1900000000 12345 @ AQID",
+                "A 8 2 3600 2000000000 1900000000 12345 example. AQID",
+            ),
+            (crate::Type::NSEC, "next A AAAA", "next.example. A AAAA"),
+        ] {
+            let file = {
+                let input = format!("$ORIGIN example.\n$TTL 300\n@ {kind} {relative}");
+                input.parse::<File>().unwrap()
+            };
+            let Entry::Record(record) = &file.entries[2] else {
+                panic!("expected record");
+            };
+            match &record.resource {
+                Resource::MX(mx) => assert_eq!(mx.exchange, "mail"),
+                Resource::SRV(srv) => assert_eq!(srv.name, "ldap"),
+                Resource::RRSIG(rrsig) => assert_eq!(rrsig.signer_name, "@"),
+                Resource::NSEC(nsec) => assert_eq!(nsec.next_domain, "next"),
+                _ => panic!("unexpected resource"),
+            }
+            let records = file.try_into_records().unwrap();
+            assert_eq!(
+                records[0].resource,
+                crate::Resource::parse_text(kind, absolute).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn shared_rdata_rejects_malformed_values_in_both_entry_points() {
+        for (kind, rdata) in [
+            (crate::Type::MX, "65536 mail.example."),
+            (crate::Type::SRV, "0 0 65536 ldap.example."),
+            (crate::Type::DS, "12345 256 2 aabb"),
+            (crate::Type::DS, "12345 8 2 abc"),
+            (crate::Type::DNSKEY, "257 256 8 AQID"),
+            (crate::Type::DNSKEY, "257 3 8 A"),
+            (
+                crate::Type::RRSIG,
+                "A 8 256 3600 20300101000000 20200101000000 12345 example. AQID",
+            ),
+            (
+                crate::Type::RRSIG,
+                "A 8 2 3600 18446744073709551615 1 12345 example. AQID",
+            ),
+            (crate::Type::NSEC, "next.example. A INVALID AAAA"),
+            (crate::Type::ZONEMD, "1 256 1 aabb"),
+        ] {
+            assert!(
+                crate::Resource::parse_text(kind, rdata).is_err(),
+                "{kind} {rdata}"
+            );
+            let input = format!("example. {kind} {rdata}");
+            assert!(input.parse::<Record>().is_err(), "{input}");
+            assert!(input.parse::<File>().is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn shared_rdata_record_type_owner_names_remain_unambiguous() {
+        for line in [
+            "MX MX 10 mail.example.",
+            "SRV SRV 1 2 389 ldap.example.",
+            "DS DS 12345 8 2 aabb",
+            "DNSKEY DNSKEY 257 3 8 AQID",
+            "RRSIG RRSIG A 8 2 3600 2000000000 1900000000 12345 example. AQID",
+            "NSEC NSEC next.example. A",
+            "ZONEMD ZONEMD 1 1 1 aabb",
+        ] {
+            let record: Record = line.parse().unwrap();
+            assert_eq!(record.name.as_deref(), line.split_whitespace().next());
+        }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn unresolved_resource_aliases_remain_compatible() {
+        let mx: crate::zones::MX = crate::zones::MX {
+            preference: 10,
+            exchange: "mail".to_owned(),
+        };
+        let _: crate::zones::UnresolvedMx = mx;
+        let srv: crate::zones::SRV = crate::zones::SRV {
+            priority: 1,
+            weight: 2,
+            port: 389,
+            name: "ldap".to_owned(),
+        };
+        let _: crate::zones::UnresolvedSrv = srv;
+        let nsec: crate::zones::NSEC = crate::zones::NSEC {
+            next_domain: "next".to_owned(),
+            types: vec![crate::Type::A],
+        };
+        let _: crate::zones::UnresolvedNsec = nsec;
+        let rrsig: crate::zones::RRSIG = crate::zones::RRSIG {
+            type_covered: crate::Type::A,
+            algorithm: crate::Algorithm::RSASHA256,
+            labels: 2,
+            original_ttl: Duration::from_secs(300),
+            expiration: UNIX_EPOCH + Duration::from_secs(2000000000),
+            inception: UNIX_EPOCH + Duration::from_secs(1900000000),
+            key_tag: 12345,
+            signer_name: "@".to_owned(),
+            signature: vec![1, 2, 3],
+        };
+        let _: crate::zones::UnresolvedRrsig = rrsig;
+    }
 
     #[test]
     #[allow(deprecated)]

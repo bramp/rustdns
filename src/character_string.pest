@@ -17,12 +17,17 @@ soa = ${ SOI ~ space* ~ soa_fields ~ space* ~ EOI }
 soa_mname = _{ field }
 soa_rname = _{ field }
 separator = _{ space+ }
-mx = { SOI ~ number ~ field ~ EOI }
-srv = { SOI ~ number ~ number ~ number ~ field ~ EOI }
-ds = { SOI ~ number ~ field ~ field ~ hex_fragment+ ~ EOI }
-dnskey = { SOI ~ number ~ number ~ field ~ base64_fragment+ ~ EOI }
-rrsig = {
-    SOI ~ field ~ field ~ number ~ number ~ field ~ field ~ number ~ field ~ base64_fragment+ ~ EOI
-}
-nsec = { SOI ~ field ~ field* ~ EOI }
-zonemd = { SOI ~ number ~ number ~ number ~ hex_fragment+ ~ EOI }
+rdata_name = _{ field }
+algorithm = _{ field }
+digest_type = _{ field }
+record_type = _{ field }
+signature_time = _{ field }
+hex_data = _{ hex_fragment ~ (separator ~ hex_fragment)* }
+base64_data = _{ base64_fragment ~ (separator ~ base64_fragment)* }
+mx = ${ SOI ~ space* ~ mx_fields ~ space* ~ EOI }
+srv = ${ SOI ~ space* ~ srv_fields ~ space* ~ EOI }
+ds = ${ SOI ~ space* ~ ds_fields ~ space* ~ EOI }
+dnskey = ${ SOI ~ space* ~ dnskey_fields ~ space* ~ EOI }
+rrsig = ${ SOI ~ space* ~ rrsig_fields ~ space* ~ EOI }
+nsec = ${ SOI ~ space* ~ nsec_fields ~ space* ~ EOI }
+zonemd = ${ SOI ~ space* ~ zonemd_fields ~ space* ~ EOI }

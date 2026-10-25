@@ -1,10 +1,7 @@
 //! Zone file AST data structures before directive inheritance and name resolution.
 
 use crate::resource::{A, AAAA, DNSKEY, DS, NSEC3, NSEC3PARAM, RawResource, TXT, ZONEMD};
-use crate::types::{Algorithm, Type};
-use core::time::Duration;
-use std::time::SystemTime;
-use crate::from_str::UnresolvedSoa;
+use crate::from_str::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
 
 /// An unprocessed zone file resource record data payload before origin resolution.
 ///
@@ -28,19 +25,19 @@ pub enum Resource {
     /// Sender Policy Framework (SPF) record.
     SPF(TXT),
     /// Mail EXchanger (MX) record before origin resolution.
-    MX(MX),
+    MX(UnresolvedMx),
     /// Start of Authority (SOA) record before origin resolution.
     SOA(UnresolvedSoa),
     /// Service (SRV) record before origin resolution.
-    SRV(SRV),
+    SRV(UnresolvedSrv),
     /// Delegation Signer (DS) record.
     DS(DS),
     /// DNS Key (DNSKEY) record.
     DNSKEY(DNSKEY),
     /// DNSSEC Signature (RRSIG) record before origin resolution.
-    RRSIG(RRSIG),
+    RRSIG(UnresolvedRrsig),
     /// Next Secure (NSEC) record before origin resolution.
-    NSEC(NSEC),
+    NSEC(UnresolvedNsec),
     /// Next Secure version 3 (NSEC3) record.
     NSEC3(NSEC3),
     /// Next Secure version 3 Parameters (NSEC3PARAM) record.
@@ -53,58 +50,4 @@ pub enum Resource {
     ANY,
     /// Unrecognized or raw resource record data.
     Raw(RawResource),
-}
-
-/// Unprocessed MX record data before zone origin resolution.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MX {
-    /// The preference given to this RR among others at the same owner.
-    pub preference: u16,
-    /// A host willing to act as a mail exchange (may be relative, `"@"`, or FQDN).
-    pub exchange: String,
-}
-
-/// Unprocessed SRV record data before zone origin resolution.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct SRV {
-    /// Priority of this target host.
-    pub priority: u16,
-    /// Relative weight.
-    pub weight: u16,
-    /// Port number.
-    pub port: u16,
-    /// Target hostname (may be relative, `"@"`, or FQDN).
-    pub name: String,
-}
-
-/// Unprocessed RRSIG record data before zone origin resolution.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct RRSIG {
-    /// Covered RR type.
-    pub type_covered: Type,
-    /// Cryptographic algorithm number.
-    pub algorithm: Algorithm,
-    /// Label count.
-    pub labels: u8,
-    /// Original TTL.
-    pub original_ttl: Duration,
-    /// Expiration timestamp.
-    pub expiration: SystemTime,
-    /// Inception timestamp.
-    pub inception: SystemTime,
-    /// Key tag.
-    pub key_tag: u16,
-    /// Signer domain name (may be relative, `"@"`, or FQDN).
-    pub signer_name: String,
-    /// Signature bytes.
-    pub signature: Vec<u8>,
-}
-
-/// Unprocessed NSEC record data before zone origin resolution.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct NSEC {
-    /// Next owner name in canonical order (may be relative, `"@"`, or FQDN).
-    pub next_domain: String,
-    /// Type bit map.
-    pub types: Vec<Type>,
 }

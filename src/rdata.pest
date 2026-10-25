@@ -1,0 +1,17 @@
+// Separators and name syntax depend on whether the input is RDATA or a zone.
+soa_fields = _{
+    soa_mname ~ separator ~ soa_rname ~ separator ~ soa_number ~ separator ~
+    soa_number ~ separator ~ soa_number ~ separator ~ soa_number ~ separator ~ soa_number
+}
+soa_number = @{ ASCII_DIGIT+ }
+
+mx_fields = _{ number ~ separator ~ rdata_name }
+srv_fields = _{ number ~ separator ~ number ~ separator ~ number ~ separator ~ rdata_name }
+ds_fields = _{ number ~ separator ~ algorithm ~ separator ~ digest_type ~ separator ~ hex_data }
+dnskey_fields = _{ number ~ separator ~ number ~ separator ~ algorithm ~ separator ~ base64_data }
+rrsig_fields = _{
+    record_type ~ separator ~ algorithm ~ separator ~ number ~ separator ~ number ~ separator ~
+    signature_time ~ separator ~ signature_time ~ separator ~ number ~ separator ~ rdata_name ~ separator ~ base64_data
+}
+nsec_fields = _{ rdata_name ~ (separator ~ record_type)* }
+zonemd_fields = _{ number ~ separator ~ number ~ separator ~ number ~ separator ~ hex_data }

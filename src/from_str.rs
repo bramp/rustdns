@@ -5,7 +5,6 @@ use crate::DNSKEY;
 use crate::DS;
 use crate::MX;
 use crate::NSEC;
-use crate::Name;
 use crate::RRSIG;
 use crate::Resource;
 use crate::SOA;
@@ -20,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(pest_derive::Parser)]
 #[grammar = "character_string.pest"]
-#[grammar = "soa.pest"]
+#[grammar = "rdata.pest"]
 struct TextParser;
 
 use crate::FromStrError;
@@ -57,6 +56,60 @@ pub struct UnresolvedSoa<N = String> {
     pub expire: Duration,
     /// Minimum TTL.
     pub minimum: Duration,
+}
+
+/// Parsed MX fields whose exchange name has not been resolved or validated.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UnresolvedMx<N = String> {
+    /// Preference given to this mail exchanger.
+    pub preference: u16,
+    /// Mail exchange host (relative, `"@"`, or fully qualified).
+    pub exchange: N,
+}
+
+/// Parsed SRV fields whose target name has not been resolved or validated.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UnresolvedSrv<N = String> {
+    /// Priority of this target host.
+    pub priority: u16,
+    /// Relative weight.
+    pub weight: u16,
+    /// Port number.
+    pub port: u16,
+    /// Target hostname (relative, `"@"`, or fully qualified).
+    pub name: N,
+}
+
+/// Parsed RRSIG fields whose signer name has not been resolved or validated.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UnresolvedRrsig<N = String> {
+    /// Covered record type.
+    pub type_covered: Type,
+    /// Cryptographic algorithm.
+    pub algorithm: crate::Algorithm,
+    /// Label count.
+    pub labels: u8,
+    /// Original TTL.
+    pub original_ttl: Duration,
+    /// Expiration timestamp.
+    pub expiration: SystemTime,
+    /// Inception timestamp.
+    pub inception: SystemTime,
+    /// Key tag.
+    pub key_tag: u16,
+    /// Signer name (relative, `"@"`, or fully qualified).
+    pub signer_name: N,
+    /// Decoded signature bytes.
+    pub signature: Vec<u8>,
+}
+
+/// Parsed NSEC fields whose next name has not been resolved or validated.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct UnresolvedNsec<N = String> {
+    /// Next owner name (relative, `"@"`, or fully qualified).
+    pub next_domain: N,
+    /// Types present at the owner.
+    pub types: Vec<Type>,
 }
 
 pub(crate) fn parse_soa(input: &str) -> Result<UnresolvedSoa<&str>, FromStrError> {
@@ -148,16 +201,34 @@ impl FromStr for MX {
     ///
     /// Returns an error when the preference is not a valid integer or the format is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // "10 aspmx.l.google.com."
-        // "{preference} {exchange}"
-        let mut fields = parse_record_text(s, Rule::mx)?.into_inner();
-        let preference = next_field(&mut fields)?.as_str().parse()?;
-        let exchange = Name::new(next_field(&mut fields)?.as_str())?;
+        let fields = parse_mx(s)?;
         Ok(MX {
-            preference,
-            exchange,
+            preference: fields.preference,
+            exchange: fields.exchange.parse()?,
         })
     }
+}
+
+pub(crate) fn parse_mx(input: &str) -> Result<UnresolvedMx<&str>, FromStrError> {
+    // "10 aspmx.l.google.com."
+    // "{preference} {exchange}"
+    let mut fields = parse_record_text(input, Rule::mx)?.into_inner();
+    Ok(UnresolvedMx {
+        preference: next_field(&mut fields)?.as_str().parse()?,
+        exchange: next_field(&mut fields)?.as_str(),
+    })
+}
+
+pub(crate) fn parse_srv(input: &str) -> Result<UnresolvedSrv<&str>, FromStrError> {
+    // "5 0 389 ldap.google.com."
+    // "{priority} {weight} {port} {name}"
+    let mut fields = parse_record_text(input, Rule::srv)?.into_inner();
+    Ok(UnresolvedSrv {
+        priority: next_field(&mut fields)?.as_str().parse()?,
+        weight: next_field(&mut fields)?.as_str().parse()?,
+        port: next_field(&mut fields)?.as_str().parse()?,
+        name: next_field(&mut fields)?.as_str(),
+    })
 }
 
 impl FromStr for SRV {
@@ -169,18 +240,12 @@ impl FromStr for SRV {
     ///
     /// Returns an error when a priority, weight, or port is not a valid integer or the format is invalid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // "5 0 389 ldap.google.com."
-        // "{priority} {weight} {port} {name}"
-        let mut fields = parse_record_text(s, Rule::srv)?.into_inner();
-        let priority = next_field(&mut fields)?.as_str().parse()?;
-        let weight = next_field(&mut fields)?.as_str().parse()?;
-        let port = next_field(&mut fields)?.as_str().parse()?;
-        let name = Name::new(next_field(&mut fields)?.as_str())?;
+        let fields = parse_srv(s)?;
         Ok(SRV {
-            priority,
-            weight,
-            port,
-            name,
+            priority: fields.priority,
+            weight: fields.weight,
+            port: fields.port,
+            name: fields.name.parse()?,
         })
     }
 }
@@ -251,51 +316,76 @@ impl FromStr for RRSIG {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // "A 8 2 3600 2000000000 1900000000 12345 example.com. AwEAAQ=="
-        // "{type_covered} {algorithm} {labels} {original_ttl} {expiration} {inception} {key_tag} {signer_name} {signature}"
-        let mut fields = parse_record_text(s, Rule::rrsig)?.into_inner();
-        let type_covered = Type::from_str(next_field(&mut fields)?.as_str())
-            .map_err(|_| FromStrError::InvalidFormat)?;
-        let algorithm = next_field(&mut fields)?.as_str().parse()?;
-        let labels = next_field(&mut fields)?.as_str().parse()?;
-        let original_ttl = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
-        let expiration = parse_rrsig_time(next_field(&mut fields)?.as_str())?;
-        let inception = parse_rrsig_time(next_field(&mut fields)?.as_str())?;
-        let key_tag = next_field(&mut fields)?.as_str().parse()?;
-        let signer_name = Name::new(next_field(&mut fields)?.as_str())?;
-        let sig_b64: String = fields.map(|fragment| fragment.as_str()).collect();
-        let signature =
-            crate::util::base64_decode(&sig_b64).map_err(|_| FromStrError::InvalidFormat)?;
+        let fields = parse_rrsig(s)?;
         Ok(RRSIG {
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name,
-            signature,
+            type_covered: fields.type_covered,
+            algorithm: fields.algorithm,
+            labels: fields.labels,
+            original_ttl: fields.original_ttl,
+            expiration: fields.expiration,
+            inception: fields.inception,
+            key_tag: fields.key_tag,
+            signer_name: fields.signer_name.parse()?,
+            signature: fields.signature,
         })
     }
+}
+
+pub(crate) fn parse_rrsig(s: &str) -> Result<UnresolvedRrsig<&str>, FromStrError> {
+    // "A 8 2 3600 2000000000 1900000000 12345 example.com. AwEAAQ=="
+    // "{type_covered} {algorithm} {labels} {original_ttl} {expiration} {inception} {key_tag} {signer_name} {signature}"
+    let mut fields = parse_record_text(s, Rule::rrsig)?.into_inner();
+    let type_covered = Type::from_str(next_field(&mut fields)?.as_str())
+        .map_err(|_| FromStrError::InvalidFormat)?;
+    let algorithm = next_field(&mut fields)?.as_str().parse()?;
+    let labels = next_field(&mut fields)?.as_str().parse()?;
+    let original_ttl = Duration::from_secs(next_field(&mut fields)?.as_str().parse()?);
+    let expiration = parse_rrsig_time(next_field(&mut fields)?.as_str())?;
+    let inception = parse_rrsig_time(next_field(&mut fields)?.as_str())?;
+    let key_tag = next_field(&mut fields)?.as_str().parse()?;
+    let signer_name = next_field(&mut fields)?.as_str();
+    let sig_b64: String = fields.map(|fragment| fragment.as_str()).collect();
+    let signature =
+        crate::util::base64_decode(&sig_b64).map_err(|_| FromStrError::InvalidFormat)?;
+    Ok(UnresolvedRrsig {
+        type_covered,
+        algorithm,
+        labels,
+        original_ttl,
+        expiration,
+        inception,
+        key_tag,
+        signer_name,
+        signature,
+    })
 }
 
 impl FromStr for NSEC {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // "next.example.com. A NS SOA MX RRSIG NSEC DNSKEY"
-        // "{next_domain} {type}..."
-        let mut fields = parse_record_text(s, Rule::nsec)?.into_inner();
-        let next_domain = Name::new(next_field(&mut fields)?.as_str())?;
-        let mut types = Vec::new();
-        for type_field in fields {
-            if let Ok(t) = Type::from_str(type_field.as_str()) {
-                types.push(t);
-            }
-        }
-        Ok(NSEC { next_domain, types })
+        let fields = parse_nsec(s)?;
+        Ok(NSEC {
+            next_domain: fields.next_domain.parse()?,
+            types: fields.types,
+        })
     }
+}
+
+pub(crate) fn parse_nsec(s: &str) -> Result<UnresolvedNsec<&str>, FromStrError> {
+    // "next.example.com. A NS SOA MX RRSIG NSEC DNSKEY"
+    // "{next_domain} {type}..."
+    let mut fields = parse_record_text(s, Rule::nsec)?.into_inner();
+    let next_domain = next_field(&mut fields)?.as_str();
+    let mut types = Vec::new();
+    for type_field in fields {
+        if type_field.as_rule() != Rule::EOI {
+            types.push(
+                Type::from_str(type_field.as_str()).map_err(|_| FromStrError::InvalidFormat)?,
+            );
+        }
+    }
+    Ok(UnresolvedNsec { next_domain, types })
 }
 
 impl FromStr for ZONEMD {
@@ -386,6 +476,45 @@ impl FromStr for TXT {
 mod tests {
     use super::{DNSKEY, DS, FromStrError, MX, NSEC, RRSIG, Resource, SOA, SRV, TXT, ZONEMD};
     use crate::Type;
+
+    #[test]
+    fn unresolved_rdata_parsers_borrow_names() {
+        let mx = super::parse_mx("10 mail").unwrap();
+        assert_eq!(mx.exchange, "mail");
+        assert_eq!(mx.preference, 10);
+        let srv = super::parse_srv("5 10 389 ldap").unwrap();
+        assert_eq!(srv.name, "ldap");
+        assert_eq!((srv.priority, srv.weight, srv.port), (5, 10, 389));
+        let input = String::from("A 8 2 3600 2000000000 1900000000 12345 signer AQID");
+        let rrsig = super::parse_rrsig(&input).unwrap();
+        assert_eq!(rrsig.signer_name, "signer");
+        let signer_offset = input.find("signer").unwrap();
+        assert_eq!(rrsig.signer_name.as_ptr(), input[signer_offset..].as_ptr());
+        assert_eq!(rrsig.signature, [1, 2, 3]);
+        let nsec = super::parse_nsec("next A AAAA RRSIG").unwrap();
+        assert_eq!(nsec.next_domain, "next");
+        assert_eq!(nsec.types, [Type::A, Type::AAAA, Type::RRSIG]);
+    }
+
+    #[test]
+    fn nsec_rejects_unrecognized_type_tokens_instead_of_dropping_them() {
+        assert!("next.example. A INVALID AAAA".parse::<NSEC>().is_err());
+        assert!("next.example. INVALID".parse::<NSEC>().is_err());
+        assert!("next.example.".parse::<NSEC>().unwrap().types.is_empty());
+    }
+
+    #[test]
+    fn text_rdata_requires_field_separators() {
+        for (record_type, input) in [
+            (Type::MX, "10mail.example."),
+            (Type::SRV, "1 2 389ldap.example."),
+            (Type::DS, "12345RSASHA256 2 aabb"),
+            (Type::DNSKEY, "257 3ED25519 AQID"),
+            (Type::ZONEMD, "1 1 1aabb"),
+        ] {
+            assert!(Resource::parse_text(record_type, input).is_err(), "{input}");
+        }
+    }
 
     #[test]
     fn soa_fields_borrow_names_without_resolving_them() {

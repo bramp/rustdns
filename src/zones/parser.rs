@@ -3,15 +3,8 @@
 use crate::zones::Entry;
 use crate::zones::Record;
 use crate::zones::Resource;
-use crate::zones::MX;
-use crate::zones::NSEC;
-use crate::zones::RRSIG;
-use crate::zones::UnresolvedSoa;
+use crate::zones::{UnresolvedMx, UnresolvedNsec, UnresolvedRrsig, UnresolvedSoa, UnresolvedSrv};
 use crate::Class;
-use crate::DNSKEY;
-use crate::DS;
-use crate::Type;
-use crate::ZONEMD;
 use pest_consume::match_nodes;
 use pest_consume::Error;
 use pest_consume::Parser;
@@ -19,15 +12,24 @@ use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 #[derive(Parser)]
 #[grammar = "zones/zones.pest"]
-#[grammar = "soa.pest"]
+#[grammar = "rdata.pest"]
 pub(crate) struct ZoneParser;
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
+
+fn rdata_text(input: &str) -> Cow<'_, str> {
+    // The preprocessor flattens grouped lines but leaves the parentheses.
+    if input.contains(['(', ')']) {
+        Cow::Owned(input.replace(['(', ')'], " "))
+    } else {
+        Cow::Borrowed(input)
+    }
+}
 
 #[pest_consume::parser]
 impl ZoneParser {
@@ -80,56 +82,6 @@ impl ZoneParser {
         }
     }
 
-    fn number<T: FromStr>(input: Node<'_>) -> Result<T>
-    where
-        T::Err: std::fmt::Display,
-    {
-        assert_eq!(input.as_rule(), Rule::number);
-
-        match input.as_str().parse() {
-            Ok(i) => Ok(i),
-            Err(e) => Err(input.error(e)),
-        }
-    }
-
-    fn type_name(input: Node<'_>) -> Result<Type> {
-        assert_eq!(input.as_rule(), Rule::type_name);
-        match Type::from_str(input.as_str()) {
-            Ok(t) => Ok(t),
-            Err(e) => Err(input.error(e)),
-        }
-    }
-
-    fn base64_string(input: Node<'_>) -> Result<Vec<u8>> {
-        assert_eq!(input.as_rule(), Rule::base64_string);
-        match crate::util::base64_decode(input.as_str()) {
-            Ok(bytes) => Ok(bytes),
-            Err(e) => Err(input.error(e)),
-        }
-    }
-
-    fn hex_string(input: Node<'_>) -> Result<Vec<u8>> {
-        assert_eq!(input.as_rule(), Rule::hex_string);
-        match crate::util::hex_decode(input.as_str()) {
-            Ok(bytes) => Ok(bytes),
-            Err(e) => Err(input.error(e)),
-        }
-    }
-
-    fn rrsig_time(input: Node<'_>) -> Result<SystemTime> {
-        assert_eq!(input.as_rule(), Rule::rrsig_time);
-        let s = input.as_str();
-        if s.len() == 14 && s.chars().all(|c| c.is_ascii_digit()) {
-            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y%m%d%H%M%S") {
-                return Ok(dt.and_utc().into());
-            }
-        }
-        match s.parse::<u64>() {
-            Ok(secs) => Ok(UNIX_EPOCH + Duration::from_secs(secs)),
-            Err(e) => Err(input.error(e)),
-        }
-    }
-
     #[alias(resource)]
     fn resource_a(input: Node<'_>) -> Result<Resource> {
         assert_eq!(input.as_rule(), Rule::resource_a);
@@ -171,11 +123,35 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_mx);
 
         Ok(match_nodes!(input.into_children();
-            [number(preference), domain(exchange)] => Resource::MX(MX {
-                preference,
-                exchange: exchange.to_string(),
-            }),
+            [mx_rdata(mx)] => Resource::MX(mx),
         ))
+    }
+
+    fn mx_rdata(input: Node<'_>) -> Result<UnresolvedMx> {
+        let text = rdata_text(input.as_str());
+        let fields = crate::from_str::parse_mx(&text).map_err(|error| input.error(error))?;
+        Ok(UnresolvedMx {
+            preference: fields.preference,
+            exchange: fields.exchange.to_owned(),
+        })
+    }
+
+    #[alias(resource)]
+    fn resource_srv(input: Node<'_>) -> Result<Resource> {
+        Ok(match_nodes!(input.into_children();
+            [srv_rdata(srv)] => Resource::SRV(srv),
+        ))
+    }
+
+    fn srv_rdata(input: Node<'_>) -> Result<UnresolvedSrv> {
+        let text = rdata_text(input.as_str());
+        let fields = crate::from_str::parse_srv(&text).map_err(|error| input.error(error))?;
+        Ok(UnresolvedSrv {
+            priority: fields.priority,
+            weight: fields.weight,
+            port: fields.port,
+            name: fields.name.to_owned(),
+        })
     }
 
     #[alias(resource)]
@@ -197,12 +173,7 @@ impl ZoneParser {
     }
 
     fn soa_rdata(input: Node<'_>) -> Result<UnresolvedSoa> {
-        // The preprocessor flattens grouped lines but leaves the parentheses.
-        let text = if input.as_str().contains(['(', ')']) {
-            Cow::Owned(input.as_str().replace(['(', ')'], " "))
-        } else {
-            Cow::Borrowed(input.as_str())
-        };
+        let text = rdata_text(input.as_str());
         let fields = crate::from_str::parse_soa(&text).map_err(|error| input.error(error))?;
         Ok(UnresolvedSoa {
             mname: fields.mname.to_owned(),
@@ -220,13 +191,12 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_ds);
 
         Ok(match_nodes!(input.into_children();
-            [number(key_tag), number(algorithm), number(digest_type), hex_string(digest)] => Resource::DS(DS {
-                key_tag,
-                algorithm,
-                digest_type,
-                digest,
-            }),
+            [ds_rdata(ds)] => Resource::DS(ds),
         ))
+    }
+
+    fn ds_rdata(input: Node<'_>) -> Result<crate::DS> {
+        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
     }
 
     #[alias(resource)]
@@ -234,13 +204,12 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_dnskey);
 
         Ok(match_nodes!(input.into_children();
-            [number(flags), number(protocol), number(algorithm), base64_string(public_key)] => Resource::DNSKEY(DNSKEY {
-                flags,
-                protocol,
-                algorithm,
-                public_key,
-            }),
+            [dnskey_rdata(dnskey)] => Resource::DNSKEY(dnskey),
         ))
+    }
+
+    fn dnskey_rdata(input: Node<'_>) -> Result<crate::DNSKEY> {
+        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
     }
 
     #[alias(resource)]
@@ -248,20 +217,24 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_rrsig);
 
         Ok(match_nodes!(input.into_children();
-            [type_name(type_covered), number(algorithm), number(labels), duration(original_ttl), rrsig_time(expiration), rrsig_time(inception), number(key_tag), domain(signer_name), base64_string(signature)] => {
-                Resource::RRSIG(RRSIG {
-                    type_covered,
-                    algorithm,
-                    labels,
-                    original_ttl,
-                    expiration,
-                    inception,
-                    key_tag,
-                    signer_name: signer_name.to_string(),
-                    signature,
-                })
-            },
+            [rrsig_rdata(rrsig)] => Resource::RRSIG(rrsig),
         ))
+    }
+
+    fn rrsig_rdata(input: Node<'_>) -> Result<UnresolvedRrsig> {
+        let text = rdata_text(input.as_str());
+        let fields = crate::from_str::parse_rrsig(&text).map_err(|error| input.error(error))?;
+        Ok(UnresolvedRrsig {
+            type_covered: fields.type_covered,
+            algorithm: fields.algorithm,
+            labels: fields.labels,
+            original_ttl: fields.original_ttl,
+            expiration: fields.expiration,
+            inception: fields.inception,
+            key_tag: fields.key_tag,
+            signer_name: fields.signer_name.to_owned(),
+            signature: fields.signature,
+        })
     }
 
     #[alias(resource)]
@@ -269,13 +242,17 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_nsec);
 
         Ok(match_nodes!(input.into_children();
-            [domain(next_domain), type_name(types)..] => {
-                Resource::NSEC(NSEC {
-                    next_domain: next_domain.to_string(),
-                    types: types.collect(),
-                })
-            },
+            [nsec_rdata(nsec)] => Resource::NSEC(nsec),
         ))
+    }
+
+    fn nsec_rdata(input: Node<'_>) -> Result<UnresolvedNsec> {
+        let text = rdata_text(input.as_str());
+        let fields = crate::from_str::parse_nsec(&text).map_err(|error| input.error(error))?;
+        Ok(UnresolvedNsec {
+            next_domain: fields.next_domain.to_owned(),
+            types: fields.types,
+        })
     }
 
     #[alias(resource)]
@@ -283,13 +260,12 @@ impl ZoneParser {
         assert_eq!(input.as_rule(), Rule::resource_zonemd);
 
         Ok(match_nodes!(input.into_children();
-            [number(serial), number(scheme), number(algorithm), hex_string(digest)] => Resource::ZONEMD(ZONEMD {
-                serial,
-                scheme,
-                algorithm,
-                digest,
-            }),
+            [zonemd_rdata(zonemd)] => Resource::ZONEMD(zonemd),
         ))
+    }
+
+    fn zonemd_rdata(input: Node<'_>) -> Result<crate::ZONEMD> {
+        rdata_text(input.as_str()).parse().map_err(|error| input.error(error))
     }
 
     #[alias(entry)]

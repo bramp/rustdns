@@ -6,6 +6,15 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- MX, SRV, RRSIG, and NSEC now share generic unresolved field types and parsing
+  between text and zone records. Zone payloads are named `UnresolvedMx`,
+  `UnresolvedSrv`, `UnresolvedRrsig`, and `UnresolvedNsec`; their previous names
+  remain deprecated compatibility aliases, and enum variants are unchanged.
+- Zone DS, DNSKEY, and ZONEMD parsing now reuses their core `FromStr` parsers.
+  Shared RDATA grammar preserves grouped zone records and relative names.
+- RDATA text parsing now requires separators between fields. NSEC text parsing
+  rejects unrecognized type tokens instead of silently discarding them, matching
+  zone parsing. RRSIG zone parsing returns an error for overflowing timestamps.
 - SOA text and zone parsing now share one borrowed field parser. Core `FromStr`
   still validates names immediately; zone parsing preserves relative names and
   origin aliases until processing, including grouped records with comments.
@@ -36,6 +45,7 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- Zone-file SRV parsing, including relative target names and origin resolution.
 - Added `web-dig`, an in-browser WebAssembly DNS query tool supporting DoH
   (RFC 8484) and JSON DoH APIs with authentic dig output formatting.
 - Added `exchanger` feature to `rustdns` providing the `AsyncExchanger` trait,

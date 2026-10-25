@@ -40,7 +40,6 @@ ip4 = @{ (ASCII_DIGIT | ".")+ }
 ip6 = @{ (ASCII_HEX_DIGIT | ":")+ }
 number = @{ ASCII_DIGIT+ }
 duration = @{ ASCII_DIGIT+ }
-rrsig_time = @{ ASCII_DIGIT+ }
 class = @{ ^"IN" | ^"CS" | ^"CH" | ^"HS" }
 type_name = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-")* }
 base64_string = @{ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+ ~ (ws ~ (ASCII_ALPHANUMERIC | "+" | "/" | "=")+)* }
@@ -53,6 +52,7 @@ resource = _{
 	| resource_nsec
 	| resource_ns
 	| resource_mx
+	| resource_srv
 	| resource_ptr
 	| resource_soa
 	| resource_ds
@@ -64,19 +64,34 @@ resource = _{
 resource_a      = {^"A"      ~ ws ~ ip4}
 resource_aaaa   = {^"AAAA"   ~ ws ~ ip6}
 resource_cname  = {^"CNAME"  ~ ws ~ domain}
-resource_nsec   = {^"NSEC"   ~ ws ~ domain ~ (ws ~ type_name)*}
+resource_nsec   = {^"NSEC"   ~ ws ~ nsec_rdata}
 resource_ns     = {^"NS"     ~ ws ~ domain}
-resource_mx     = {^"MX"     ~ ws ~ number ~ ws ~ domain}
+resource_mx     = {^"MX"     ~ ws ~ mx_rdata}
+resource_srv    = {^"SRV"    ~ ws ~ srv_rdata}
 resource_ptr    = {^"PTR"    ~ ws ~ domain}
 resource_soa    = {^"SOA"    ~ ws ~ soa_rdata}
 soa_rdata      = @{ soa_fields }
 soa_mname      = _{ domain }
 soa_rname      = @{ "@" | (ASCII_ALPHANUMERIC | "." | "-" | "\\")+ }
 separator      = _{ ws }
-resource_ds     = {^"DS"     ~ ws ~ number ~ ws ~ number ~ ws ~ number ~ ws ~ hex_string}
-resource_dnskey = {^"DNSKEY" ~ ws ~ number ~ ws ~ number ~ ws ~ number ~ ws ~ base64_string}
-resource_rrsig  = {^"RRSIG"  ~ ws ~ type_name ~ ws ~ number ~ ws ~ number ~ ws ~ duration ~ ws ~ rrsig_time ~ ws ~ rrsig_time ~ ws ~ number ~ ws ~ domain ~ ws ~ base64_string}
-resource_zonemd = {^"ZONEMD" ~ ws ~ number ~ ws ~ number ~ ws ~ number ~ ws ~ hex_string}
+resource_ds     = {^"DS"     ~ ws ~ ds_rdata}
+resource_dnskey = {^"DNSKEY" ~ ws ~ dnskey_rdata}
+resource_rrsig  = {^"RRSIG"  ~ ws ~ rrsig_rdata}
+resource_zonemd = {^"ZONEMD" ~ ws ~ zonemd_rdata}
+mx_rdata       = @{ mx_fields }
+srv_rdata      = @{ srv_fields }
+ds_rdata       = @{ ds_fields }
+dnskey_rdata   = @{ dnskey_fields }
+rrsig_rdata    = @{ rrsig_fields }
+nsec_rdata     = @{ nsec_fields }
+zonemd_rdata   = @{ zonemd_fields }
+rdata_name     = _{ domain }
+algorithm      = _{ number }
+digest_type    = _{ number }
+record_type    = _{ type_name }
+signature_time = _{ number }
+hex_data       = _{ hex_string }
+base64_data    = _{ base64_string }
 
 // Entry for full file.
 file = {
