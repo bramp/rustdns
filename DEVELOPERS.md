@@ -1,5 +1,17 @@
 # Developer Guide
 
+## Dependency Updates
+
+[Dependabot](.github/dependabot.yml) checks the main Cargo workspace and the
+standalone `fuzz/` workspace together every Friday. Version updates are grouped
+by dependency name across both workspaces, with up to 20 open update PRs.
+The main workspace includes `dig`, `nslookup`, `generate_tests`, and `web-dig`;
+these members do not need separate Dependabot entries.
+
+Existing release cooldowns still apply. Cross-directory grouping applies only
+to version updates, not security updates. Incompatible version constraints can
+also cause Dependabot to open separate PRs for the same dependency.
+
 ## Method Naming Style Guide
 
 Use method names to distinguish the format being converted and whether the
