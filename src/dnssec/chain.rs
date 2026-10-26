@@ -174,7 +174,7 @@ mod tests {
         let mut signature = RRSIG {
             type_covered: records[0].r#type(),
             algorithm: key.algorithm,
-            labels: owner.count_labels(),
+            labels: super::super::canonical::rrsig_labels_for_name(owner),
             original_ttl: Duration::from_secs(3600),
             inception: UNIX_EPOCH + Duration::from_secs(1_700_000_000),
             expiration: UNIX_EPOCH + Duration::from_secs(1_700_086_400),
@@ -923,6 +923,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    async fn literal_wildcard_answer_does_not_require_expansion_proof() {
+        let chain = SignedChain::new();
+        let owner = Name::new("*.child.branch.example.").unwrap();
+        let records = vec![record(&owner, Resource::A("192.0.2.3".parse().unwrap()))];
+        let signature = sign(&owner, &chain.child, &records, &chain.key, &chain.pair);
+        assert_eq!(signature.labels, owner.count_labels() - 1);
+        let mut message = chain.negative_answer(owner.as_ascii(), Type::A, false);
+        message.answers = records;
+        message
+            .answers
+            .push(record(&owner, Resource::RRSIG(signature)));
+        let validator = ChainValidator::new(
+            &NoNetwork,
+            &chain.store,
+            &chain.cache,
+            Instant::now() + Duration::from_secs(10),
+        );
+        assert_eq!(
+            validator
+                .validate_message_answers(&message, chain.now)
+                .await
+                .unwrap(),
+            SecurityStatus::Secure
+        );
     }
 
     #[tokio::test]
@@ -1882,7 +1909,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                 // This may trigger additional queries to fetch DNSKEY and DS records for the zone and its parent.
                 match self.validate_rrset_chain(name, set, rrsig, now).await {
                     Ok(_) => {
-                        if rrsig.labels < name.count_labels() {
+                        if rrsig.labels < super::canonical::rrsig_labels_for_name(name) {
                             let proofs = self
                                 .authenticated_proofs(&message.authoritys, &rrsig.signer_name, now)
                                 .await?;
@@ -2425,7 +2452,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     || record.class != Class::Internet
                     || signature.type_covered != rtype
                     || signature.signer_name != *zone
-                    || signature.labels != owner.count_labels()
+                    || signature.labels != super::canonical::rrsig_labels_for_name(&owner)
                 {
                     continue;
                 }

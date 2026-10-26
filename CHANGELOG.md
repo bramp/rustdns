@@ -12,6 +12,9 @@ All notable changes to rustdns are documented here.
   - Reject inconsistent RRset owners/classes/types, invalid signer scope/label
     counts, ineligible DNSKEY protocol/flags, invalid clocks, and ambiguous
     serial-time validity intervals.
+  - Reject wildcard reconstruction outside the signer's zone and label counts
+    that include a literal wildcard. Accept correctly labeled literal wildcard
+    answers and NSEC proofs without requiring expansion proofs for exact owners.
   - Sort canonical RRsets by RDATA rather than RDLENGTH and omit duplicate records.
   - Bound DNSKEY/DS caches and age/expire entries using actual record and RRSIG
     TTLs. Dependency queries set CD/DO and filter by owner, class, and covered type.

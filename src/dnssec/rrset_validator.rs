@@ -2,7 +2,9 @@
 
 use crate::DnssecError;
 use crate::Name;
-use crate::dnssec::canonical::append_signed_data_to_vec;
+use crate::dnssec::canonical::{
+    append_signed_data_to_vec, canonical_owner_for_rrsig, rrsig_labels_for_name,
+};
 use crate::dnssec::crypto::verify_signature;
 use crate::resource::{DNSKEY, RRSIG};
 use crate::types::{Algorithm, Record};
@@ -141,6 +143,16 @@ impl RRSIG {
 /// 4. Canonical RRset signed octet construction.
 /// 5. Cryptographic signature verification over the signed octets.
 ///
+/// Wildcard reconstruction must remain within the signer's zone. A literal
+/// wildcard's label count excludes its leading `*`. Expanded wildcard answers
+/// additionally require denial proofs, which chain validation checks when
+/// `resolver` is enabled.
+///
+/// Signed octets use the RRSIG's Original TTL, not received record TTLs.
+/// This function verifies authenticity without modifying TTLs or establishing
+/// cache lifetime; callers retaining data must also apply RFC 4035 section 5.3.3
+/// TTL limits, including the received RRSIG TTL and remaining signature lifetime.
+///
 /// # Errors
 ///
 /// Returns [`DnssecError::ValidationFailed`] if any check fails.
@@ -169,7 +181,10 @@ pub fn validate_rrset(
             "RRset owner, class, or type does not match its signature".into(),
         ));
     }
-    if !owner_name.is_subdomain_of(&rrsig.signer_name) || rrsig.labels > owner_name.count_labels() {
+    if !owner_name.is_subdomain_of(&rrsig.signer_name)
+        || rrsig.labels > rrsig_labels_for_name(&owner_name)
+        || !canonical_owner_for_rrsig(&owner_name, rrsig.labels).is_subdomain_of(&rrsig.signer_name)
+    {
         return Err(DnssecError::ValidationFailed(
             "invalid RRSIG signer scope or label count".into(),
         ));
@@ -240,6 +255,233 @@ pub fn validate_rrset(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ring::signature::{Ed25519KeyPair, KeyPair};
+
+    fn signed_fixture(owner: &Name) -> (Vec<Record>, RRSIG, DNSKEY) {
+        let pair = Ed25519KeyPair::from_seed_unchecked(&[17; 32]).unwrap();
+        let key = DNSKEY {
+            flags: 256,
+            protocol: 3,
+            algorithm: Algorithm::ED25519,
+            public_key: pair.public_key().as_ref().to_vec(),
+        };
+        let records = vec![
+            Record::try_new(
+                owner,
+                Class::Internet,
+                Duration::from_secs(60),
+                Resource::A("192.0.2.1".parse().unwrap()),
+            )
+            .unwrap(),
+            Record::try_new(
+                owner,
+                Class::Internet,
+                Duration::from_secs(60),
+                Resource::A("192.0.2.2".parse().unwrap()),
+            )
+            .unwrap(),
+        ];
+        let mut signature = RRSIG {
+            type_covered: Type::A,
+            algorithm: key.algorithm,
+            labels: owner.count_labels(),
+            original_ttl: Duration::from_secs(60),
+            inception: UNIX_EPOCH + Duration::from_secs(1_000),
+            expiration: UNIX_EPOCH + Duration::from_secs(2_000),
+            key_tag: key.key_tag(),
+            signer_name: Name::new("example.").unwrap(),
+            signature: Vec::new(),
+        };
+        resign(owner, &records, &mut signature);
+        (records, signature, key)
+    }
+
+    fn resign(owner: &Name, records: &[Record], signature: &mut RRSIG) {
+        let pair = Ed25519KeyPair::from_seed_unchecked(&[17; 32]).unwrap();
+        let data = crate::dnssec::canonical::signed_data_to_vec(owner, signature, records).unwrap();
+        signature.signature = pair.sign(&data).as_ref().to_vec();
+    }
+
+    #[test]
+    fn wildcard_signature_cannot_reconstruct_an_owner_outside_its_zone() {
+        let owner = Name::new("www.example.").unwrap();
+        let (records, mut signature, key) = signed_fixture(&owner);
+        signature.labels = 0;
+        resign(&owner, &records, &mut signature);
+        let result = validate_rrset(
+            &owner,
+            &records,
+            &signature,
+            &key,
+            UNIX_EPOCH + Duration::from_secs(1_500),
+        );
+        assert!(
+            result.is_err(),
+            "example. cannot authenticate a root wildcard"
+        );
+    }
+
+    #[test]
+    fn wildcard_owner_label_count_must_exclude_the_wildcard_label() {
+        let owner = Name::new("*.example.").unwrap();
+        let (records, signature, key) = signed_fixture(&owner);
+        assert!(
+            validate_rrset(
+                &owner,
+                &records,
+                &signature,
+                &key,
+                UNIX_EPOCH + Duration::from_secs(1_500)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn signer_scope_accepts_apex_root_and_in_zone_wildcards() {
+        for (owner, signer, labels) in [
+            ("example.", "example.", 1),
+            ("www.example.", "example.", 1),
+            ("*.example.", "example.", 1),
+            (".", ".", 0),
+            ("www.example.", ".", 0),
+        ] {
+            let owner = Name::new(owner).unwrap();
+            let (records, mut signature, key) = signed_fixture(&owner);
+            signature.signer_name = Name::new(signer).unwrap();
+            signature.labels = labels;
+            resign(&owner, &records, &mut signature);
+            validate_rrset(
+                &owner,
+                &records,
+                &signature,
+                &key,
+                UNIX_EPOCH + Duration::from_secs(1_500),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn sep_and_reserved_dnskey_flags_do_not_disqualify_zone_keys() {
+        let owner = Name::new("www.example.").unwrap();
+        for flags in [256, 257, 256 | 0x4000] {
+            let (records, mut signature, mut key) = signed_fixture(&owner);
+            key.flags = flags;
+            signature.key_tag = key.key_tag();
+            resign(&owner, &records, &mut signature);
+            validate_rrset(
+                &owner,
+                &records,
+                &signature,
+                &key,
+                UNIX_EPOCH + Duration::from_secs(1_500),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn signed_rrset_metadata_rejects_inconsistent_sets_and_ineligible_keys() {
+        let owner = Name::new("www.example.").unwrap();
+        let now = UNIX_EPOCH + Duration::from_secs(1_500);
+        for mode in [
+            "empty",
+            "owner",
+            "class",
+            "type",
+            "labels",
+            "signer",
+            "protocol",
+            "not-zone-key",
+            "revoked",
+            "algorithm",
+            "key-tag",
+        ] {
+            let (mut records, mut signature, mut key) = signed_fixture(&owner);
+            match mode {
+                "empty" => records.clear(),
+                "owner" => records[1].name = Name::new("other.example.").unwrap(),
+                "class" => records[1].class = Class::Chaos,
+                "type" => records[1].resource = Resource::AAAA("2001:db8::1".parse().unwrap()),
+                "labels" => signature.labels = owner.count_labels() + 1,
+                "signer" => signature.signer_name = Name::new("other.").unwrap(),
+                "protocol" => key.protocol = 2,
+                "not-zone-key" => key.flags = 1,
+                "revoked" => key.flags |= 0x0080,
+                "algorithm" => key.algorithm = Algorithm::RSASHA256,
+                "key-tag" => signature.key_tag ^= 1,
+                _ => unreachable!(),
+            }
+            if matches!(mode, "protocol" | "not-zone-key" | "revoked") {
+                signature.key_tag = key.key_tag();
+            }
+            resign(&owner, &records, &mut signature);
+            assert!(
+                validate_rrset(&owner, &records, &signature, &key, now).is_err(),
+                "{mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn received_ttl_changes_do_not_change_authenticated_octets() {
+        let owner = Name::new("www.example.").unwrap();
+        let (records, signature, key) = signed_fixture(&owner);
+        let now = UNIX_EPOCH + Duration::from_secs(1_500);
+        for seconds in [0, 1, 59, 60, 61, u64::from(u32::MAX)] {
+            let mut aged = records.clone();
+            aged[0].ttl = Duration::from_secs(seconds);
+            aged[1].ttl = Duration::ZERO;
+            let report = validate_rrset(&owner, &aged, &signature, &key, now).unwrap();
+            assert_eq!(report.records_count, 2);
+        }
+        let mut changed_original = signature;
+        changed_original.original_ttl += Duration::from_secs(1);
+        assert!(validate_rrset(&owner, &records, &changed_original, &key, now).is_err());
+    }
+
+    #[test]
+    fn original_ttl_encoding_boundaries_are_checked() {
+        let owner = Name::new("www.example.").unwrap();
+        let (records, mut signature, key) = signed_fixture(&owner);
+        let now = UNIX_EPOCH + Duration::from_secs(1_500);
+        for seconds in [0, 1, u64::from(u32::MAX)] {
+            signature.original_ttl = Duration::from_secs(seconds);
+            resign(&owner, &records, &mut signature);
+            validate_rrset(&owner, &records, &signature, &key, now).unwrap();
+        }
+        signature.original_ttl = Duration::from_secs(u64::from(u32::MAX) + 1);
+        let error = validate_rrset(&owner, &records, &signature, &key, now).unwrap_err();
+        assert!(error.to_string().contains("serialize signed data"));
+    }
+
+    #[test]
+    fn signature_time_skew_boundaries_are_inclusive_across_serial_wrap() {
+        let owner = Name::new("www.example.").unwrap();
+        let (_, mut signature, _) = signed_fixture(&owner);
+        for inception in [1_000, u64::from(u32::MAX) - 499] {
+            signature.inception = UNIX_EPOCH + Duration::from_secs(inception);
+            signature.expiration =
+                UNIX_EPOCH + Duration::from_secs((inception + 1_000) % (1u64 << 32));
+            let skew = Duration::from_secs(300);
+            for offset in [-301i64, -300, 0, 1_000, 1_300, 1_301] {
+                let now =
+                    UNIX_EPOCH + Duration::from_secs(inception.checked_add_signed(offset).unwrap());
+                let validity = signature.check_validity(now, skew).unwrap();
+                assert_eq!(
+                    validity.is_valid(),
+                    (-300..=1_300).contains(&offset),
+                    "inception={inception}, offset={offset}"
+                );
+                if offset < -300 {
+                    assert!(matches!(validity, ValidityPeriod::NotYetValid { .. }));
+                } else if offset > 1_300 {
+                    assert!(matches!(validity, ValidityPeriod::Expired { .. }));
+                }
+            }
+        }
+    }
 
     #[test]
     fn validity_rejects_ambiguous_intervals_and_invalid_clocks() {

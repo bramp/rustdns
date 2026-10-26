@@ -188,6 +188,9 @@ NSEC3 Opt-Out can establish insecurity, not a secure NXDOMAIN answer. Parent
 proofs cannot override a more-specific configured trust anchor.
 
 NSEC/NSEC3 proof signatures are validated through the same trust chain as answers.
+Literal wildcard owners exclude the leading `*` from RRSIG Labels and do not
+require expansion proofs for an exact wildcard owner. Reconstructed wildcard
+owners must remain within the signer's zone.
 Proofs cover closest-encloser/next-closer and wildcard semantics, with matching
 NSEC3 parameters, SHA-1 hashes of the correct length, and supported flags.
 A `ChainValidator` shares a deadline and 1,024 work units across scans, dependency
@@ -199,6 +202,11 @@ iteration count and does not impose this response-validation policy.
 DNSKEY/DS caches retain at most 1,024 zones each, expire at the shortest record TTL,
 age returned TTLs, and revalidate cached data against current trust anchors and
 signature validity. Denial proofs are not cached.
+Cryptographic validation uses Original TTL when reconstructing signed octets;
+received TTLs may legitimately change without invalidating a signature.
+RFC 4035 section 5.3.3 TTL normalization of authenticated response records and
+signatures remains tracked in the plan; validation reports alone do not provide
+a safe cache lifetime.
 
 Local signed fixtures exercise valid and tampered proofs, unsigned delegations,
 aliases, wildcard expansion, forged AD, and resource bounds through the validator

@@ -11,6 +11,11 @@ use crate::resource::RRSIG;
 use crate::types::{Record, Resource};
 use std::time::Duration;
 
+pub(crate) fn rrsig_labels_for_name(name: &Name) -> u8 {
+    name.count_labels()
+        .saturating_sub(u8::from(name.labels().next() == Some(b"*")))
+}
+
 /// Adjusts an owner name for wildcard expansion if necessary ([RFC 4035 §5.3.2]).
 ///
 /// If `rrsig.labels < record_name.count_labels()`, the signature was generated via
@@ -215,6 +220,47 @@ mod tests {
     use super::*;
     use crate::{Class, Resource, Type};
     use std::time::Duration;
+
+    #[test]
+    fn signed_cname_octets_match_literal_wire_vector() {
+        let owner = Name::from_presentation(r"W\046W.ExAmPlE.").unwrap();
+        let target = Name::from_presentation(r"T\092T.ExAmPlE.").unwrap();
+        let mut signature = RRSIG {
+            type_covered: Type::CNAME,
+            algorithm: crate::Algorithm::ED25519,
+            labels: 1,
+            original_ttl: Duration::from_secs(60),
+            inception: std::time::UNIX_EPOCH + Duration::from_secs(1),
+            expiration: std::time::UNIX_EPOCH + Duration::from_secs(3600),
+            key_tag: 0x1234,
+            signer_name: Name::new("ExAmPlE.").unwrap(),
+            signature: Vec::new(),
+        };
+        let record = Record::new(
+            owner.clone(),
+            Class::Internet,
+            Duration::ZERO,
+            Resource::CNAME(target),
+        );
+        // Literal RFC 4034 layout, independent of the canonical encoding helpers.
+        let expected = b"\x00\x05\x0f\x01\x00\x00\x00\x3c\x00\x00\x0e\x10\x00\x00\x00\x01\x12\x34\
+            \x07example\x00\
+            \x01*\x07example\x00\x00\x05\x00\x01\x00\x00\x00\x3c\x00\x0d\
+            \x03t\\t\x07example\x00";
+        assert_eq!(
+            signed_data_to_vec(&owner, &signature, std::slice::from_ref(&record)).unwrap(),
+            expected
+        );
+        signature.labels = 2;
+        let expected = b"\x00\x05\x0f\x02\x00\x00\x00\x3c\x00\x00\x0e\x10\x00\x00\x00\x01\x12\x34\
+            \x07example\x00\
+            \x03w.w\x07example\x00\x00\x05\x00\x01\x00\x00\x00\x3c\x00\x0d\
+            \x03t\\t\x07example\x00";
+        assert_eq!(
+            signed_data_to_vec(&owner, &signature, &[record]).unwrap(),
+            expected
+        );
+    }
 
     #[test]
     fn canonical_rrset_orders_rdata_without_rdlength_and_ignores_duplicates() {
