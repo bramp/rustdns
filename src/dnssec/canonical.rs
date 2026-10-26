@@ -180,8 +180,12 @@ pub(crate) fn append_signed_data_to_vec(
         encoded_records.push(wire);
     }
 
-    // Sort canonical records (canonical wire ordering compares octets left-to-right as unsigned bytes)
-    encoded_records.sort();
+    let mut owner_wire = Vec::new();
+    canonical_owner.append_to_vec(&mut owner_wire);
+    // RFC 4034 §6.3 excludes the fixed RR header, including RDLENGTH.
+    let rdata_offset = owner_wire.len() + 10;
+    encoded_records.sort_by(|a, b| a.iter().skip(rdata_offset).cmp(b.iter().skip(rdata_offset)));
+    encoded_records.dedup();
 
     for wire in encoded_records {
         buf.extend_from_slice(&wire);
@@ -211,6 +215,47 @@ mod tests {
     use super::*;
     use crate::{Class, Resource, Type};
     use std::time::Duration;
+
+    #[test]
+    fn canonical_rrset_orders_rdata_without_rdlength_and_ignores_duplicates() {
+        let owner = Name::new("example.").unwrap();
+        let signature = RRSIG {
+            type_covered: Type::TXT,
+            algorithm: crate::Algorithm::ED25519,
+            labels: 1,
+            original_ttl: Duration::from_secs(60),
+            inception: std::time::UNIX_EPOCH,
+            expiration: std::time::UNIX_EPOCH + Duration::from_secs(3600),
+            key_tag: 1,
+            signer_name: owner.clone(),
+            signature: Vec::new(),
+        };
+        // The first string length sorts before 2, despite its longer total RDATA.
+        let long = Record::new(
+            owner.clone(),
+            Class::Internet,
+            Duration::from_secs(60),
+            Resource::TXT(crate::TXT(vec![b"a".to_vec(), b"zzz".to_vec()])),
+        );
+        let short = Record::new(
+            owner.clone(),
+            Class::Internet,
+            Duration::from_secs(60),
+            Resource::TXT(crate::TXT(vec![b"bb".to_vec()])),
+        );
+        let data = signed_data_to_vec(
+            &owner,
+            &signature,
+            &[short.clone(), long.clone(), long.clone()],
+        )
+        .unwrap();
+        let mut expected = signed_data_to_vec(&owner, &signature, &[]).unwrap();
+        append_canonical_record_to_vec(&mut expected, &owner, &long, signature.original_ttl)
+            .unwrap();
+        append_canonical_record_to_vec(&mut expected, &owner, &short, signature.original_ttl)
+            .unwrap();
+        assert_eq!(data, expected);
+    }
 
     #[test]
     fn canonical_soa_preserves_mailbox_label_boundaries() {

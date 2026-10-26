@@ -581,7 +581,10 @@ impl Resolver {
         rtype: Type,
         deadline: Instant,
     ) -> Result<Response, crate::Error> {
-        let mut query = Message::default();
+        let mut query = Message {
+            cd: self.dnssec_mode == DnssecMode::ValidateLocal,
+            ..Message::default()
+        };
         query.try_add_question(name, rtype, Class::Internet)?;
 
         let ext = Extension {
@@ -1203,8 +1206,7 @@ mod tests {
             Resource::A("127.0.0.1".parse().unwrap()),
         ).unwrap();
 
-        // Even over an insecure transport and with AD=0, an unsigned domain is
-        // verified locally by ChainValidator and evaluates to Insecure (RFC 4035 §5.2).
+        // Missing signatures alone cannot prove that a domain is unsigned.
         let mock_unsigned = DnssecMockExchanger {
             secure: false,
             ad: false,
@@ -1218,8 +1220,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let resp = resolver.query("bramp.net", Type::A).await.unwrap();
-        assert_eq!(resp.meta.security_status, SecurityStatus::Insecure);
+        assert!(resolver.query("bramp.net", Type::A).await.is_err());
 
         // Tampered / bogus RRSIG triggers local validation failure
         let invalid_rrsig = Record::try_new(

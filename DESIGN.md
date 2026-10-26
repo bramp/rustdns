@@ -157,6 +157,36 @@ Public DNSSEC and DNS resource records model fields with rich Rust standard and 
 - **Protocol Enums**: Represented with strongly-typed enums (`Type`, `Class`, `Algorithm`, `DigestType`, `Nsec3HashAlgorithm`) paired with numeric `.code()` methods and non-failing `Unknown(u8|u16)` variants for forward compatibility.
 - **Wire Conversion Helpers**: Records provide bounded conversion methods (e.g., `RRSIG::expiration_seconds(&self) -> Result<u32, EncodeError>`) ensuring checked conversion during wire serialization.
 
+### 2.5 Local Validation and Denial Proofs
+
+`DnssecMode::ValidateLocal` sets CD/DO on primary and dependency queries and ignores
+upstream AD. It accepts complete NoError/NXDOMAIN responses with one IN question,
+authenticates answer RRsets, follows CNAMEs, and requires authenticated denial for
+terminal negative answers and wildcard expansion. Missing signatures alone never
+establish insecurity: an authenticated unsigned-delegation proof is required.
+NSEC3 Opt-Out can establish insecurity, not a secure NXDOMAIN answer. Parent
+proofs cannot override a more-specific configured trust anchor.
+
+NSEC/NSEC3 proof signatures are validated through the same trust chain as answers.
+Proofs cover closest-encloser/next-closer and wildcard semantics, with matching
+NSEC3 parameters, SHA-1 hashes of the correct length, and supported flags.
+A `ChainValidator` shares a deadline and 1,024 work units across scans, dependency
+requests, and signature/key candidates. Response validation accepts at most 128
+NSEC3 proof records and 150 additional hashing iterations per name, checking these
+limits before hashing. The public `nsec3_hash` primitive itself uses the caller's
+iteration count and does not impose this response-validation policy.
+
+DNSKEY/DS caches retain at most 1,024 zones each, expire at the shortest record TTL,
+age returned TTLs, and revalidate cached data against current trust anchors and
+signature validity. Denial proofs are not cached.
+
+Local signed fixtures exercise valid and tampered proofs, unsigned delegations,
+aliases, wildcard expansion, forged AD, and resource bounds through the validator
+and public Resolver. This is regression coverage, not full conformance
+certification. Unsupported shapes fail closed; negative ANY proofs and DNAME
+substitution remain unsupported. Independent algorithm vectors and the broader
+upstream-trust policy audit remain tracked in [PLAN.md](PLAN.md#3-dnssec--upstream-trust).
+
 ---
 
 ## 3. WebAssembly (WASM) Support & Feature Decoupling

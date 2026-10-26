@@ -1,11 +1,11 @@
 //! RRset cryptographic validation against RRSIG and DNSKEY.
 
+use crate::DnssecError;
+use crate::Name;
 use crate::dnssec::canonical::append_signed_data_to_vec;
 use crate::dnssec::crypto::verify_signature;
 use crate::resource::{DNSKEY, RRSIG};
 use crate::types::{Algorithm, Record};
-use crate::DnssecError;
-use crate::Name;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// A summary report describing the result of validating an RRset against an RRSIG.
@@ -65,8 +65,9 @@ impl RRSIG {
     ///
     /// # Errors
     ///
-    /// Returns [`DnssecError::ValidationFailed`] if `expiration` or `inception` cannot
-    /// be converted to 32-bit seconds fields.
+    /// Returns [`DnssecError::ValidationFailed`] if the signature timestamps cannot
+    /// be encoded, `now` precedes the Unix epoch, or the interval (including clock
+    /// skew) reaches the ambiguous half-range of 32-bit serial arithmetic.
     ///
     /// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
     /// [RFC 4034 §3.1.5]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
@@ -77,7 +78,9 @@ impl RRSIG {
     ) -> Result<ValidityPeriod, DnssecError> {
         let now_secs = (now
             .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
+            .map_err(|_| {
+                DnssecError::ValidationFailed("validation time precedes Unix epoch".into())
+            })?
             .as_secs()
             % (1u64 << 32)) as u32;
 
@@ -87,7 +90,15 @@ impl RRSIG {
         let inc_secs = self.inception_seconds().map_err(|e| {
             DnssecError::ValidationFailed(format!("invalid RRSIG inception timestamp: {e}"))
         })?;
-        let skew_secs = u32::try_from(clock_skew.as_secs()).unwrap_or(u32::MAX);
+        let skew_secs = u32::try_from(clock_skew.as_secs()).map_err(|_| {
+            DnssecError::ValidationFailed("clock skew exceeds serial arithmetic bounds".into())
+        })?;
+        let interval = u64::from(exp_secs.wrapping_sub(inc_secs));
+        if interval + 2 * u64::from(skew_secs) >= (1u64 << 31) {
+            return Err(DnssecError::ValidationFailed(
+                "RRSIG validity interval or clock skew is ambiguous in serial arithmetic".into(),
+            ));
+        }
 
         let now_with_skew_past = now_secs.wrapping_add(skew_secs);
         let now_with_skew_future = now_secs.wrapping_sub(skew_secs);
@@ -112,8 +123,7 @@ impl RRSIG {
     ///
     /// # Errors
     ///
-    /// Returns [`DnssecError::ValidationFailed`] if `expiration` or `inception` cannot
-    /// be converted to 32-bit seconds fields.
+    /// Returns the same errors as [`Self::check_validity`].
     ///
     /// [RFC 1982]: https://datatracker.ietf.org/doc/html/rfc1982#section-3.2
     /// [RFC 4034 §3.1.5]: https://datatracker.ietf.org/doc/html/rfc4034#section-3.1.5
@@ -125,10 +135,11 @@ impl RRSIG {
 /// Validates an RRset against a covering RRSIG and matching DNSKEY.
 ///
 /// Verifies:
-/// 1. `rrsig.key_tag == dnskey.key_tag()` and `rrsig.algorithm == dnskey.algorithm`.
-/// 2. Signature temporal validity (`inception <= now <= expiration`, with clock skew allowance).
-/// 3. Canonical RRset signed octet construction.
-/// 4. Cryptographic signature verification over the signed octets.
+/// 1. RRset owner, class, covered type, signer scope, and label count.
+/// 2. DNSKEY protocol, zone-key and revoke flags, key tag, and algorithm.
+/// 3. Signature temporal validity (`inception <= now <= expiration`, with clock skew allowance).
+/// 4. Canonical RRset signed octet construction.
+/// 5. Cryptographic signature verification over the signed octets.
 ///
 /// # Errors
 ///
@@ -140,13 +151,32 @@ pub fn validate_rrset(
     dnskey: &DNSKEY,
     now: SystemTime,
 ) -> Result<ValidationReport, DnssecError> {
-    let owner_name = owner_name.into_name().map_err(|e| {
-        DnssecError::ValidationFailed(format!("invalid owner name: {e}"))
-    })?;
+    let owner_name = owner_name
+        .into_name()
+        .map_err(|e| DnssecError::ValidationFailed(format!("invalid owner name: {e}")))?;
 
-    if rrset.is_empty() {
+    let Some(first) = rrset.first() else {
         return Err(DnssecError::ValidationFailed(
             "empty RRset cannot be validated".to_string(),
+        ));
+    };
+    if rrset.iter().any(|record| {
+        record.name != owner_name
+            || record.class != first.class
+            || record.r#type() != rrsig.type_covered
+    }) {
+        return Err(DnssecError::ValidationFailed(
+            "RRset owner, class, or type does not match its signature".into(),
+        ));
+    }
+    if !owner_name.is_subdomain_of(&rrsig.signer_name) || rrsig.labels > owner_name.count_labels() {
+        return Err(DnssecError::ValidationFailed(
+            "invalid RRSIG signer scope or label count".into(),
+        ));
+    }
+    if dnskey.protocol != 3 || dnskey.flags & 0x0100 == 0 || dnskey.flags & 0x0080 != 0 {
+        return Err(DnssecError::ValidationFailed(
+            "DNSKEY must have protocol 3, the zone-key flag, and no revoke flag".into(),
         ));
     }
 
@@ -197,12 +227,7 @@ pub fn validate_rrset(
     })?;
 
     // 4. Cryptographic verification
-    verify_signature(
-        rrsig.algorithm,
-        dnskey,
-        &signed_data,
-        &rrsig.signature,
-    )?;
+    verify_signature(rrsig.algorithm, dnskey, &signed_data, &rrsig.signature)?;
 
     Ok(ValidationReport {
         signer: rrsig.signer_name.clone(),
@@ -215,6 +240,40 @@ pub fn validate_rrset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validity_rejects_ambiguous_intervals_and_invalid_clocks() {
+        let mut signature = RRSIG {
+            type_covered: Type::A,
+            algorithm: Algorithm::ED25519,
+            labels: 1,
+            original_ttl: Duration::from_secs(60),
+            inception: UNIX_EPOCH + Duration::from_secs(1_000),
+            expiration: UNIX_EPOCH + Duration::from_secs(2_000),
+            key_tag: 1,
+            signer_name: Name::new("example.").unwrap(),
+            signature: Vec::new(),
+        };
+        let now = UNIX_EPOCH + Duration::from_secs(1_500);
+        assert!(
+            signature
+                .check_validity(now, Duration::ZERO)
+                .unwrap()
+                .is_valid()
+        );
+        assert!(
+            signature
+                .check_validity(UNIX_EPOCH - Duration::from_secs(1), Duration::ZERO)
+                .is_err()
+        );
+        assert!(
+            signature
+                .check_validity(now, Duration::from_secs(1 << 31))
+                .is_err()
+        );
+        signature.expiration = signature.inception + Duration::from_secs(1 << 31);
+        assert!(signature.check_validity(now, Duration::ZERO).is_err());
+    }
     use crate::types::{Class, Resource, Type};
     use std::time::UNIX_EPOCH;
 
@@ -240,23 +299,24 @@ mod tests {
         };
 
         // Synthesize an RRset with matching owner and type
-        let rrset = vec![Record::try_new(
-            "example.com.",
-            Class::Internet,
-            Duration::from_secs(3600),
-            Resource::A("192.0.2.1".parse().unwrap()),
-        ).unwrap()];
+        let rrset = vec![
+            Record::try_new(
+                "example.com.",
+                Class::Internet,
+                Duration::from_secs(3600),
+                Resource::A("192.0.2.1".parse().unwrap()),
+            )
+            .unwrap(),
+        ];
 
         // 1. Time before inception -> fails with "not yet valid"
         let too_early = UNIX_EPOCH + Duration::from_secs(500_000);
-        let err = validate_rrset("example.com.", &rrset, &rrsig, &dnskey, too_early)
-            .unwrap_err();
+        let err = validate_rrset("example.com.", &rrset, &rrsig, &dnskey, too_early).unwrap_err();
         assert!(err.to_string().contains("signature not yet valid"));
 
         // 2. Time after expiration -> fails with "signature expired"
         let too_late = UNIX_EPOCH + Duration::from_secs(3_000_000);
-        let err = validate_rrset("example.com.", &rrset, &rrsig, &dnskey, too_late)
-            .unwrap_err();
+        let err = validate_rrset("example.com.", &rrset, &rrsig, &dnskey, too_late).unwrap_err();
         assert!(err.to_string().contains("signature expired"));
     }
 

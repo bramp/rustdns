@@ -11,17 +11,18 @@ use crate::resource::{NSEC, NSEC3};
 use crate::types::Type;
 use std::cmp::Ordering;
 
+#[cfg(feature = "resolver")]
+const MAX_NSEC3_PROOFS: usize = 128;
+#[cfg(feature = "resolver")]
+const MAX_NSEC3_ITERATIONS: u16 = 150;
+
 /// Checks whether an NSEC record's interval covers `name` in canonical DNS name order ([RFC 4035 §5.4]).
 ///
 /// An NSEC record with owner $O$ and next domain $N$ covers target $T$ if:
 /// - In the standard non-wrapping case ($O < N$): $O < T < N$.
 /// - In the circular zone wrap-around case ($O \ge N$): $T > O$ or $T < N$.
 #[must_use]
-pub fn nsec_covers(
-    owner: &Name,
-    next_domain: &Name,
-    name: &Name,
-) -> bool {
+pub fn nsec_covers(owner: &Name, next_domain: &Name, name: &Name) -> bool {
     match owner.cmp(next_domain) {
         Ordering::Less => owner < name && name < next_domain,
         Ordering::Greater | Ordering::Equal => name > owner || name < next_domain,
@@ -36,12 +37,7 @@ pub fn nsec_covers(
 /// - `qtype` is NOT present in the NSEC types bitmap.
 /// - `CNAME` is NOT present in the NSEC types bitmap (otherwise the query would follow CNAME).
 #[must_use]
-pub fn verify_nsec_nodata(
-    nsec: &NSEC,
-    nsec_owner: &Name,
-    qname: &Name,
-    qtype: Type,
-) -> bool {
+pub fn verify_nsec_nodata(nsec: &NSEC, nsec_owner: &Name, qname: &Name, qtype: Type) -> bool {
     if nsec_owner != qname {
         return false;
     }
@@ -55,11 +51,20 @@ pub fn verify_nsec_nodata(
 /// 1. An NSEC record covering `qname`.
 /// 2. An NSEC record covering the wildcard under the closest enclosing ancestor (or zone apex).
 #[must_use]
-pub fn verify_nsec_nxdomain(
-    nsecs: &[(&Name, &NSEC)],
-    qname: &Name,
-    zone: &Name,
-) -> bool {
+pub fn verify_nsec_nxdomain(nsecs: &[(&Name, &NSEC)], qname: &Name, zone: &Name) -> bool {
+    if !qname.is_subdomain_of(zone)
+        || qname == zone
+        || nsecs.iter().any(|(owner, nsec)| {
+            !owner.is_subdomain_of(zone)
+                || !nsec.next_domain.is_subdomain_of(zone)
+                || **owner == *qname
+                || nsec.next_domain == *qname
+                || owner.is_subdomain_of(qname)
+                || nsec.next_domain.is_subdomain_of(qname)
+        })
+    {
+        return false;
+    }
     let qname_covered = nsecs
         .iter()
         .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, qname));
@@ -68,21 +73,369 @@ pub fn verify_nsec_nxdomain(
         return false;
     }
 
-    // Check wildcard non-existence (*.<closest_enclosing_ancestor>)
-    let wildcard = if zone.is_root() {
-        Name::new("*.").expect("valid wildcard name")
-    } else {
-        Name::new(&format!("*.{}", zone.as_ascii())).expect("valid wildcard name")
+    let Some(closest) = closest_nsec_encloser(nsecs, qname, zone) else {
+        return false;
     };
+    let Some(next) = next_closer(qname, &closest) else {
+        return false;
+    };
+    if !nsecs
+        .iter()
+        .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, &next))
+    {
+        return false;
+    }
+    let Some(wildcard) = wildcard_name(&closest) else {
+        return false;
+    };
+    if nsecs
+        .iter()
+        .any(|(owner, nsec)| **owner == wildcard || nsec.next_domain == wildcard)
+    {
+        return false;
+    }
     nsecs
         .iter()
         .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, &wildcard))
+}
+
+fn wildcard_name(closest: &Name) -> Option<Name> {
+    let text = if closest.is_root() {
+        "*.".into()
+    } else {
+        format!("*.{}", closest.as_ascii())
+    };
+    Name::from_presentation(&text).ok()
+}
+
+fn closest_nsec_encloser(nsecs: &[(&Name, &NSEC)], qname: &Name, zone: &Name) -> Option<Name> {
+    let mut candidate = qname.parent();
+    while let Some(name) = candidate {
+        if !name.is_subdomain_of(zone) {
+            break;
+        }
+        if name == *zone
+            || nsecs.iter().any(|(owner, nsec)| {
+                owner.is_subdomain_of(&name) || nsec.next_domain.is_subdomain_of(&name)
+            })
+        {
+            return Some(name);
+        }
+        candidate = name.parent();
+    }
+    None
+}
+
+#[cfg(feature = "resolver")]
+pub(crate) fn verify_nsec_response(
+    records: &[crate::Record],
+    qname: &Name,
+    qtype: Type,
+    zone: &Name,
+    nxdomain: bool,
+) -> bool {
+    let nsecs: Vec<_> = records
+        .iter()
+        .filter_map(|record| match &record.resource {
+            crate::Resource::NSEC(nsec) => Some((&record.name, nsec)),
+            _ => None,
+        })
+        .collect();
+    if nsecs.is_empty()
+        || qtype == Type::ANY
+        || !qname.is_subdomain_of(zone)
+        || nsecs.iter().any(|(owner, nsec)| {
+            !owner.is_subdomain_of(zone)
+                || !nsec.next_domain.is_subdomain_of(zone)
+                || (nsec.types.contains(&Type::NS)
+                    && !nsec.types.contains(&Type::SOA)
+                    && qname.is_subdomain_of(owner)
+                    && **owner != *qname)
+                || nsec.types.contains(&Type::DNAME)
+                    && qname.is_subdomain_of(owner)
+                    && **owner != *qname
+        })
+    {
+        return false;
+    }
+    if nxdomain {
+        return verify_nsec_nxdomain(&nsecs, qname, zone);
+    }
+    if nsecs.iter().any(|(owner, _)| **owner == *qname) {
+        return nsecs.iter().any(|(owner, nsec)| {
+            verify_nsec_nodata(nsec, owner, qname, qtype)
+                && (qtype == Type::DS
+                    || !nsec.types.contains(&Type::NS)
+                    || nsec.types.contains(&Type::SOA))
+        });
+    }
+    // An interval ending below qname proves that qname is an empty nonterminal.
+    if nsecs.iter().any(|(owner, nsec)| {
+        nsec_covers(owner, &nsec.next_domain, qname)
+            && nsec.next_domain != *qname
+            && nsec.next_domain.is_subdomain_of(qname)
+    }) {
+        return true;
+    }
+    let Some(closest) = closest_nsec_encloser(&nsecs, qname, zone) else {
+        return false;
+    };
+    let Some(wildcard) = wildcard_name(&closest) else {
+        return false;
+    };
+    let Some(next) = next_closer(qname, &closest) else {
+        return false;
+    };
+    nsecs
+        .iter()
+        .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, &next))
+        && nsecs.iter().any(|(owner, nsec)| {
+            verify_nsec_nodata(nsec, owner, &wildcard, qtype)
+                && (!nsec.types.contains(&Type::NS) || nsec.types.contains(&Type::SOA))
+        })
+}
+
+#[cfg(feature = "resolver")]
+pub(crate) fn verify_unsigned_delegation(
+    records: &[crate::Record],
+    child: &Name,
+    zone: &Name,
+) -> bool {
+    if child == zone || !child.is_subdomain_of(zone) {
+        return false;
+    }
+    records.iter().any(|record| match &record.resource {
+        crate::Resource::NSEC(nsec) => {
+            record.name == *child
+                && nsec.next_domain.is_subdomain_of(zone)
+                && nsec.types.contains(&Type::NS)
+                && !nsec
+                    .types
+                    .iter()
+                    .any(|rtype| matches!(rtype, Type::DS | Type::SOA | Type::CNAME))
+        }
+        _ => false,
+    }) || verify_nsec3_response(records, child, Type::DS, zone, false, true)
+}
+
+#[cfg(feature = "resolver")]
+pub(crate) fn verify_nsec3_response(
+    records: &[crate::Record],
+    qname: &Name,
+    qtype: Type,
+    zone: &Name,
+    nxdomain: bool,
+    delegation_only: bool,
+) -> bool {
+    // Bounds apply before hashing. At most 128 ancestors and two additional
+    // names are hashed, each with at most 151 SHA-1 operations.
+    let Some(entries) = nsec3_entries(records, zone) else {
+        return false;
+    };
+    let Some((_, parameters)) = entries.first() else {
+        return false;
+    };
+    if qtype == Type::ANY
+        || !qname.is_subdomain_of(zone)
+        || entries.iter().any(|(_, entry)| {
+            entry.salt != parameters.salt || entry.iterations != parameters.iterations
+        })
+    {
+        return false;
+    }
+    let hash = |name: &Name| nsec3_hash(name, &parameters.salt, parameters.iterations);
+    let qhash = hash(qname);
+    if let Some((_, exact)) = entries.iter().find(|(owner, _)| *owner == qhash) {
+        return !nxdomain
+            && !exact.types.contains(&qtype)
+            && !exact.types.contains(&Type::CNAME)
+            && if delegation_only {
+                qtype == Type::DS
+                    && exact.types.contains(&Type::NS)
+                    && !exact.types.contains(&Type::SOA)
+            } else {
+                qtype == Type::DS
+                    || !exact.types.contains(&Type::NS)
+                    || exact.types.contains(&Type::SOA)
+            };
+    }
+
+    let mut candidate = qname.parent();
+    let mut closest = None;
+    while let Some(name) = candidate {
+        if !name.is_subdomain_of(zone) {
+            break;
+        }
+        let hashed = hash(&name);
+        if let Some((_, entry)) = entries.iter().find(|(owner, _)| *owner == hashed) {
+            if entry.types.contains(&Type::DNAME)
+                || entry.types.contains(&Type::NS) && !entry.types.contains(&Type::SOA)
+            {
+                return false;
+            }
+            closest = Some(name);
+            break;
+        }
+        candidate = name.parent();
+    }
+    let Some(closest) = closest else { return false };
+    let Some(next) = next_closer(qname, &closest) else {
+        return false;
+    };
+    let next_hash = hash(&next);
+    let Some((_, cover)) = entries
+        .iter()
+        .find(|(owner, entry)| nsec3_covers(owner, &entry.next_hashed_owner_name, &next_hash))
+    else {
+        return false;
+    };
+    if delegation_only {
+        // RFC 5155 §8.9: closest-encloser proof plus an Opt-Out next-closer span.
+        return qtype == Type::DS && cover.flags & 1 != 0;
+    }
+    if cover.flags & 1 != 0 {
+        return false;
+    }
+    let Some(wildcard) = wildcard_name(&closest) else {
+        return false;
+    };
+    let wildcard_hash = hash(&wildcard);
+    if nxdomain {
+        if entries.iter().any(|(owner, _)| *owner == wildcard_hash) {
+            return false;
+        }
+        entries.iter().any(|(owner, entry)| {
+            entry.flags & 1 == 0
+                && nsec3_covers(owner, &entry.next_hashed_owner_name, &wildcard_hash)
+        })
+    } else {
+        entries.iter().any(|(owner, entry)| {
+            *owner == wildcard_hash
+                && !entry.types.contains(&qtype)
+                && !entry.types.contains(&Type::CNAME)
+                && (!entry.types.contains(&Type::NS) || entry.types.contains(&Type::SOA))
+        })
+    }
+}
+
+#[cfg(feature = "resolver")]
+fn nsec3_entries<'a>(
+    records: &'a [crate::Record],
+    zone: &Name,
+) -> Option<Vec<(Vec<u8>, &'a NSEC3)>> {
+    let mut entries = Vec::new();
+    for record in records {
+        let crate::Resource::NSEC3(entry) = &record.resource else {
+            continue;
+        };
+        if entries.len() >= MAX_NSEC3_PROOFS
+            || entry.hash_algorithm != crate::Nsec3HashAlgorithm::Sha1
+            || entry.flags & !1 != 0
+            || entry.iterations > MAX_NSEC3_ITERATIONS
+            || entry.salt.len() > 255
+            || entry.next_hashed_owner_name.len() != 20
+            || record.name.parent().as_ref() != Some(zone)
+        {
+            return None;
+        }
+        let label = std::str::from_utf8(record.name.labels().next()?).ok()?;
+        let owner = crate::util::base32hex_decode(label).ok()?;
+        if owner.len() != 20 || !crate::util::base32hex_encode(&owner).eq_ignore_ascii_case(label) {
+            return None;
+        }
+        if entries.iter().any(|(_, prior): &(Vec<u8>, &NSEC3)| {
+            prior.salt != entry.salt || prior.iterations != entry.iterations
+        }) {
+            return None;
+        }
+        entries.push((owner, entry));
+    }
+    Some(entries)
+}
+
+#[cfg(feature = "resolver")]
+pub(crate) fn verify_wildcard_expansion(
+    records: &[crate::Record],
+    name: &Name,
+    labels: u8,
+    zone: &Name,
+) -> bool {
+    if labels >= name.count_labels() {
+        return false;
+    }
+    let mut closest = name.clone();
+    while closest.count_labels() > labels {
+        let Some(parent) = closest.parent() else {
+            return false;
+        };
+        closest = parent;
+    }
+    if !closest.is_subdomain_of(zone) {
+        return false;
+    }
+    let Some(next) = next_closer(name, &closest) else {
+        return false;
+    };
+    let nsecs: Vec<_> = records
+        .iter()
+        .filter_map(|record| match &record.resource {
+            crate::Resource::NSEC(nsec) => Some((&record.name, nsec)),
+            _ => None,
+        })
+        .collect();
+    if nsecs
+        .iter()
+        .all(|(owner, nsec)| owner.is_subdomain_of(zone) && nsec.next_domain.is_subdomain_of(zone))
+        && !nsecs.iter().any(|(owner, nsec)| {
+            name.is_subdomain_of(owner)
+                && (nsec.types.contains(&Type::DNAME)
+                    || nsec.types.contains(&Type::NS) && !nsec.types.contains(&Type::SOA))
+        })
+        && !nsecs.iter().any(|(owner, nsec)| {
+            owner.is_subdomain_of(&next) || nsec.next_domain.is_subdomain_of(&next)
+        })
+        && nsecs
+            .iter()
+            .any(|(owner, nsec)| nsec_covers(owner, &nsec.next_domain, &next))
+    {
+        return true;
+    }
+    let Some(entries) = nsec3_entries(records, zone) else {
+        return false;
+    };
+    let Some((_, parameters)) = entries.first() else {
+        return false;
+    };
+    let closest_hash = nsec3_hash(&closest, &parameters.salt, parameters.iterations);
+    let next_hash = nsec3_hash(&next, &parameters.salt, parameters.iterations);
+    entries.iter().any(|(owner, entry)| {
+        *owner == closest_hash
+            && !entry.types.contains(&Type::DNAME)
+            && (!entry.types.contains(&Type::NS) || entry.types.contains(&Type::SOA))
+    }) && !entries.iter().any(|(owner, _)| *owner == next_hash)
+        && entries.iter().any(|(owner, entry)| {
+            entry.flags & 1 == 0 && nsec3_covers(owner, &entry.next_hashed_owner_name, &next_hash)
+        })
+}
+
+fn next_closer(name: &Name, closest: &Name) -> Option<Name> {
+    let mut candidate = name.clone();
+    while let Some(parent) = candidate.parent() {
+        if parent == *closest {
+            return Some(candidate);
+        }
+        candidate = parent;
+    }
+    None
 }
 
 /// Computes the NSEC3 hashed owner name for a domain name per [RFC 5155 §5].
 ///
 /// Implements $IH(\text{salt}, x, \text{iterations})$ where $x$ is the uncompressed canonical
 /// wire-format encoding of `name` (lowercased) and hash algorithm is SHA-1.
+///
+/// This primitive performs the caller-specified iteration count. Local response
+/// validation separately limits untrusted NSEC3 records to 150 iterations.
 #[must_use]
 pub fn nsec3_hash(name: &Name, salt: &[u8], iterations: u16) -> Vec<u8> {
     let mut wire = Vec::new();
@@ -119,9 +472,7 @@ pub fn nsec3_covers(owner_hash: &[u8], next_hash: &[u8], target_hash: &[u8]) -> 
 
     match cmp_on {
         Ordering::Less => cmp_ot == Ordering::Less && cmp_tn == Ordering::Less,
-        Ordering::Greater | Ordering::Equal => {
-            cmp_ot == Ordering::Less || cmp_tn == Ordering::Less
-        }
+        Ordering::Greater | Ordering::Equal => cmp_ot == Ordering::Less || cmp_tn == Ordering::Less,
     }
 }
 
@@ -208,28 +559,13 @@ mod tests {
         let beta = Name::new("beta.example.com.").unwrap();
 
         // Querying for AAAA on alfa.example.com should succeed (NODATA proof)
-        assert!(verify_nsec_nodata(
-            &nsec,
-            &alfa,
-            &alfa,
-            Type::AAAA
-        ));
+        assert!(verify_nsec_nodata(&nsec, &alfa, &alfa, Type::AAAA));
 
         // Querying for A should fail (A exists)
-        assert!(!verify_nsec_nodata(
-            &nsec,
-            &alfa,
-            &alfa,
-            Type::A
-        ));
+        assert!(!verify_nsec_nodata(&nsec, &alfa, &alfa, Type::A));
 
         // Mismatched name should fail
-        assert!(!verify_nsec_nodata(
-            &nsec,
-            &alfa,
-            &beta,
-            Type::AAAA
-        ));
+        assert!(!verify_nsec_nodata(&nsec, &alfa, &beta, Type::AAAA));
     }
 
     #[test]
@@ -250,8 +586,8 @@ mod tests {
         let e = Name::new("e.example.com.").unwrap();
 
         let nsecs = [
-            (&b, &nsec_name),         // covers c.example.com
-            (&example, &nsec_wildcard),       // covers *.example.com
+            (&b, &nsec_name),           // covers c.example.com
+            (&example, &nsec_wildcard), // covers *.example.com
         ];
 
         assert!(verify_nsec_nxdomain(&nsecs, &c, &example));

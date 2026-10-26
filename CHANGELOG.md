@@ -4,6 +4,25 @@ All notable changes to rustdns are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- DNSSEC validation hardening:
+  - Require parent-authenticated DS signatures at the child owner and try eligible
+    DNSKEY/DS signatures and colliding key tags during rollovers.
+  - Reject inconsistent RRset owners/classes/types, invalid signer scope/label
+    counts, ineligible DNSKEY protocol/flags, invalid clocks, and ambiguous
+    serial-time validity intervals.
+  - Sort canonical RRsets by RDATA rather than RDLENGTH and omit duplicate records.
+  - Bound DNSKEY/DS caches and age/expire entries using actual record and RRSIG
+    TTLs. Dependency queries set CD/DO and filter by owner, class, and covered type.
+  - Require authenticated NSEC/NSEC3 denial for negative answers and unsigned
+    delegations; restrict Opt-Out to insecurity proofs and honor more-specific
+    local trust anchors. Validate CNAME targets and wildcard next-closer proofs
+    rather than accepting unrelated signed answers.
+  - Set CD/DO for local validation, ignore forged upstream AD, and enforce shared
+    deadlines/work limits plus NSEC3 proof-count and iteration bounds.
+  - Allow standalone `dnssec` builds without resolver dependencies.
+
 ### Changed
 
 - DNS names decoded from wire preserve arbitrary label octets, including literal
@@ -55,6 +74,25 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- DNSSEC validation APIs and upstream-trust controls:
+  - `DnssecMode`, `UpstreamTrustPolicy`, `SecurityStatus`, and `DnssecError`, with
+    transport-guarded upstream AD handling in `Resolver::query` and
+    `Resolver::lookup`, with configurable `payload_size` defaulting to 1232 bytes.
+  - `ChannelSecurity` (`Insecure`, `Loopback`, `Encrypted`) and
+    `channel_security()` / `is_secure_channel()` on `AsyncExchanger` and `Exchanger`.
+  - The `dnssec` feature provides canonical RRset serialization, signature
+    verification for RSA/SHA-256, RSA/SHA-512, ECDSA P-256/P-384, and Ed25519,
+    DNSKEY key-tag and DS digest calculation, and configurable IANA root trust anchors.
+    The `resolver` feature adds `ChainValidator`, `DnssecCache`, and
+    `DnssecMode::ValidateLocal` integration.
+  - Authenticated NSEC/NSEC3 NODATA/NXDOMAIN and unsigned-delegation validation,
+    including Opt-Out, CNAME terminal negatives, and wildcard expansion proofs.
+    Local signed regression coverage is not a claim of full DNSSEC conformance.
+  - Deterministic signed-chain regressions and a frozen, independently published
+    root DNSKEY/RRSIG fixture checked against the IANA anchor at a fixed time.
+- DNSSEC and zone-digest records (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `NSEC3`,
+  `NSEC3PARAM`, `ZONEMD`) in protocol types and wire encoding/decoding, with text,
+  formatting, and zone parsing support.
 - DNAME (type 39) support in protocol types, wire encoding/decoding, text and JSON
   parsing, formatting, zone origin resolution, and DNSSEC canonicalization.
   DNAME targets are emitted uncompressed; compressed targets are rejected.
@@ -165,24 +203,14 @@ All notable changes to rustdns are documented here.
 - Added `SOA::email` to convert `SOA.rname` into an email address per RFC 1035 §8.
 - Added a dedicated `rname` fuzz target testing `SOA::rname_to_email` and
   `SOA::email_to_rname` conversion and safety.
-- Added `ChannelSecurity` classification (`Insecure`, `Loopback`, `Encrypted`) and
-  `channel_security()` / `is_secure_channel()` methods on `AsyncExchanger` and
-  `Exchanger`.
 - Added `EDNS_SAFE_UDP_PAYLOAD_SIZE` (1232 bytes) limit per RFC 8900 and DNS Flag Day 2020
   to prevent IP fragmentation over IPv6 links.
-- Added `DnssecMode`, `UpstreamTrustPolicy`, `SecurityStatus`, and `DnssecError` for
-  DNSSEC validation policies and error reporting.
-- Added transport-guarded upstream DNSSEC validation in `Resolver::query` and
-  `Resolver::lookup`, with configurable `payload_size` defaulting to 1232 bytes.
 - Separated `Resolver::exchange` (low-level, sends messages verbatim without mutation) from
   `Resolver::query` and `Resolver::lookup` (which manage EDNS options and enforce DNSSEC policy).
 - Added `scripts/fetch_root_fixtures.sh` to download and cache IANA root hints (`named.root`) and
   authoritative root zone (`root.zone`) fixtures for offline-friendly testing and CI caching.
 - Added root hints and root zone integration tests in `src/zones/root_files_tests.rs`, verifying parsing of canonical
   `named.root` (extracting all 13 root name servers and glue records) and `root.zone` (all 24.8k records).
-- Added DNSSEC and zone digest record types (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `ZONEMD`) to `Type`,
-  `Resource`, wire-format encoding/decoding, text parsing (`Resource::parse_text`), presentation formatting (`Display`),
-  and zone grammar (`zones.pest`).
 - Integrated standard `base64` and `hex` ecosystem crates for base64 and hexadecimal encoding and decoding.
 - Added strongly-typed, case-preserving canonical domain `Name` struct in
   `rustdns::names` and `rustdns::Name` implementing RFC 1035 wire limits ($\le 63$ octet

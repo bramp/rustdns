@@ -84,22 +84,67 @@ The core resolver architecture, deadline propagation, response correlation, fail
 
 ## 3. DNSSEC & Upstream Trust
 
-Core trust model, transport security classifications, and fail-closed resolution are complete (see [DESIGN.md](DESIGN.md#2-dnssec-support--upstream-trust-architecture)). Remaining tasks:
+The core APIs and cryptographic verification are implemented (see [DESIGN.md](DESIGN.md#2-dnssec-support--upstream-trust-architecture)).
+Completion requires executable evidence for the trust boundaries below, not just isolated cryptographic tests.
+Use test-driven development: add a focused failing regression or conformance test before each behavior change, then implement and run the relevant feature matrix.
 
 - [x] Add `Type::Unknown(u16)` to `Type` with `code()` and `From<u16>` / `From<Type>`, and `Resource::Raw` fallback in [src/types.rs](src/types.rs) so unknown type codes decode safely when `DO=1` is set.
 - [x] Add `Type::NSEC3` (50) and `Type::NSEC3PARAM` (51) to `Type`.
 - [x] Implement wire encoding and decoding for `NSEC3` and `NSEC3PARAM` (RFC 5155) in [src/resource.rs](src/resource.rs).
 - [x] Implement `DNSKEY::key_tag()` (RFC 4034 Appendix B) and `DS::calculate()` for SHA-1, SHA-256, and SHA-384.
-- [x] Canonical RRset wire serialization (`canonical_name_wire`, `canonical_owner_for_rrsig`, `construct_signed_data`) in `src/dnssec/canonical.rs`.
+- [ ] Verify and finish canonical RRset wire serialization in `src/dnssec/canonical.rs`.
+  - [x] Sort by canonical RDATA octets, not the preceding RDLENGTH field, and suppress duplicate RRs.
+  - Test against independent signed-data vectors, including variable-length RDATA, escaped labels, mixed case, and wildcard owners.
+- [ ] Verify RRset metadata and DNSKEY eligibility before signature validation.
+  - Test owner/class/type consistency, RRSIG label counts and signer scope, TTL bounds, protocol and zone-key/revoke flags, and serial-time validity boundaries.
 - [x] Cryptographic signature verification using `ring` (Algorithms 8, 10, 13, 14, 15) in `src/dnssec/crypto.rs` and `src/dnssec/rrset_validator.rs`.
+  - [x] Verify a frozen, independently published root DNSKEY RRset/RRSIG against the IANA KSK-2017 anchor at a fixed historical validation time; reject a tampered signature.
+  - [ ] Add independent positive interoperability vectors for every supported algorithm, not just successful self-generated signatures or malformed-key tests.
 - [x] Official IANA Root Zone Trust Anchors (KSK 20326 and KSK 38636) and `TrustStore` in `src/dnssec/anchor.rs`.
-- [x] Iterative chain-of-trust delegation validator and DNSKEY/DS caching in `src/dnssec/chain.rs`.
-- [x] Wire `DnssecMode::ValidateLocal` into `Resolver` with automatic chain validation.
+- [ ] Finish and verify the chain-of-trust delegation validator and DNSKEY/DS caching in `src/dnssec/chain.rs`.
+  - [x] Authenticate every DS RRset at the child owner using a strictly ancestral signer; never accept a missing DS signature.
+  - [x] Try all eligible keys and signatures during rollovers, including key-tag collisions.
+  - [x] Require authenticated denial of DS at a delegation before classifying unsigned answers as insecure; never let parent Opt-Out proofs override a more-specific local trust anchor.
+  - [x] Bound cache size and lifetime and revalidate cached data against the current trust store and signature validity period.
+  - [x] Bound recursive query, proof scanning, and signature-verification work using a shared deadline and work budget.
+- [x] Verify `DnssecMode::ValidateLocal` integration with `Resolver` using local signed delegation fixtures.
+  - Cover secure positive answers, authenticated unsigned delegations, NODATA/NXDOMAIN, aliases, wildcard expansion, stripped signatures, forged AD flags, and bogus chains.
+  - Dependency and primary queries set CD/DO; local validation ignores upstream AD.
+- [ ] Verify upstream-trust policy for both AD=0 and AD=1 on authenticated, loopback, untrusted, and explicitly trusted transports.
 - [x] Add CLI flags to [dig/main.rs](dig/main.rs) (`+dnssec`, `+ad`, `+noad`, `+cd`, `+validate`) and display `SecurityStatus`.
 - [x] Unit tests for `is_secure_channel` across all clients.
 - [x] Round-trip wire tests for `NSEC3`, `NSEC3PARAM`, and `Resource::Raw`.
-- [x] Authenticated Denial of Existence proofs (NSEC and NSEC3 closest encloser / wildcard proofs) in `src/dnssec/denial.rs`.
-- [ ] DNSSEC signing and key generation for RSA, ECDSA, and Ed25519 (cryptographic validation is complete).
+- [x] Integrate authenticated NSEC/NSEC3 denial into local response validation in `src/dnssec/denial.rs`.
+  - Local signed regressions cover closest-encloser, next-closer, wildcard, NODATA, NXDOMAIN, unsigned delegation, and NSEC3 Opt-Out cases.
+  - Reject mismatched proof parameters, unsupported flags, invalid hash lengths, missing/tampered proofs, CNAME loops, and conflicting alias targets.
+  - Test NSEC3 boundaries at 128/129 proof records and 150/151 iterations. A validator has a shared 1,024-unit work budget.
+- [ ] Broaden denial interoperability/conformance coverage before claiming full DNSSEC support.
+  - External fixture suites are deferred; retain conservative rejection of unsupported shapes, including negative ANY proofs and DNAME substitution.
+- [ ] DNSSEC signing and key generation for RSA, ECDSA, and Ed25519 behind a separate opt-in `dnssec-signing` feature.
+  - Keep key-generation dependencies out of validation-only builds and retain MSRV compatibility.
+  - Test each supported algorithm against independent vectors or implementations, including malformed keys, invalid RRsets, validity bounds, and tampering.
+
+### Post-quantum DNSSEC
+
+Reference: Cloudflare, [1.1.1.1 now supports post-quantum DNSSEC, all 2,420 bytes of it](https://blog.cloudflare.com/post-quantum-dnssec-1111/).
+Implement the same resolver capabilities, not merely a new algorithm enum value.
+The article describes ML-DSA-44 (algorithm 18), 1,312-byte public keys, and 2,420-byte signatures.
+Verify the current IANA assignment and [ML-DSA DNSSEC specification](https://datatracker.ietf.org/doc/draft-westerbaan-dnssec-mldsa/) before implementation; distinguish standardized behavior from draft encoding and optional local policy.
+
+- [ ] <a id="dnssec-post-quantum"></a> Add ML-DSA-44 DNSKEY/RRSIG algorithm handling and local signature verification.
+  - Select a maintained cryptographic implementation after checking MSRV, licenses, advisories, feature flags, and target support.
+  - Preserve validation-only dependency boundaries; do not implement cryptographic primitives ourselves.
+  - Start with independent known-answer and cross-implementation fixtures; test malformed keys/signatures, exact length boundaries, tampering, and unsupported-algorithm behavior.
+- [ ] Add an explicit, opt-in post-quantum downgrade-protection policy.
+  - An authenticated DS RRset advertising a supported post-quantum algorithm must require a valid post-quantum path for that delegation; a classical-only path must not satisfy that policy.
+  - Test valid dual-signing, missing or invalid ML-DSA signatures, classical fallback without the authenticated signal, and key/algorithm rollovers.
+  - Apply policy consistently through DNSKEY, DS, answer, and denial validation. Never derive the requirement from unauthenticated records.
+  - Preserve the existing default policy unless a breaking change is explicitly approved; make clear that end-to-end post-quantum assurance requires protection from the trust anchor through every delegation.
+- [ ] Verify large post-quantum DNS responses end to end.
+  - Add realistic mixed classical/ML-DSA DNSKEY and RRSIG fixtures, including rollover-sized responses.
+  - Test UDP truncation followed by TCP retry, bounded TCP/DoT/DoH response handling, deadlines, and configured response limits without weakening parser or transport bounds.
+- [ ] Extend opt-in signing/key generation to ML-DSA-44 after validation and downgrade policy are verified.
+  - Verify DNSKEY encoding, DS derivation, RRSIG interoperability, and generated-key round trips against an independent implementation.
 
 ---
 
