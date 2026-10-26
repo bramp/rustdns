@@ -110,7 +110,10 @@ Use test-driven development: add a focused failing regression or conformance tes
 - [x] Verify `DnssecMode::ValidateLocal` integration with `Resolver` using local signed delegation fixtures.
   - Cover secure positive answers, authenticated unsigned delegations, NODATA/NXDOMAIN, aliases, wildcard expansion, stripped signatures, forged AD flags, and bogus chains.
   - Dependency and primary queries set CD/DO; local validation ignores upstream AD.
-- [ ] Verify upstream-trust policy for both AD=0 and AD=1 on authenticated, loopback, untrusted, and explicitly trusted transports.
+- [x] Verify upstream-trust policy for both AD=0 and AD=1 on authenticated, loopback, untrusted, and explicitly trusted transports.
+  - Exercise the full transport/AD/policy/require-secure matrix through exchange, query, and lookup; test failover, SERVFAIL precedence, and DNSSEC-off behavior.
+  - Derive classification from the winning wire response, not the exchanger's advertised security or earlier attempts.
+  - Preserve caller-selected AD=0 acceptance with `require_secure: false`, including on plaintext; document the AD-stripping limitation.
 - [x] Add CLI flags to [dig/main.rs](dig/main.rs) (`+dnssec`, `+ad`, `+noad`, `+cd`, `+validate`) and display `SecurityStatus`.
 - [x] Unit tests for `is_secure_channel` across all clients.
 - [x] Round-trip wire tests for `NSEC3`, `NSEC3PARAM`, and `Resource::Raw`.

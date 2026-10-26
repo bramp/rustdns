@@ -97,6 +97,26 @@ The `AD` bit is an unencrypted bit in the DNS header. Over plaintext transports 
 2. The transport runs over a secure local loopback (`127.0.0.1` or `::1`) to a trusted local validating daemon (e.g. `systemd-resolved`, `unbound`), OR
 3. The administrator explicitly overrides transport validation via configuration (`UpstreamTrustPolicy::AlwaysTrust`).
 
+Upstream-trust classification uses the winning exchange's `WireResponseMeta`
+channel security, not the exchanger's general advertised classification or a
+previous failed attempt. `Resolver::exchange` exposes the evaluated status;
+`query` and `lookup` enforce the configured policy.
+
+| Response | Trusted channel or `AlwaysTrust` | Untrusted channel |
+|----------|---------------------------------|-------------------|
+| AD=1 | Secure | Indeterminate |
+| AD=0 | Insecure | Insecure |
+| SERVFAIL | Bogus (retried by the Resolver) | Bogus (retried by the Resolver) |
+
+`require_secure: true` rejects Insecure as well as Indeterminate/Bogus results.
+For compatibility, `require_secure: false` accepts AD=0 on any channel; this is
+an upstream indication, not cryptographic proof of an unsigned delegation.
+An attacker on plaintext can clear AD to downgrade an answer to Insecure.
+`SecureTransportOnly` guards AD=1 assertions only, not all responses. Callers
+requiring authenticated answers should set `require_secure: true` or use
+`ValidateLocal`; `AlwaysTrust` is an explicit override, not transport protection.
+DNSSEC-off mode does not enforce this classification.
+
 ### 2.2 System Architecture
 
 ```text

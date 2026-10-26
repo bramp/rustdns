@@ -22,6 +22,10 @@ All notable changes to rustdns are documented here.
   - Set CD/DO for local validation, ignore forged upstream AD, and enforce shared
     deadlines/work limits plus NSEC3 proof-count and iteration bounds.
   - Allow standalone `dnssec` builds without resolver dependencies.
+  - Evaluate upstream AD using the winning exchange's transport security rather
+    than the exchanger's advertised classification, including after failover.
+    Preserve configurable AD=0 acceptance and document its plaintext downgrade
+    limitation.
 
 ### Changed
 

@@ -350,6 +350,9 @@ pub enum SecurityStatus {
     Secure,
 
     /// The zone is proven or indicated to be unsigned (e.g. `AD=0` with `NoError`).
+    ///
+    /// In upstream-trust mode this is only an indication, not authenticated
+    /// denial of a signed delegation. Local validation requires such a proof.
     Insecure,
 
     /// DNSSEC validation failed (e.g. `SERVFAIL` returned by an upstream validator, or tampered data).
@@ -379,6 +382,11 @@ pub enum DnssecMode {
     /// - `SERVFAIL` responses evaluate to [`SecurityStatus::Bogus`].
     ///
     /// Both `Bogus` and `Indeterminate` responses fail closed.
+    ///
+    /// With `require_secure: false`, `AD=0` is accepted even on an untrusted
+    /// plaintext channel. An attacker can strip `AD` to make signed data appear
+    /// insecure. Use `require_secure: true` to require a trusted `AD=1`
+    /// assertion, or [`DnssecMode::ValidateLocal`] for independent verification.
     TrustUpstream {
         /// Whether the resolver requires upstream validation (`SecurityStatus::Secure`).
         ///
@@ -395,6 +403,10 @@ pub enum DnssecMode {
 }
 
 /// Policy dictating when upstream `AD` (Authenticated Data) assertions are trusted.
+///
+/// This policy guards `AD=1` assertions, not `AD=0` responses. In
+/// [`DnssecMode::TrustUpstream`], `require_secure` controls whether `AD=0`
+/// responses are accepted.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum UpstreamTrustPolicy {
     /// Honor the upstream `AD=1` bit only if the transport is secure (DoH, DoT, or loopback).

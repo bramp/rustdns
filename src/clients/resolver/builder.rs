@@ -116,9 +116,11 @@ impl ResolverBuilder {
 
     /// Sets the policy for trusting upstream `AD` (Authenticated Data) assertions.
     /// Defaults to [`UpstreamTrustPolicy::SecureTransportOnly`].
+    ///
+    /// This policy guards `AD=1` only. [`DnssecMode::TrustUpstream`] with
+    /// `require_secure: false` still accepts `AD=0` over untrusted plaintext.
     pub fn upstream_trust_policy(mut self, policy: UpstreamTrustPolicy) -> Self {
         self.upstream_trust_policy = policy;
-        // TODO If this is SecureTransportOnly should we reject non-secure upstreams when building?
         self
     }
 

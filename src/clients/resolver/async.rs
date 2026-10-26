@@ -352,12 +352,12 @@ impl AsyncResolver for Resolver {
                         }
 
                         let id = upstream.endpoint();
-                        let channel_security = upstream.channel_security();
                         tried.push(id.clone());
                         match self.attempt_upstream(upstream.as_ref(), query, deadline).await {
                             Ok((wire_response, attempts, mut wires)) => {
                                 total_attempts += attempts;
                                 all_wire.append(&mut wires);
+                                let channel_security = wire_response.meta.channel_security;
                                 let security_status = evaluate_security_status(
                                     &wire_response.message,
                                     channel_security,
@@ -1063,6 +1063,272 @@ mod tests {
             .unwrap();
         let query = query_with_id(1);
         assert!(resolver_bogus.exchange(&query).await.is_err());
+    }
+
+    struct TrustMatrixExchanger {
+        advertised: ChannelSecurity,
+        actual: ChannelSecurity,
+        ad: bool,
+        rcode: Rcode,
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncExchanger for TrustMatrixExchanger {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
+            let mut response = response_to(query);
+            response.ad = self.ad;
+            response.rcode = self.rcode;
+            for question in &query.questions {
+                let resource = match question.r#type {
+                    Type::A => Resource::A("192.0.2.1".parse().unwrap()),
+                    Type::AAAA => Resource::AAAA("2001:db8::1".parse().unwrap()),
+                    _ => continue,
+                };
+                response.answers.push(Record::try_new(
+                    &question.name,
+                    Class::Internet,
+                    Duration::from_secs(60),
+                    resource,
+                )?);
+            }
+            Ok(WireResponse::test(response, self.actual))
+        }
+
+        fn endpoint(&self) -> Arc<str> {
+            "trust-matrix".into()
+        }
+
+        fn channel_security(&self) -> ChannelSecurity {
+            self.advertised
+        }
+    }
+
+    #[tokio::test]
+    async fn upstream_trust_matrix_uses_winning_exchange_security() {
+        use crate::errors::DnssecError;
+
+        let channels = [
+            ChannelSecurity::Insecure,
+            ChannelSecurity::Loopback,
+            ChannelSecurity::Encrypted,
+        ];
+        for advertised in channels {
+            for actual in channels {
+                for policy in [
+                    UpstreamTrustPolicy::SecureTransportOnly,
+                    UpstreamTrustPolicy::AlwaysTrust,
+                ] {
+                    for ad in [false, true] {
+                        for require_secure in [false, true] {
+                            let context = format!(
+                                "advertised={advertised:?}, actual={actual:?}, policy={policy:?}, ad={ad}, require_secure={require_secure}"
+                            );
+                            let resolver = Resolver::builder()
+                                .dnssec_mode(DnssecMode::TrustUpstream { require_secure })
+                                .upstream_trust_policy(policy)
+                                .upstream(TrustMatrixExchanger {
+                                    advertised,
+                                    actual,
+                                    ad,
+                                    rcode: Rcode::NoError,
+                                })
+                                .build()
+                                .unwrap();
+                            let expected = if !ad {
+                                SecurityStatus::Insecure
+                            } else if actual.is_secure()
+                                || policy == UpstreamTrustPolicy::AlwaysTrust
+                            {
+                                SecurityStatus::Secure
+                            } else {
+                                SecurityStatus::Indeterminate
+                            };
+                            let response = resolver.exchange(&query_with_id(1)).await.unwrap();
+                            assert_eq!(response.meta.channel_security, actual, "{context}");
+                            assert_eq!(response.meta.security_status, expected, "{context}");
+                            assert_eq!(
+                                response.meta.winning_wire().unwrap().channel_security,
+                                actual,
+                                "{context}"
+                            );
+                            let query = resolver.query("example.", Type::A).await;
+                            let lookup = resolver.lookup("example.").await;
+                            match expected {
+                                SecurityStatus::Indeterminate => {
+                                    assert!(
+                                        matches!(
+                                            query,
+                                            Err(crate::Error::Dnssec(
+                                                DnssecError::UntrustedChannel
+                                            ))
+                                        ),
+                                        "{context}"
+                                    );
+                                    assert!(
+                                        matches!(
+                                            lookup,
+                                            Err(crate::Error::Dnssec(
+                                                DnssecError::UntrustedChannel
+                                            ))
+                                        ),
+                                        "{context}"
+                                    );
+                                }
+                                SecurityStatus::Insecure if require_secure => {
+                                    assert!(
+                                        matches!(
+                                            query,
+                                            Err(crate::Error::Dnssec(
+                                                DnssecError::InsecureResponse
+                                            ))
+                                        ),
+                                        "{context}"
+                                    );
+                                    assert!(
+                                        matches!(
+                                            lookup,
+                                            Err(crate::Error::Dnssec(
+                                                DnssecError::InsecureResponse
+                                            ))
+                                        ),
+                                        "{context}"
+                                    );
+                                }
+                                _ => {
+                                    assert_eq!(
+                                        query.unwrap().meta.security_status,
+                                        expected,
+                                        "{context}"
+                                    );
+                                    let ips = lookup.unwrap();
+                                    assert_eq!(ips.len(), 2, "{context}");
+                                    assert!(
+                                        ips.contains(&"192.0.2.1".parse().unwrap()),
+                                        "{context}"
+                                    );
+                                    assert!(
+                                        ips.contains(&"2001:db8::1".parse().unwrap()),
+                                        "{context}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn upstream_trust_failover_uses_only_the_winning_transport() {
+        use crate::errors::DnssecError;
+
+        for actual in [ChannelSecurity::Insecure, ChannelSecurity::Encrypted] {
+            let resolver = Resolver::builder()
+                .dnssec_mode(DnssecMode::TrustUpstream {
+                    require_secure: true,
+                })
+                .retries(0)
+                .upstream(TrustMatrixExchanger {
+                    advertised: ChannelSecurity::Encrypted,
+                    actual: ChannelSecurity::Loopback,
+                    ad: true,
+                    rcode: Rcode::ServFail,
+                })
+                .upstream(TrustMatrixExchanger {
+                    advertised: ChannelSecurity::Loopback,
+                    actual,
+                    ad: true,
+                    rcode: Rcode::NoError,
+                })
+                .build()
+                .unwrap();
+            let response = resolver.exchange(&query_with_id(1)).await.unwrap();
+            assert_eq!(response.meta.attempts, 2);
+            assert_eq!(response.meta.wire.len(), 2);
+            assert_eq!(
+                response.meta.wire[0].channel_security,
+                ChannelSecurity::Loopback
+            );
+            assert_eq!(response.meta.channel_security, actual);
+            assert_eq!(
+                response.meta.winning_wire().unwrap().channel_security,
+                actual
+            );
+            let query = resolver.query("example.", Type::A).await;
+            let lookup = resolver.lookup("example.").await;
+            if actual == ChannelSecurity::Insecure {
+                assert_eq!(response.meta.security_status, SecurityStatus::Indeterminate);
+                assert!(matches!(
+                    query,
+                    Err(crate::Error::Dnssec(DnssecError::UntrustedChannel))
+                ));
+                assert!(matches!(
+                    lookup,
+                    Err(crate::Error::Dnssec(DnssecError::UntrustedChannel))
+                ));
+            } else {
+                assert_eq!(query.unwrap().meta.security_status, SecurityStatus::Secure);
+                assert_eq!(lookup.unwrap().len(), 2);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn dnssec_off_does_not_enforce_upstream_trust() {
+        for actual in [
+            ChannelSecurity::Insecure,
+            ChannelSecurity::Loopback,
+            ChannelSecurity::Encrypted,
+        ] {
+            for policy in [
+                UpstreamTrustPolicy::SecureTransportOnly,
+                UpstreamTrustPolicy::AlwaysTrust,
+            ] {
+                for ad in [false, true] {
+                    let resolver = Resolver::builder()
+                        .dnssec_mode(DnssecMode::Off)
+                        .upstream_trust_policy(policy)
+                        .upstream(TrustMatrixExchanger {
+                            advertised: ChannelSecurity::Encrypted,
+                            actual,
+                            ad,
+                            rcode: Rcode::NoError,
+                        })
+                        .build()
+                        .unwrap();
+                    let response = resolver.query("example.", Type::A).await.unwrap();
+                    assert_eq!(response.meta.channel_security, actual);
+                    assert_eq!(resolver.lookup("example.").await.unwrap().len(), 2);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn upstream_servfail_is_bogus_regardless_of_ad_or_transport() {
+        for channel in [
+            ChannelSecurity::Insecure,
+            ChannelSecurity::Loopback,
+            ChannelSecurity::Encrypted,
+        ] {
+            for policy in [
+                UpstreamTrustPolicy::SecureTransportOnly,
+                UpstreamTrustPolicy::AlwaysTrust,
+            ] {
+                for ad in [false, true] {
+                    let response = Message {
+                        rcode: Rcode::ServFail,
+                        ad,
+                        ..Default::default()
+                    };
+                    assert_eq!(
+                        evaluate_security_status(&response, channel, policy),
+                        SecurityStatus::Bogus
+                    );
+                }
+            }
+        }
     }
 
     #[tokio::test]
