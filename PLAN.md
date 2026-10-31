@@ -96,11 +96,13 @@ Use test-driven development: add a focused failing regression or conformance tes
   - [x] Sort by canonical RDATA octets, not the preceding RDLENGTH field, and suppress duplicate RRs.
   - [x] Check literal signed-data wire vectors for escaped-label CNAMEs, mixed case, wildcard reconstruction, and Original TTL; retain variable-length RDATA sorting tests.
   - [ ] Add broader independently signed interoperability vectors.
-- [ ] Verify RRset metadata and DNSKEY eligibility before signature validation.
+- [x] Verify RRset metadata and DNSKEY eligibility before signature validation.
   - [x] Test owner/class/type consistency, empty sets, RRSIG labels and reconstructed signer scope, protocol and zone-key/revoke flags, SEP/reserved flags, key tags, and algorithms with locally signed records.
   - [x] Test received TTL changes, Original TTL encoding at zero/u32::MAX/overflow, and exact clock-skew boundaries across serial wrap.
   - [x] Handle literal wildcard owners and NSEC proofs without mistaking them for wildcard expansion; reject a label count that includes the literal `*`.
-  - [ ] Apply RFC 4035 section 5.3.3 TTL normalization to returned authenticated records and signatures (received RRset/RRSIG TTLs, Original TTL, and remaining signature lifetime), including rollover alternatives and dependency caches.
+  - [x] Apply RFC 4035 section 5.3.3 TTL normalization to returned authenticated records and accepted signatures (received RRset/RRSIG TTLs, Original TTL, and remaining signature lifetime), including rollover alternatives and dependency caches.
+    - Preserve immutable validation APIs; Resolver uses the new mutable validation entry point.
+    - Cover zero TTLs, invalid-first signature rollover, aliases/wildcards, signed denial proofs, serial wrap, fractional expiration, and zero lifetime within expiration clock skew.
 - [x] Cryptographic signature verification using `ring` (Algorithms 8, 10, 13, 14, 15) in `src/dnssec/crypto.rs` and `src/dnssec/rrset_validator.rs`.
   - [x] Verify a frozen, independently published root DNSKEY RRset/RRSIG against the IANA KSK-2017 anchor at a fixed historical validation time; reject a tampered signature.
   - [ ] Add independent positive interoperability vectors for every supported algorithm, not just successful self-generated signatures or malformed-key tests.

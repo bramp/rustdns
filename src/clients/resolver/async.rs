@@ -501,6 +501,8 @@ impl Resolver {
     ///
     /// On success, updates `response.meta.security_status` with the cryptographic validation outcome
     /// ([`SecurityStatus::Secure`] or [`SecurityStatus::Insecure`] for unsigned zones per [RFC 4035 §5.2]).
+    /// Caps authenticated RRset and accepted RRSIG TTLs using their received TTLs,
+    /// Original TTL, and remaining signature lifetime.
     /// On failure, updates `response.meta.security_status` to [`SecurityStatus::Bogus`] and returns an error.
     ///
     /// [RFC 4035 §5.2]: https://datatracker.ietf.org/doc/html/rfc4035#section-5.2
@@ -510,14 +512,14 @@ impl Resolver {
         response: &mut Response,
         deadline: Instant,
     ) -> Result<(), crate::Error> {
-        let validator = crate::dnssec::ChainValidator::new(
+        let mut validator = crate::dnssec::ChainValidator::new(
             self,
             &self.trust_store,
             &self.dnssec_cache,
             deadline,
         );
         match validator
-            .validate_message_answers(&response.message, SystemTime::now())
+            .validate_message_answers_mut(&mut response.message, SystemTime::now())
             .await
         {
             Ok(status) => {

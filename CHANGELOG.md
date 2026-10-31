@@ -15,6 +15,10 @@ All notable changes to rustdns are documented here.
   - Reject wildcard reconstruction outside the signer's zone and label counts
     that include a literal wildcard. Accept correctly labeled literal wildcard
     answers and NSEC proofs without requiring expansion proofs for exact owners.
+  - Cap locally authenticated answer/denial RRsets and accepted RRSIG TTLs to
+    received RRset/RRSIG TTLs, Original TTL, and remaining signature lifetime.
+    Apply the same bounds to authenticated DNSKEY/DS cache entries without
+    resetting their age; clock skew never extends signature cache lifetime.
   - Sort canonical RRsets by RDATA rather than RDLENGTH and omit duplicate records.
   - Bound DNSKEY/DS caches and age/expire entries using actual record and RRSIG
     TTLs. Dependency queries set CD/DO and filter by owner, class, and covered type.

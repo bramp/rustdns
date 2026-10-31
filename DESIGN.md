@@ -204,9 +204,18 @@ age returned TTLs, and revalidate cached data against current trust anchors and
 signature validity. Denial proofs are not cached.
 Cryptographic validation uses Original TTL when reconstructing signed octets;
 received TTLs may legitimately change without invalidating a signature.
-RFC 4035 section 5.3.3 TTL normalization of authenticated response records and
-signatures remains tracked in the plan; validation reports alone do not provide
-a safe cache lifetime.
+The Resolver uses `ChainValidator::validate_message_answers_mut` to cap
+authenticated answer/denial RRsets and accepted RRSIGs per RFC 4035 section 5.3.3:
+the minimum of received RRset TTLs, received RRSIG TTL, Original TTL, and remaining
+signature lifetime. Only successfully accepted signatures establish these caps;
+invalid rollover alternatives cannot provide the lifetime. Expiration uses
+32-bit serial arithmetic, rounds down to whole seconds, and gives zero lifetime
+to signatures accepted after expiration within clock-skew tolerance.
+Authenticated DNSKEY/DS caches receive the same bounds without restarting entry
+age. Immutable validation APIs remain available and leave message TTLs unchanged;
+their reports alone do not provide a safe response cache lifetime. Unsigned data
+is not capped by a nonexistent signature, and failed validation leaves the
+response unchanged.
 
 Local signed fixtures exercise valid and tampered proofs, unsigned delegations,
 aliases, wildcard expansion, forged AD, and resource bounds through the validator

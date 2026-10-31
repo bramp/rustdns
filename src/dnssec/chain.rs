@@ -13,7 +13,7 @@
 
 use crate::clients::AsyncResolver;
 use crate::dnssec::anchor::TrustStore;
-use crate::dnssec::rrset_validator::{ValidationReport, validate_rrset};
+use crate::dnssec::rrset_validator::{ValidationReport, authenticated_ttl, validate_rrset};
 use crate::errors::DnssecError;
 use crate::names::Name;
 use crate::resource::{DNSKEY, DS, RRSIG};
@@ -34,6 +34,14 @@ struct CachedRecords {
 }
 
 type RecordCache = Arc<Mutex<HashMap<Name, CachedRecords>>>;
+
+#[derive(Debug)]
+struct AuthenticatedTtl {
+    owner: Name,
+    class: Class,
+    signature: RRSIG,
+    ttl: Duration,
+}
 
 /// Bounded, TTL-aware cache of DNSKEY and DS query results.
 ///
@@ -1029,6 +1037,11 @@ mod tests {
                 _ => {}
             }
             chain.refresh_signatures(&mut response);
+            for record in response.answers.iter_mut().chain(&mut response.authoritys) {
+                if matches!(record.resource, Resource::RRSIG(_)) {
+                    record.ttl = Duration::from_secs(13);
+                }
+            }
             if mode == "tampered" {
                 if let Resource::RRSIG(sig) = &mut response.authoritys[1].resource {
                     sig.signature[0] ^= 1;
@@ -1068,8 +1081,19 @@ mod tests {
             if matches!(mode, "tampered" | "stripped") {
                 assert!(result.is_err(), "{mode}");
             } else {
+                let result = result.unwrap();
+                if !mode.starts_with("unsigned") {
+                    assert!(
+                        result
+                            .answers
+                            .iter()
+                            .chain(&result.authoritys)
+                            .all(|record| record.ttl <= Duration::from_secs(13)),
+                        "{mode}"
+                    );
+                }
                 assert_eq!(
-                    result.unwrap().meta.security_status,
+                    result.meta.security_status,
                     if mode.starts_with("unsigned") {
                         SecurityStatus::Insecure
                     } else {
@@ -1079,6 +1103,376 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn resolver_caps_authenticated_answer_and_signature_ttls() {
+        for (record_ttl, signature_ttl, original_ttl, expected) in [
+            (17, 90, 300, 17),
+            (90, 13, 300, 13),
+            (90, 90, 11, 11),
+            (0, 90, 300, 0),
+            (90, 0, 300, 0),
+        ] {
+            let chain = SignedChain::new();
+            let mut answer = chain.unsigned_answer();
+            answer.answers[0].ttl = Duration::from_secs(record_ttl);
+            let mut signature = chain.signature.clone();
+            signature.original_ttl = Duration::from_secs(original_ttl);
+            let mut signature_record = record(&chain.answer[0].name, Resource::RRSIG(signature));
+            signature_record.ttl = Duration::from_secs(signature_ttl);
+            answer.answers.push(signature_record);
+            chain.refresh_signatures(&mut answer);
+            let name = answer.questions[0].name.clone();
+            let mut responses = HashMap::from([((name.clone(), Type::A), answer)]);
+            for zone in [&chain.parent, &chain.child] {
+                let mut keys = Message {
+                    answers: chain.cache.get_dnskeys(zone).unwrap(),
+                    ..Message::default()
+                };
+                chain.refresh_signatures(&mut keys);
+                responses.insert((zone.clone(), Type::DNSKEY), keys);
+            }
+            let mut ds = Message {
+                answers: chain.cache.get_ds(&chain.child).unwrap(),
+                ..Message::default()
+            };
+            chain.refresh_signatures(&mut ds);
+            responses.insert((chain.child.clone(), Type::DS), ds);
+            let resolver = crate::clients::Resolver::builder()
+                .dnssec_mode(crate::DnssecMode::ValidateLocal)
+                .trust_store(chain.store.clone())
+                .upstream(LocalZoneExchanger { responses })
+                .build()
+                .unwrap();
+            let response = resolver.query(name, Type::A).await.unwrap();
+            assert_eq!(response.meta.security_status, SecurityStatus::Secure);
+            for record in &response.answers {
+                assert_eq!(record.ttl, Duration::from_secs(expected));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn authenticated_ttls_follow_accepted_signatures_and_serial_expiration() {
+        for (now_offset, expected) in [(86_390, 10), (86_399, 1), (86_400, 0), (86_700, 0)] {
+            let chain = SignedChain::new();
+            let mut message = chain.unsigned_answer();
+            message.answers.push(record(
+                &chain.answer[0].name,
+                Resource::RRSIG(chain.signature.clone()),
+            ));
+            let now = chain.signature.inception + Duration::from_secs(now_offset);
+            // Dependency signatures remain valid for this answer-expiry test.
+            for zone in [&chain.parent, &chain.child] {
+                let mut keys = chain.cache.get_dnskeys(zone).unwrap();
+                let rrset = vec![keys[0].clone()];
+                let (parent_pair, parent_key) = key(1);
+                let (pair, key) = if zone == &chain.parent {
+                    (&parent_pair, &parent_key)
+                } else {
+                    (&chain.pair, &chain.key)
+                };
+                let mut signature = sign(zone, zone, &rrset, key, pair);
+                signature.expiration += Duration::from_secs(3_600);
+                signature.signature = pair
+                    .sign(
+                        &crate::dnssec::canonical::signed_data_to_vec(zone, &signature, &rrset)
+                            .unwrap(),
+                    )
+                    .as_ref()
+                    .to_vec();
+                keys[1].resource = Resource::RRSIG(signature);
+                chain.cache.insert_dnskeys(zone, keys);
+            }
+            let mut ds = chain.cache.get_ds(&chain.child).unwrap();
+            let (pair, key) = key(1);
+            let mut signature = sign(&chain.child, &chain.parent, &ds[..1], &key, &pair);
+            signature.expiration += Duration::from_secs(3_600);
+            signature.signature = pair
+                .sign(
+                    &crate::dnssec::canonical::signed_data_to_vec(
+                        &chain.child,
+                        &signature,
+                        &ds[..1],
+                    )
+                    .unwrap(),
+                )
+                .as_ref()
+                .to_vec();
+            ds[1].resource = Resource::RRSIG(signature);
+            chain.cache.insert_ds(&chain.child, ds);
+            let mut validator = ChainValidator::new(
+                &NoNetwork,
+                &chain.store,
+                &chain.cache,
+                Instant::now() + Duration::from_secs(10),
+            );
+            assert_eq!(
+                validator
+                    .validate_message_answers_mut(&mut message, now)
+                    .await
+                    .unwrap(),
+                SecurityStatus::Secure
+            );
+            assert!(
+                message
+                    .answers
+                    .iter()
+                    .all(|record| record.ttl == Duration::from_secs(expected))
+            );
+        }
+
+        let chain = SignedChain::new();
+        let mut message = chain.unsigned_answer();
+        let mut invalid = chain.signature.clone();
+        invalid.signature[0] ^= 1;
+        let mut invalid_record = record(&chain.answer[0].name, Resource::RRSIG(invalid));
+        invalid_record.ttl = Duration::ZERO;
+        message.answers.push(invalid_record);
+        let mut accepted = record(
+            &chain.answer[0].name,
+            Resource::RRSIG(chain.signature.clone()),
+        );
+        accepted.ttl = Duration::from_secs(23);
+        message.answers.push(accepted);
+        let mut validator = ChainValidator::new(
+            &NoNetwork,
+            &chain.store,
+            &chain.cache,
+            Instant::now() + Duration::from_secs(10),
+        );
+        validator
+            .validate_message_answers_mut(&mut message, chain.now)
+            .await
+            .unwrap();
+        assert_eq!(message.answers[0].ttl, Duration::from_secs(23));
+        assert_eq!(message.answers[1].ttl, Duration::ZERO);
+        assert_eq!(message.answers[2].ttl, Duration::from_secs(23));
+    }
+
+    #[tokio::test]
+    async fn authenticated_proof_ttls_are_capped_and_failures_leave_messages_unchanged() {
+        for nsec3 in [false, true] {
+            let chain = SignedChain::new();
+            let mut message = chain.negative_answer("missing.example.", Type::AAAA, false);
+            if nsec3 {
+                chain.add_nsec3(
+                    &mut message,
+                    &Name::new("missing.example.").unwrap(),
+                    vec![Type::A],
+                    0,
+                );
+            } else {
+                chain.add_nsec(
+                    &mut message,
+                    "missing.example.",
+                    "z.example.",
+                    vec![Type::A],
+                );
+            }
+            message.authoritys[1].ttl = Duration::from_secs(7);
+            let mut validator = ChainValidator::new(
+                &NoNetwork,
+                &chain.store,
+                &chain.cache,
+                Instant::now() + Duration::from_secs(10),
+            );
+            validator
+                .validate_message_answers_mut(&mut message, chain.now)
+                .await
+                .unwrap();
+            assert!(
+                message
+                    .authoritys
+                    .iter()
+                    .all(|record| record.ttl == Duration::from_secs(7))
+            );
+            if let Resource::RRSIG(signature) = &mut message.authoritys[1].resource {
+                signature.signature[0] ^= 1;
+            }
+            let original = message.clone();
+            assert!(
+                validator
+                    .validate_message_answers_mut(&mut message, chain.now)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(message, original);
+        }
+    }
+
+    #[tokio::test]
+    async fn dependency_caches_are_capped_without_restarting_record_age() {
+        for (original_ttl, signature_ttl, remaining, expected) in [
+            (19, 3600, 3600, 19),
+            (300, 13, 3600, 13),
+            (300, 3600, 10, 10),
+            (0, 3600, 3600, 0),
+        ] {
+            let chain = SignedChain::new();
+            for (zone, rtype) in [
+                (&chain.parent, Type::DNSKEY),
+                (&chain.child, Type::DNSKEY),
+                (&chain.child, Type::DS),
+            ] {
+                let mut records = if rtype == Type::DNSKEY {
+                    chain.cache.get_dnskeys(zone).unwrap()
+                } else {
+                    chain.cache.get_ds(zone).unwrap()
+                };
+                let rrset = vec![records[0].clone()];
+                records[1].ttl = Duration::from_secs(signature_ttl);
+                let Resource::RRSIG(signature) = &mut records[1].resource else {
+                    unreachable!()
+                };
+                signature.original_ttl = Duration::from_secs(original_ttl);
+                signature.expiration = chain.now + Duration::from_secs(remaining);
+                let (parent_pair, _) = key(1);
+                let pair = if signature.signer_name == chain.parent {
+                    &parent_pair
+                } else {
+                    &chain.pair
+                };
+                signature.signature = pair
+                    .sign(
+                        &crate::dnssec::canonical::signed_data_to_vec(zone, signature, &rrset)
+                            .unwrap(),
+                    )
+                    .as_ref()
+                    .to_vec();
+                if rtype == Type::DNSKEY {
+                    chain.cache.insert_dnskeys(zone, records);
+                } else {
+                    chain.cache.insert_ds(zone, records);
+                }
+            }
+            chain.validate().await.unwrap();
+            for (cache, zone) in [
+                (&chain.cache.dnskeys, &chain.parent),
+                (&chain.cache.dnskeys, &chain.child),
+                (&chain.cache.ds_records, &chain.child),
+            ] {
+                if expected == 0 {
+                    assert!(DnssecCache::get(cache, zone).is_none());
+                } else {
+                    let records = DnssecCache::get(cache, zone).unwrap();
+                    assert!(
+                        records
+                            .iter()
+                            .all(|record| record.ttl <= Duration::from_secs(expected))
+                    );
+                    let entries = cache.lock().unwrap();
+                    assert!(
+                        entries.get(zone).unwrap().lifetime <= Duration::from_secs(expected + 1)
+                    );
+                }
+            }
+        }
+        let chain = SignedChain::new();
+        let inserted = Instant::now() - Duration::from_secs(10);
+        chain
+            .cache
+            .dnskeys
+            .lock()
+            .unwrap()
+            .get_mut(&chain.child)
+            .unwrap()
+            .inserted = inserted;
+        DnssecCache::cap_ttl(&chain.cache.dnskeys, &chain.child, Duration::from_secs(5)).unwrap();
+        let entries = chain.cache.dnskeys.lock().unwrap();
+        assert_eq!(entries.get(&chain.child).unwrap().inserted, inserted);
+        assert!(entries.get(&chain.child).unwrap().lifetime <= Duration::from_secs(16));
+    }
+
+    #[test]
+    fn authenticated_ttl_uses_serial_lifetime_and_never_rounds_up() {
+        let chain = SignedChain::new();
+        let mut signature = chain.signature.clone();
+        let mut records = chain.answer.clone();
+        records[0].ttl = Duration::from_secs(u64::from(u32::MAX));
+        signature.original_ttl = Duration::from_secs(u64::from(u32::MAX));
+        let signature_ttl = Duration::from_secs(u64::from(u32::MAX));
+        for (now, expiration, expected) in [
+            (1_000, 1_010, 10),
+            (1_010, 1_010, 0),
+            (1_011, 1_010, 0),
+            (u64::from(u32::MAX) - 4, 5, 10),
+            ((1u64 << 32) + 3, 5, 2),
+        ] {
+            signature.expiration = UNIX_EPOCH + Duration::from_secs(expiration);
+            assert_eq!(
+                authenticated_ttl(
+                    &records,
+                    &signature,
+                    signature_ttl,
+                    UNIX_EPOCH + Duration::from_secs(now)
+                )
+                .unwrap(),
+                Duration::from_secs(expected)
+            );
+        }
+        signature.expiration = UNIX_EPOCH + Duration::from_secs(1_010);
+        assert_eq!(
+            authenticated_ttl(
+                &records,
+                &signature,
+                signature_ttl,
+                UNIX_EPOCH + Duration::from_millis(1_000_001)
+            )
+            .unwrap(),
+            Duration::from_secs(9)
+        );
+        assert!(
+            authenticated_ttl(
+                &records,
+                &signature,
+                signature_ttl,
+                UNIX_EPOCH - Duration::from_secs(1)
+            )
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn immutable_validation_preserves_messages_and_unsigned_ttls() {
+        let chain = SignedChain::new();
+        let mut message = chain.unsigned_answer();
+        message.answers.push(record(
+            &chain.answer[0].name,
+            Resource::RRSIG(chain.signature.clone()),
+        ));
+        message.answers[1].ttl = Duration::from_secs(5);
+        let original = message.clone();
+        let validator = ChainValidator::new(
+            &NoNetwork,
+            &chain.store,
+            &chain.cache,
+            Instant::now() + Duration::from_secs(10),
+        );
+        validator
+            .validate_message_answers(&message, chain.now)
+            .await
+            .unwrap();
+        assert_eq!(message, original);
+
+        let response = DependencyResponse(chain.unsigned_delegation());
+        let mut validator = ChainValidator::new(
+            &response,
+            &chain.store,
+            &chain.cache,
+            Instant::now() + Duration::from_secs(10),
+        );
+        let mut unsigned = chain.unsigned_answer();
+        let original = unsigned.clone();
+        assert_eq!(
+            validator
+                .validate_message_answers_mut(&mut unsigned, chain.now)
+                .await
+                .unwrap(),
+            SecurityStatus::Insecure
+        );
+        assert_eq!(unsigned, original);
     }
 
     #[tokio::test]
@@ -1760,6 +2154,23 @@ impl DnssecCache {
         );
     }
 
+    fn cap_ttl(cache: &RecordCache, zone: &Name, ttl: Duration) -> Result<(), crate::Error> {
+        let mut entries = cache.lock().map_err(|error| {
+            DnssecError::ValidationFailed(format!("cannot cap authenticated cache TTL: {error}"))
+        })?;
+        if ttl.is_zero() {
+            entries.remove(zone);
+        } else if let Some(entry) = entries.get_mut(zone) {
+            let elapsed = entry.inserted.elapsed();
+            entry.lifetime = entry.lifetime.min(elapsed.saturating_add(ttl));
+            let cap = Duration::from_secs(elapsed.as_secs()).saturating_add(ttl);
+            for record in &mut entry.records {
+                record.ttl = record.ttl.min(cap);
+            }
+        }
+        Ok(())
+    }
+
     fn get(cache: &RecordCache, zone: impl crate::names::IntoName) -> Option<Vec<Record>> {
         let name = match zone.into_name() {
             Ok(name) => name,
@@ -1799,6 +2210,7 @@ pub struct ChainValidator<'a, R: AsyncResolver + ?Sized> {
     cache: &'a DnssecCache,
     deadline: Instant,
     work: AtomicUsize,
+    ttl_limits: Option<Mutex<Vec<AuthenticatedTtl>>>,
 }
 
 impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
@@ -1815,10 +2227,102 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
             cache,
             deadline,
             work: AtomicUsize::new(0),
+            ttl_limits: None,
         }
     }
 
+    /// Validates a response and caps authenticated RRset and accepted RRSIG TTLs.
+    ///
+    /// Uses the minimum received RRset TTL, received RRSIG TTL, Original TTL,
+    /// and remaining signature lifetime per RFC 4035 section 5.3.3. Clock skew
+    /// never extends cache lifetime. Unsigned or unvalidated records are unchanged.
+    /// Failed validation leaves the message unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same validation errors as [`Self::validate_message_answers`],
+    /// or an error if TTL bookkeeping fails.
+    pub async fn validate_message_answers_mut(
+        &mut self,
+        message: &mut Message,
+        now: SystemTime,
+    ) -> Result<SecurityStatus, crate::Error> {
+        self.ttl_limits = Some(Mutex::new(Vec::new()));
+        let result = self.validate_message_answers(message, now).await;
+        let limits = self
+            .ttl_limits
+            .take()
+            .ok_or_else(|| {
+                DnssecError::ValidationFailed("missing authenticated TTL bookkeeping".into())
+            })?
+            .into_inner()
+            .map_err(|error| {
+                DnssecError::ValidationFailed(format!(
+                    "cannot read authenticated TTL limits: {error}"
+                ))
+            })?;
+        let status = result?;
+        let mut ttls = Vec::new();
+        for record in message.answers.iter().chain(&message.authoritys) {
+            self.spend_work()?;
+            let mut ttl = record.ttl;
+            for limit in &limits {
+                self.spend_work()?;
+                if record.name == limit.owner
+                    && record.class == limit.class
+                    && (record.r#type() == limit.signature.type_covered
+                        || matches!(&record.resource, Resource::RRSIG(signature) if *signature == limit.signature))
+                {
+                    ttl = ttl.min(limit.ttl);
+                }
+            }
+            ttls.push(ttl);
+        }
+        self.spend_work()?;
+        for (record, ttl) in message
+            .answers
+            .iter_mut()
+            .chain(&mut message.authoritys)
+            .zip(ttls)
+        {
+            record.ttl = ttl;
+        }
+        Ok(status)
+    }
+
+    fn remember_ttl(
+        &self,
+        rrset: &[Record],
+        signature_record: &Record,
+        now: SystemTime,
+    ) -> Result<Duration, crate::Error> {
+        let Resource::RRSIG(signature) = &signature_record.resource else {
+            return Err(DnssecError::MissingSignature.into());
+        };
+        let ttl = authenticated_ttl(rrset, signature, signature_record.ttl, now)?;
+        if let Some(limits) = &self.ttl_limits {
+            limits
+                .lock()
+                .map_err(|error| {
+                    DnssecError::ValidationFailed(format!(
+                        "cannot record authenticated TTL limit: {error}"
+                    ))
+                })?
+                .push(AuthenticatedTtl {
+                    owner: signature_record.name.clone(),
+                    class: signature_record.class,
+                    signature: signature.clone(),
+                    ttl,
+                });
+        }
+        Ok(ttl)
+    }
+
     /// Validates answers and authenticated denial against the trust store.
+    ///
+    /// Does not modify the message. Use [`Self::validate_message_answers_mut`]
+    /// to also normalize authenticated response TTLs. Authenticated dependency
+    /// cache lifetimes are bounded by either entry point.
     ///
     /// Accepts one IN question in a complete NoError or NXDOMAIN response.
     /// Follows CNAMEs and validates wildcard expansion proofs. Unsigned data is
@@ -1854,7 +2358,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
         // Partition answer records into RRsets and their covering RRSIGs keyed by (owner, type).
         // Using Entry API allows a single pass partition without redundant lookups.
         let mut rrsets: HashMap<(Name, Type), Vec<Record>> = HashMap::new();
-        let mut rrsigs: HashMap<(Name, Type), Vec<RRSIG>> = HashMap::new();
+        let mut rrsigs: HashMap<(Name, Type), Vec<Record>> = HashMap::new();
 
         for record in &message.answers {
             self.spend_work()?;
@@ -1870,7 +2374,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     rrsigs
                         .entry((canonical_name, rrsig.type_covered))
                         .or_default()
-                        .push(rrsig.clone());
+                        .push(record.clone());
                 }
                 _ => {
                     rrsets
@@ -1904,14 +2408,22 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
             let mut last_err = None;
             let mut verified = false;
 
-            for rrsig in candidate_sigs {
+            for signature_record in candidate_sigs {
+                let Resource::RRSIG(rrsig) = &signature_record.resource else {
+                    continue;
+                };
                 // Validate the RRset and recursively verify its chain of trust up to an anchor.
                 // This may trigger additional queries to fetch DNSKEY and DS records for the zone and its parent.
                 match self.validate_rrset_chain(name, set, rrsig, now).await {
                     Ok(_) => {
                         if rrsig.labels < super::canonical::rrsig_labels_for_name(name) {
                             let proofs = self
-                                .authenticated_proofs(&message.authoritys, &rrsig.signer_name, now)
+                                .authenticated_proofs(
+                                    &message.authoritys,
+                                    &rrsig.signer_name,
+                                    now,
+                                    true,
+                                )
                                 .await?;
                             if !super::denial::verify_wildcard_expansion(
                                 &proofs,
@@ -1928,6 +2440,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                                 continue;
                             }
                         }
+                        self.remember_ttl(set, signature_record, now)?;
                         verified = true;
                         break;
                     }
@@ -2033,7 +2546,10 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
 
         let mut last_error = crate::Error::Dnssec(DnssecError::MissingSignature);
         let mut authenticated = false;
-        for signature in &dnskey_rrsigs {
+        for signature_record in &dnskey_rrsigs {
+            let Resource::RRSIG(signature) = &signature_record.resource else {
+                continue;
+            };
             if signature.type_covered != Type::DNSKEY
                 || signature.signer_name != *zone
                 || signature.labels != zone.count_labels()
@@ -2057,6 +2573,9 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     .await
                 {
                     Ok(()) => {
+                        let ttl =
+                            authenticated_ttl(&dnskeys, signature, signature_record.ttl, now)?;
+                        DnssecCache::cap_ttl(&self.cache.dnskeys, zone, ttl)?;
                         authenticated = true;
                         break;
                     }
@@ -2149,7 +2668,10 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
 
             // Validate DS RRset using parent zone
             let mut last_error = crate::Error::Dnssec(DnssecError::MissingSignature);
-            for signature in &ds_rrsigs {
+            for signature_record in &ds_rrsigs {
+                let Resource::RRSIG(signature) = &signature_record.resource else {
+                    continue;
+                };
                 if signature.type_covered != Type::DS
                     || signature.signer_name == *zone
                     || !zone.is_subdomain_of(&signature.signer_name)
@@ -2160,7 +2682,12 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     .validate_rrset_chain(zone, &ds_records, signature, now)
                     .await
                 {
-                    Ok(_) => return Ok(()),
+                    Ok(_) => {
+                        let ttl =
+                            authenticated_ttl(&ds_records, signature, signature_record.ttl, now)?;
+                        DnssecCache::cap_ttl(&self.cache.ds_records, zone, ttl)?;
+                        return Ok(());
+                    }
                     Err(error) => last_error = error,
                 }
             }
@@ -2172,12 +2699,12 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
     async fn get_zone_dnskeys(
         &self,
         zone: &Name,
-    ) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
+    ) -> Result<(Vec<Record>, Vec<Record>), crate::Error> {
         self.get_zone_records(zone, Type::DNSKEY).await
     }
 
     /// Queries or fetches cached DS records for `zone`.
-    async fn get_zone_ds(&self, zone: &Name) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
+    async fn get_zone_ds(&self, zone: &Name) -> Result<(Vec<Record>, Vec<Record>), crate::Error> {
         self.get_zone_records(zone, Type::DS).await
     }
 
@@ -2185,7 +2712,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
         &self,
         zone: &Name,
         rtype: Type,
-    ) -> Result<(Vec<Record>, Vec<RRSIG>), crate::Error> {
+    ) -> Result<(Vec<Record>, Vec<Record>), crate::Error> {
         self.spend_work()?;
         let cached = if rtype == Type::DNSKEY {
             self.cache.get_dnskeys(zone)
@@ -2247,7 +2774,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                 continue;
             }
             match &record.resource {
-                Resource::RRSIG(sig) if sig.type_covered == rtype => signatures.push(sig.clone()),
+                Resource::RRSIG(sig) if sig.type_covered == rtype => signatures.push(record),
                 _ if record.r#type() == rtype => rrset.push(record),
                 _ => {}
             }
@@ -2346,7 +2873,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
             }
             for signer in signers {
                 let proofs = self
-                    .authenticated_proofs(&response.authoritys, &signer, now)
+                    .authenticated_proofs(&response.authoritys, &signer, now, false)
                     .await?;
                 if super::denial::verify_unsigned_delegation(&proofs, &zone, &signer) {
                     self.spend_work()?;
@@ -2383,7 +2910,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
         }
         for zone in zones {
             let proofs = self
-                .authenticated_proofs(&message.authoritys, &zone, now)
+                .authenticated_proofs(&message.authoritys, &zone, now, true)
                 .await?;
             if super::denial::verify_nsec_response(
                 &proofs,
@@ -2428,6 +2955,7 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
         records: &[Record],
         zone: &Name,
         now: SystemTime,
+        response_ttls: bool,
     ) -> Result<Vec<Record>, crate::Error> {
         let mut sets: HashMap<(Name, Type), Vec<Record>> = HashMap::new();
         for record in records {
@@ -2461,6 +2989,9 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     .await
                     .is_ok()
                 {
+                    if response_ttls {
+                        self.remember_ttl(&set, record, now)?;
+                    }
                     proofs.extend(set);
                     break;
                 }

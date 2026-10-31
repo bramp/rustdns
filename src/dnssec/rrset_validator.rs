@@ -56,6 +56,38 @@ impl ValidityPeriod {
 /// Allowed clock skew in seconds when checking signature inception and expiration.
 pub const DEFAULT_CLOCK_SKEW_SECONDS: u64 = 300;
 
+#[cfg(feature = "resolver")]
+pub(crate) fn authenticated_ttl(
+    rrset: &[Record],
+    signature: &RRSIG,
+    signature_ttl: Duration,
+    now: SystemTime,
+) -> Result<Duration, DnssecError> {
+    let elapsed = now
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| DnssecError::ValidationFailed("validation time precedes Unix epoch".into()))?;
+    let expiration = signature.expiration_seconds().map_err(|error| {
+        DnssecError::ValidationFailed(format!("invalid RRSIG expiration timestamp: {error}"))
+    })?;
+    let remaining = expiration.wrapping_sub((elapsed.as_secs() % (1u64 << 32)) as u32);
+    let lifetime = if remaining >= 1 << 31 {
+        Duration::ZERO
+    } else {
+        Duration::from_secs(u64::from(remaining))
+            .saturating_sub(Duration::from_nanos(u64::from(elapsed.subsec_nanos())))
+    };
+    // DNS TTLs have whole-second wire precision; never round past expiration.
+    Ok(Duration::from_secs(
+        rrset
+            .iter()
+            .fold(
+                signature_ttl.min(signature.original_ttl).min(lifetime),
+                |ttl, record| ttl.min(record.ttl),
+            )
+            .as_secs(),
+    ))
+}
+
 impl RRSIG {
     /// Evaluates an RRSIG signature's temporal validity window against `now` using
     /// [RFC 1982] Serial Number Arithmetic with the specified `clock_skew` tolerance ([RFC 4034 §3.1.5]).
@@ -152,6 +184,8 @@ impl RRSIG {
 /// This function verifies authenticity without modifying TTLs or establishing
 /// cache lifetime; callers retaining data must also apply RFC 4035 section 5.3.3
 /// TTL limits, including the received RRSIG TTL and remaining signature lifetime.
+/// With `resolver` enabled, `ChainValidator::validate_message_answers_mut`
+/// applies these limits to authenticated response records.
 ///
 /// # Errors
 ///
