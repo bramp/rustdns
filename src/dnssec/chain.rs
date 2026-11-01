@@ -515,6 +515,18 @@ mod tests {
                 .await;
             if mutation == "valid" {
                 assert_eq!(result.unwrap(), SecurityStatus::Insecure);
+            } else if mutation == "missing" {
+                let answer = chain.unsigned_answer().answers[0].name.clone();
+                match result {
+                    Err(crate::Error::Dnssec(DnssecError::MissingInsecureProof {
+                        name,
+                        signed_zone,
+                    })) => {
+                        assert_eq!(name, answer);
+                        assert_eq!(signed_zone, Some(chain.parent.clone()));
+                    }
+                    other => panic!("expected MissingInsecureProof, got {other:?}"),
+                }
             } else {
                 assert!(
                     result.is_err(),
@@ -2449,7 +2461,11 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
         now: SystemTime,
     ) -> Result<Duration, crate::Error> {
         let Resource::RRSIG(signature) = &signature_record.resource else {
-            return Err(DnssecError::MissingSignature.into());
+            return Err(DnssecError::ValidationFailed(format!(
+                "expected an RRSIG record at '{}' for TTL bookkeeping",
+                signature_record.name
+            ))
+            .into());
         };
         let ttl = authenticated_ttl(rrset, signature, signature_record.ttl, now)?;
         if let Some(limits) = &self.ttl_limits {
@@ -2696,7 +2712,10 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
         // Fetch or get zone DNSKEYs
         let (dnskeys, dnskey_rrsigs) = self.get_zone_dnskeys(zone).await?;
 
-        let mut last_error = crate::Error::Dnssec(DnssecError::MissingSignature);
+        let mut last_error = crate::Error::Dnssec(DnssecError::MissingSignature {
+            name: zone.clone(),
+            rtype: Type::DNSKEY,
+        });
         let mut authenticated = false;
         for signature_record in &dnskey_rrsigs {
             let Resource::RRSIG(signature) = &signature_record.resource else {
@@ -2746,6 +2765,10 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
         if !authenticated {
             return Err(last_error);
         }
+        let mut last_error = crate::Error::Dnssec(DnssecError::ValidationFailed(format!(
+            "no DNSKEY for '{zone}' matches the '{owner}' {} RRSIG (algorithm {}, key tag {})",
+            rrsig.type_covered, rrsig.algorithm, rrsig.key_tag
+        )));
         for record in &dnskeys {
             self.spend_work()?;
             let Resource::DNSKEY(key) = &record.resource else {
@@ -2824,7 +2847,10 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
             };
 
             // Validate DS RRset using parent zone
-            let mut last_error = crate::Error::Dnssec(DnssecError::MissingSignature);
+            let mut last_error = crate::Error::Dnssec(DnssecError::MissingSignature {
+                name: zone.clone(),
+                rtype: Type::DS,
+            });
             for signature_record in &ds_rrsigs {
                 let Resource::RRSIG(signature) = &signature_record.resource else {
                     continue;
@@ -2983,9 +3009,11 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
     async fn prove_insecure(&self, name: &Name, now: SystemTime) -> Result<(), crate::Error> {
         let anchor = self.closest_anchor(name);
         let mut candidate = Some(name.clone());
+        let mut signed_zone = None;
         while let Some(zone) = candidate {
             self.spend_work()?;
             if !self.trust_store.find_anchors(&zone).is_empty() || zone.is_root() {
+                signed_zone = Some(zone);
                 break;
             }
             let mut query = Message {
@@ -3019,7 +3047,11 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 .iter()
                 .any(|record| record.name == zone && record.r#type() == Type::DS)
             {
-                return Err(DnssecError::MissingSignature.into());
+                return Err(DnssecError::MissingInsecureProof {
+                    name: name.clone(),
+                    signed_zone: Some(zone),
+                }
+                .into());
             }
             let mut signers = Vec::new();
             for record in &response.authoritys {
@@ -3047,19 +3079,22 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
             }
             candidate = zone.parent();
         }
-        Err(DnssecError::ValidationFailed(format!(
-            "no authenticated unsigned delegation for '{name}'"
-        ))
+        Err(DnssecError::MissingInsecureProof {
+            name: name.clone(),
+            signed_zone,
+        }
         .into())
     }
 
+    /// Returns whether `message` holds an authenticated NSEC or NSEC3 denial
+    /// for `name` and `rtype`.
     async fn validate_negative(
         &self,
         message: &Message,
         name: &Name,
         rtype: Type,
         now: SystemTime,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<bool, crate::Error> {
         let mut zones = Vec::new();
         for record in &message.authoritys {
             self.spend_work()?;
@@ -3092,10 +3127,10 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 false,
             ) {
                 self.spend_work()?;
-                return Ok(());
+                return Ok(true);
             }
         }
-        Err(DnssecError::MissingSignature.into())
+        Ok(false)
     }
 
     async fn validate_negative_or_insecure(
@@ -3105,14 +3140,11 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
         rtype: Type,
         now: SystemTime,
     ) -> Result<SecurityStatus, crate::Error> {
-        match self.validate_negative(message, name, rtype, now).await {
-            Ok(()) => Ok(SecurityStatus::Secure),
-            Err(crate::Error::Dnssec(DnssecError::MissingSignature)) => {
-                self.prove_insecure(name, now).await?;
-                Ok(SecurityStatus::Insecure)
-            }
-            Err(error) => Err(error),
+        if self.validate_negative(message, name, rtype, now).await? {
+            return Ok(SecurityStatus::Secure);
         }
+        self.prove_insecure(name, now).await?;
+        Ok(SecurityStatus::Insecure)
     }
 
     async fn authenticated_proofs(

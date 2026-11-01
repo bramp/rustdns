@@ -1,3 +1,4 @@
+use crate::names::Name;
 use crate::types::{Algorithm, Class, DigestType, Rcode, SecurityStatus, Type};
 use thiserror::Error;
 
@@ -606,9 +607,27 @@ pub enum DnssecError {
     )]
     UntrustedChannel,
 
-    /// No valid signature was found for an RRset.
-    #[error("DNSSEC validation failed: missing valid RRSIG for RRset")]
-    MissingSignature,
+    /// No valid signature was found for the RRset at `name` with type `rtype`.
+    #[error("DNSSEC validation failed: no valid RRSIG for the '{name}' {rtype} RRset")]
+    MissingSignature {
+        /// Owner name of the unsigned RRset.
+        name: Name,
+        /// Type of the unsigned RRset.
+        rtype: Type,
+    },
+
+    /// Data at `name` is unsigned, but no authenticated proof shows that it is
+    /// below an unsigned delegation.
+    #[error(
+        "DNSSEC validation failed: '{name}' is unsigned, but no authenticated proof shows it is in an unsigned zone{}",
+        signed_zone_suffix(.signed_zone.as_ref())
+    )]
+    MissingInsecureProof {
+        /// Name whose data is unsigned.
+        name: Name,
+        /// Nearest signed ancestor zone that should have proven the delegation unsigned.
+        signed_zone: Option<Name>,
+    },
 
     /// No matching trust anchor was found for the delegation chain.
     #[error("DNSSEC validation failed: no trust anchor found for zone '{0}'")]
@@ -625,6 +644,11 @@ pub enum DnssecError {
     /// Local cryptographic validation failed.
     #[error("DNSSEC local validation failed: {0}")]
     ValidationFailed(String),
+}
+
+fn signed_zone_suffix(zone: Option<&Name>) -> String {
+    zone.map(|zone| format!(" (nearest signed zone: '{zone}')"))
+        .unwrap_or_default()
 }
 
 impl DnssecError {
@@ -650,7 +674,8 @@ impl DnssecError {
             DnssecError::UntrustedChannel => SecurityStatus::Indeterminate,
             //
             DnssecError::BogusResponse
-            | DnssecError::MissingSignature
+            | DnssecError::MissingSignature { .. }
+            | DnssecError::MissingInsecureProof { .. }
             | DnssecError::ValidationFailed(_) => SecurityStatus::Bogus,
         }
     }
@@ -687,7 +712,34 @@ mod tests {
         );
 
         assert!(DnssecError::BogusResponse.is_bogus());
-        assert!(DnssecError::MissingSignature.is_bogus());
+        let name: Name = "www.example.com.".parse().expect("valid name");
+        let missing = DnssecError::MissingSignature {
+            name: name.clone(),
+            rtype: Type::A,
+        };
+        assert!(missing.is_bogus());
+        assert_eq!(
+            missing.to_string(),
+            "DNSSEC validation failed: no valid RRSIG for the 'www.example.com.' A RRset"
+        );
+        let unproven = DnssecError::MissingInsecureProof {
+            name: name.clone(),
+            signed_zone: Some("example.com.".parse().expect("valid zone")),
+        };
+        assert!(unproven.is_bogus());
+        assert!(
+            unproven
+                .to_string()
+                .ends_with("in an unsigned zone (nearest signed zone: 'example.com.')")
+        );
+        assert!(
+            DnssecError::MissingInsecureProof {
+                name,
+                signed_zone: None
+            }
+            .to_string()
+            .ends_with("in an unsigned zone")
+        );
         assert!(DnssecError::ValidationFailed("bad sig".to_string()).is_bogus());
     }
 }

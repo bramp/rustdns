@@ -187,7 +187,8 @@ impl RRSIG {
 ///
 /// # Errors
 ///
-/// Returns [`DnssecError::ValidationFailed`] if any check fails.
+/// Returns [`DnssecError::ValidationFailed`] if any check fails. The message
+/// names the RRset owner, type, signer, and key tag.
 pub fn validate_rrset(
     owner_name: impl crate::names::IntoName,
     rrset: &[Record],
@@ -198,14 +199,29 @@ pub fn validate_rrset(
     let owner_name = owner_name
         .into_name()
         .map_err(|e| DnssecError::ValidationFailed(format!("invalid owner name: {e}")))?;
+    validate_named_rrset(&owner_name, rrset, rrsig, dnskey, now).map_err(|error| match error {
+        DnssecError::ValidationFailed(reason) => DnssecError::ValidationFailed(format!(
+            "'{owner_name}' {} RRSIG by '{}' (key tag {}): {reason}",
+            rrsig.type_covered, rrsig.signer_name, rrsig.key_tag
+        )),
+        other => other,
+    })
+}
 
+fn validate_named_rrset(
+    owner_name: &Name,
+    rrset: &[Record],
+    rrsig: &RRSIG,
+    dnskey: &DNSKEY,
+    now: SystemTime,
+) -> Result<ValidationReport, DnssecError> {
     let Some(first) = rrset.first() else {
         return Err(DnssecError::ValidationFailed(
             "empty RRset cannot be validated".to_string(),
         ));
     };
     if rrset.iter().any(|record| {
-        record.name != owner_name
+        record.name != *owner_name
             || record.class != first.class
             || record.r#type() != rrsig.type_covered
     }) {
@@ -214,8 +230,8 @@ pub fn validate_rrset(
         ));
     }
     if !owner_name.is_subdomain_of(&rrsig.signer_name)
-        || rrsig.labels > rrsig_labels_for_name(&owner_name)
-        || !canonical_owner_for_rrsig(&owner_name, rrsig.labels).is_subdomain_of(&rrsig.signer_name)
+        || rrsig.labels > rrsig_labels_for_name(owner_name)
+        || !canonical_owner_for_rrsig(owner_name, rrsig.labels).is_subdomain_of(&rrsig.signer_name)
     {
         return Err(DnssecError::ValidationFailed(
             "invalid RRSIG signer scope or label count".into(),
@@ -269,7 +285,7 @@ pub fn validate_rrset(
 
     // 3. Construct canonical signed data
     let mut signed_data = Vec::new();
-    append_signed_data_to_vec(&mut signed_data, &owner_name, rrsig, rrset).map_err(|e| {
+    append_signed_data_to_vec(&mut signed_data, owner_name, rrsig, rrset).map_err(|e| {
         DnssecError::ValidationFailed(format!("failed to serialize signed data: {e}"))
     })?;
 
@@ -592,6 +608,11 @@ mod tests {
         let too_late = UNIX_EPOCH + Duration::from_secs(3_000_000);
         let err = validate_rrset("example.com.", &rrset, &rrsig, &dnskey, too_late).unwrap_err();
         assert!(err.to_string().contains("signature expired"));
+        let expected = format!(
+            "'example.com.' A RRSIG by 'example.com.' (key tag {}): signature expired",
+            rrsig.key_tag
+        );
+        assert!(err.to_string().contains(&expected), "{err}");
     }
 
     #[test]

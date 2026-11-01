@@ -44,6 +44,11 @@ All notable changes to rustdns are documented here.
   without `DO`, requesting the upstream's validation result without RRSIG or
   denial records ([RFC 6840 §5.7](https://datatracker.ietf.org/doc/html/rfc6840#section-5.7)).
   Callers needing other flags can send their own query with `exchange`.
+- **Breaking:** `DnssecError::MissingSignature` is now a struct variant naming
+  the unsigned RRset's owner and type. A new
+  `DnssecError::MissingInsecureProof` reports unsigned data that lacks an
+  authenticated unsigned-delegation proof, with the nearest signed zone.
+  `validate_rrset` failures now name the RRset owner, type, signer, and key tag.
 - DNS names decoded from wire preserve arbitrary label octets, including literal
   dots, backslashes, and non-UTF-8 data, instead of joining labels into a lossy
   string. Name hierarchy, equality, ordering, case randomization, and DNSSEC
