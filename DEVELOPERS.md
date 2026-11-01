@@ -1,5 +1,18 @@
 # Developer Guide
 
+## Formatting Hook
+
+Install the repository's pre-commit hook once per checkout to run the same Rust
+formatting check used by CI before each commit:
+
+```sh
+pre-commit install
+```
+
+The hook requires `pre-commit` and the Rust toolchain to be available in `PATH`.
+Run `cargo fmt --all` to apply formatting, or `pre-commit run --all-files` to
+check the whole repository manually.
+
 ## Dependency Updates
 
 [Dependabot](.github/dependabot.yml) checks the main Cargo workspace and the
