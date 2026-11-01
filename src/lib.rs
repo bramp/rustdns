@@ -302,7 +302,7 @@
 //!
 //! # Minimum Supported Rust Version (MSRV)
 //!
-//! This crate requires Rust **1.86.0** or later.
+//! This crate requires Rust **1.87.0** or later.
 //!
 //! Increasing the MSRV is considered a breaking change and will only be done in
 //! a minor version bump (or major version bump after 1.0.0), never in a patch

@@ -148,7 +148,7 @@ All notable changes to rustdns are documented here.
   arrays from Google and Cloudflare DNS-over-HTTPS JSON responses.
 - Added `doh-json` feature for the HTTP-based DNS-over-HTTPS JSON client
   (`rustdns::clients::json::Client`), decoupling it from pure serde serialization.
-- Added a declared minimum supported Rust version of 1.86.
+- Added a declared minimum supported Rust version of 1.87.
 - Added `DecodeError` and `EncodeError`, structured error types for DNS
   wire-format decoding and encoding, replacing the previous `std::io::Error`
   values. Both implement `From<..> for std::io::Error` so existing callers can
@@ -313,7 +313,7 @@ All notable changes to rustdns are documented here.
 - Migrated `rustdns`, `dig`, and `generate_tests` to the 2024 edition.
 - Set the Cargo resolver to version 3 at the workspace level, so dependency
   resolution respects the declared minimum supported Rust version.
-- Updated dependencies while maintaining the declared Rust 1.86 minimum
+- Updated dependencies while maintaining the declared Rust 1.87 minimum
   supported version.
 - `Message::from_slice` and `TryFrom<&[u8]> for Message` now return
   `DecodeError`; `Message::to_vec`, the `append_to_vec` family, and
