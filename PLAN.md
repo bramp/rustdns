@@ -10,7 +10,7 @@ The current baseline is `0.7.0`.
 - `0.5.1`: Security, parser, client, and fuzzing fixes. *(Complete)*
 - `0.6.0`: Compatibility-preserving fixes and API documentation. *(Complete)*
 - `0.7.0`: Additive features (resolver, DNSSEC trust, WASM JSON decoupling). *(In progress)*
-- `1.0.0`: Deliberate breaking cleanup, Rust 1.86.0, edition 2024, and Cargo resolver 3.
+- `1.0.0`: Deliberate breaking cleanup, Rust 1.87.0, edition 2024, and Cargo resolver 3.
 
 ---
 
@@ -45,7 +45,7 @@ follow the `from_slice`/`FromStr`, `to_vec`, and `append_to_vec` conventions in
 removed; use `Name::as_ascii` or `Name::to_unicode` to make the representation
 explicit.
 
-The current release baseline is Rust **1.86.0**, matching `Cargo.toml`, the
+The current release baseline is Rust **1.87.0**, matching `Cargo.toml`, the
 workspace CI matrix, edition 2024, and Cargo resolver 3. No crate-wide field
 privacy migration is planned: DNS message and record structs are public data
 models, and blanket getters/setters would add churn without establishing useful
@@ -121,7 +121,7 @@ Use test-driven development: add a focused failing regression or conformance tes
   - [x] Apply RFC 4035 section 5.3.3 TTL normalization to returned authenticated records and accepted signatures (received RRset/RRSIG TTLs, Original TTL, and remaining signature lifetime), including rollover alternatives and dependency caches.
     - Preserve immutable validation APIs; Resolver uses the new mutable validation entry point.
     - Cover zero TTLs, invalid-first signature rollover, aliases/wildcards, signed denial proofs, serial wrap, fractional expiration, and zero lifetime within expiration clock skew.
-- [x] Cryptographic signature verification using `ring` (Algorithms 8, 10, 13, 14, 15) in `src/dnssec/crypto.rs` and `src/dnssec/rrset_validator.rs`.
+- [x] Cryptographic signature verification (Algorithms 8, 10, 13, 14, 15) via `ring` or pure-Rust RustCrypto backends in `src/dnssec/crypto/` and `src/dnssec/rrset_validator.rs`.
   - [x] Verify a frozen, independently published root DNSKEY RRset/RRSIG against the IANA KSK-2017 anchor at a fixed historical validation time; reject a tampered signature.
   - [ ] Add independent positive interoperability vectors for every supported algorithm, not just successful self-generated signatures or malformed-key tests.
 - [x] Official IANA Root Zone Trust Anchors (KSK 20326 and KSK 38636) and `TrustStore` in `src/dnssec/anchor.rs`.
@@ -306,6 +306,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 
 ## 10. Tooling, Examples, and Architecture
 
+- [ ] Add configurable EDNS(0) support to web-dig: allow EDNS and DO toggles, payload-size configuration, and supported options; surface limitations of DNS JSON endpoints.
 - [ ] Server-side examples: demonstrate handling, routing, and responding to incoming DNS queries with `rustdns`.
 - [ ] Implement more `dig` CLI features, such as iterative delegation tracing (`+trace`).
 - [ ] Runtime-independence: decouple core transports from Tokio to support alternative async runtimes (e.g. `smol`, `async-std`) and pure WASM environments.
