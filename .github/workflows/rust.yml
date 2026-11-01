@@ -196,6 +196,11 @@ jobs:
           --no-default-features --features dnssec-rustcrypto
           --test dnssec_rfc_vectors
 
+      - name: Test web-dig browser modules
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: cargo test -p web-dig --target wasm32-unknown-unknown --lib
+
   fuzz:
     name: Fuzz smoke test
     runs-on: ubuntu-latest

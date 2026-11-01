@@ -19,7 +19,7 @@
     <div class="container">
         <header>
             <h1>Web Dig <span class="badge">WASM</span></h1>
-            <p>In-browser DNS query tool powered by <a href="https://github.com/bramp/rustdns" target="_blank" rel="noopener"><code>rustdns</code></a> compiled to WebAssembly.</p>
+            <p>In-browser DNS query tool powered by <a href="https://github.com/bramp/rustdns" target="_blank" rel="noopener"><code>rustdns</code></a> compiled to WebAssembly. <a href="dnssec.html">About DNSSEC modes</a></p>
         </header>
 
         <main>
@@ -66,6 +66,16 @@
                                 </optgroup>
                             </select>
                         </div>
+
+                        <div class="form-group">
+                            <label for="dnssec-mode">DNSSEC</label>
+                            <select id="dnssec-mode">
+                                <option value="off" selected>Off</option>
+                                <option value="upstream">Trust upstream (AD)</option>
+                                <option value="local">Validate locally</option>
+                            </select>
+                            <small class="help-text"><a href="dnssec.html">What do these results mean?</a></small>
+                        </div>
                     </div>
 
                     <div id="custom-server-row" class="custom-server-row">
@@ -81,6 +91,7 @@
                             <button type="button" class="chip-btn" data-domain="google.com" data-type="TXT">google.com TXT</button>
                             <button type="button" class="chip-btn" data-domain="cloudflare.com" data-type="MX">cloudflare.com MX</button>
                             <button type="button" class="chip-btn" data-domain="🍕.ws" data-type="A">🍕.ws A</button>
+                            <button type="button" class="chip-btn" data-domain="dnssec-failed.org" data-type="A" data-dnssec-mode="local">dnssec-failed.org A</button>
                         </div>
 
                         <button id="dig-btn" type="submit" class="btn-primary">
@@ -104,6 +115,7 @@
                     <div class="output-header-title">
                         <span>Query Output</span>
                         <span id="status-badge" class="status-badge" style="display: none;"></span>
+                        <span id="dnssec-issue-badge" class="status-badge error" hidden>DNSSEC issue</span>
                     </div>
                     <div class="output-actions">
                         <button id="copy-btn" class="btn-secondary" type="button">Copy Output</button>

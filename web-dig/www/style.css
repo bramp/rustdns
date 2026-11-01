@@ -95,7 +95,7 @@ header p {
 
 .form-grid {
     display: grid;
-    grid-template-columns: 2fr 1fr 2fr;
+    grid-template-columns: 2fr 0.8fr 2fr 1.4fr;
     gap: 1rem;
     margin-bottom: 1rem;
 }
@@ -110,6 +110,16 @@ header p {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+}
+
+.help-text {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.help-text a {
+    color: var(--text-muted);
+    text-decoration: underline;
 }
 
 label {
@@ -155,13 +165,22 @@ option:disabled {
 }
 
 .submit-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
     gap: 1rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--border-color);
+}
+
+.submit-row .btn-primary {
+    justify-self: end;
+}
+
+@media (max-width: 480px) {
+    .submit-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 .examples-group {
@@ -244,8 +263,28 @@ option:disabled {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
+}
+
+.guide h2,
+.guide h3,
+.guide p,
+.guide ul {
+    margin-bottom: 0.75rem;
+}
+
+.guide h3 {
+    margin-top: 1.25rem;
+}
+
+.guide ul {
+    padding-left: 1.5rem;
+}
+
+.guide li + li {
+    margin-top: 0.5rem;
 }
 
 .status-badge {
@@ -256,10 +295,10 @@ option:disabled {
     text-transform: none;
 }
 
-.status-badge.success {
-    background: rgba(63, 185, 80, 0.15);
-    color: var(--accent-green);
-    border: 1px solid rgba(63, 185, 80, 0.4);
+.status-badge.timing {
+    background: rgba(88, 166, 255, 0.15);
+    color: var(--accent-blue);
+    border: 1px solid rgba(88, 166, 255, 0.4);
 }
 
 .status-badge.error {

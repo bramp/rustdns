@@ -10,6 +10,8 @@
 pub mod exchangers;
 #[cfg(target_arch = "wasm32")]
 pub mod fetch;
+#[cfg(target_arch = "wasm32")]
+pub mod resolver;
 
 #[cfg(target_arch = "wasm32")]
 use crate::exchangers::BrowserClient;
@@ -20,6 +22,8 @@ use rustdns::Message;
 use rustdns::clients::AsyncExchanger;
 use rustdns::limits::EDNS_DOH_PAYLOAD_SIZE;
 use rustdns::types::{Class, Extension, Type};
+#[cfg(any(target_arch = "wasm32", test))]
+use rustdns::types::{DnssecMode, SecurityStatus};
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
@@ -92,6 +96,117 @@ pub async fn dig(
         .map_err(|e| JsValue::from_str(&e))
 }
 
+/// Performs a DoH query with upstream or local DNSSEC validation.
+///
+/// `mode` is `"off"`, `"upstream"`, or `"local"`. Local validation fetches
+/// DNSKEY and DS dependencies over the same DoH endpoint and validates them
+/// against the built-in IANA root trust anchors.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+pub async fn dig_dnssec(
+    domain: &str,
+    rtype: &str,
+    server: &str,
+    protocol: &str,
+    mode: &str,
+) -> Result<String, JsValue> {
+    let mode = match mode {
+        "off" => DnssecMode::Off,
+        "upstream" => DnssecMode::TrustUpstream {
+            require_secure: false,
+        },
+        "local" => DnssecMode::ValidateLocal,
+        _ => return Err(JsValue::from_str("invalid DNSSEC mode")),
+    };
+    if mode == DnssecMode::Off {
+        return dig(domain, rtype, server, protocol).await;
+    }
+    let client = BrowserClient::try_new(protocol, server).map_err(|e| JsValue::from_str(&e))?;
+    let resolver = crate::resolver::BrowserResolver::new(client);
+    let clock = crate::resolver::BrowserClock;
+    let now = rustdns::dnssec::Clock::now(&clock)
+        .ok_or_else(|| JsValue::from_str("browser monotonic clock is unavailable"))?;
+    let deadline =
+        rustdns::dnssec::Clock::checked_add(&clock, now, std::time::Duration::from_secs(20))
+            .ok_or_else(|| JsValue::from_str("DNSSEC deadline overflow"))?;
+
+    let mut query = create_query(domain, rtype).map_err(|e| JsValue::from_str(&e))?;
+    // Trust upstream asks only for the AD result (RFC 6840 §5.7); local
+    // validation needs signatures (DO) and unfiltered data (CD).
+    let validate_local = mode == DnssecMode::ValidateLocal;
+    if let Some(extension) = &mut query.extension {
+        extension.dnssec_ok = validate_local;
+    }
+    query.ad = !validate_local;
+    query.cd = validate_local;
+
+    let mut response =
+        rustdns::clients::AsyncResolver::exchange_with_deadline(&resolver, &query, deadline)
+            .await
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let issue = match mode {
+        DnssecMode::Off | DnssecMode::TrustUpstream { .. } => None,
+        DnssecMode::ValidateLocal => {
+            let cache = rustdns::dnssec::DnssecCache::with_clock(clock);
+            let trust_store = rustdns::dnssec::TrustStore::default();
+            let mut validator =
+                rustdns::dnssec::ChainValidator::new(&resolver, &trust_store, &cache, deadline);
+            let validation_time = crate::resolver::browser_system_time()
+                .ok_or_else(|| JsValue::from_str("browser wall clock is unavailable"))?;
+            match validator
+                .validate_message_answers_mut(&mut response.message, validation_time)
+                .await
+            {
+                Ok(SecurityStatus::Secure) => {
+                    response.meta.security_status = SecurityStatus::Secure;
+                    None
+                }
+                Ok(SecurityStatus::Insecure) => {
+                    response.meta.security_status = SecurityStatus::Insecure;
+                    None
+                }
+                Ok(SecurityStatus::Bogus | SecurityStatus::Indeterminate) => {
+                    response.meta.security_status = SecurityStatus::Indeterminate;
+                    Some(
+                        "could not establish a secure or authenticated-insecure result".to_string(),
+                    )
+                }
+                Err(error) => {
+                    response.meta.security_status = SecurityStatus::Indeterminate;
+                    Some(error.to_string())
+                }
+            }
+        }
+    };
+
+    Ok(format_dnssec_output(
+        response.to_string(),
+        mode,
+        response.meta.security_status,
+        issue.as_deref(),
+    ))
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn format_dnssec_output(
+    output: String,
+    mode: DnssecMode,
+    status: SecurityStatus,
+    issue: Option<&str>,
+) -> String {
+    let method = match mode {
+        DnssecMode::Off => return output,
+        DnssecMode::TrustUpstream { .. } => "upstream AD",
+        DnssecMode::ValidateLocal => "local validation",
+    };
+    let mut output = format!("{output};; DNSSEC STATUS: {status} ({method})\n");
+    if let Some(issue) = issue {
+        output.push_str(&format!(";; DNSSEC ERROR: {issue}\n"));
+    }
+    output
+}
+
 /// Returns the git commit hash embedded at build time.
 #[wasm_bindgen]
 pub fn build_commit() -> String {
@@ -107,6 +222,55 @@ pub fn build_time() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dnssec_off_preserves_query_output() {
+        let output = ";; ->>HEADER<<-\n;; Query time: 42 msec\n".to_string();
+        assert_eq!(
+            format_dnssec_output(
+                output.clone(),
+                DnssecMode::Off,
+                SecurityStatus::Indeterminate,
+                None,
+            ),
+            output,
+        );
+    }
+
+    #[test]
+    fn dnssec_status_is_appended_to_metadata() {
+        let output = ";; ->>HEADER<<-\n;; SECURITY: Secure\n;; CHANNEL: Encrypted\n";
+        for (mode, method) in [
+            (DnssecMode::ValidateLocal, "local validation"),
+            (
+                DnssecMode::TrustUpstream {
+                    require_secure: false,
+                },
+                "upstream AD",
+            ),
+        ] {
+            assert_eq!(
+                format_dnssec_output(output.into(), mode, SecurityStatus::Secure, None),
+                format!("{output};; DNSSEC STATUS: Secure ({method})\n"),
+            );
+        }
+    }
+
+    #[test]
+    fn dnssec_failure_retains_output_and_error_context() {
+        let output = ";; ->>HEADER<<-\n;; CHANNEL: Encrypted\n";
+        assert_eq!(
+            format_dnssec_output(
+                output.into(),
+                DnssecMode::ValidateLocal,
+                SecurityStatus::Indeterminate,
+                Some("signature expired"),
+            ),
+            format!(
+                "{output};; DNSSEC STATUS: Indeterminate (local validation)\n;; DNSSEC ERROR: signature expired\n"
+            ),
+        );
+    }
 
     #[test]
     fn test_supported_record_types() {

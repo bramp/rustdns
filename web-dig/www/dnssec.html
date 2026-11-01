@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNSSEC modes - Web Dig</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>DNSSEC modes</h1>
+            <p><a href="index.html">Back to Web Dig</a></p>
+        </header>
+
+        <main class="guide">
+            <section class="card">
+                <h2>What DNSSEC does</h2>
+                <p>DNSSEC uses public-key signatures to authenticate DNS records and denial proofs. It helps detect forged or modified DNS answers. It does <strong>not</strong> encrypt DNS; DNS-over-HTTPS (DoH) encrypts the connection to the selected resolver.</p>
+                <p>This demo offers two different trust models. The raw DNS response is always shown so you can inspect flags, signatures, and records. When DNSSEC is enabled, its status and any validation error appear at the bottom with the response metadata. A DNSSEC issue badge appears alongside the elapsed query time.</p>
+            </section>
+
+            <section class="card">
+                <h2>Choose a mode</h2>
+                <h3>Off</h3>
+                <p>Sends a normal query without requesting DNSSEC records. No DNSSEC status is inferred from the answer.</p>
+
+                <h3>Trust upstream (AD)</h3>
+                <p>Requests DNSSEC data and reads the resolver's <code>AD</code> (Authenticated Data) flag. In this app the resolver is reached over HTTPS, so the flag is protected in transit. This is still the resolver's validation claim: rustdns does not independently verify the signatures in this mode.</p>
+                <ul>
+                    <li><strong>AD=1 / Secure:</strong> the resolver asserts that it validated the answer.</li>
+                    <li><strong>AD=0 / Insecure indication:</strong> the resolver did not assert authentication. That alone does not prove that the name is unsigned; the resolver may have policy or configuration differences.</li>
+                    <li><strong>SERVFAIL / Bogus indication:</strong> a validating resolver may return this for broken DNSSEC, but SERVFAIL can have other causes too.</li>
+                </ul>
+
+                <h3>Validate locally</h3>
+                <p>Requests DNSSEC records with checking disabled upstream, then rustdns independently verifies signatures, delegation links, and authenticated denial proofs to its built-in IANA root trust anchors. It reports secure or authenticated-insecure only when it can validate that result. Missing records, unsupported algorithms, network failures, and other validation errors are shown as failures—not as proof that a domain is bogus.</p>
+                <p>DNSSEC dependency queries use the selected DoH endpoint and share a bounded deadline. The app does not send queries to authoritative servers directly.</p>
+            </section>
+
+            <section class="card">
+                <h2>Try it</h2>
+                <p>Back on the app, select <strong>Validate locally</strong> and try:</p>
+                <ul>
+                    <li><code>cloudflare.com</code> A — a signed zone expected to validate.</li>
+                    <li><code>dnssec-failed.org</code> A — a deliberately broken DNSSEC test domain. Depending on the resolver, it may return SERVFAIL or data that local validation rejects.</li>
+                </ul>
+                <p>For comparison, try both with <strong>Trust upstream (AD)</strong>. Resolver behavior, availability, CORS policy, and the domain's current DNS configuration can affect the demonstration.</p>
+            </section>
+
+            <section class="card">
+                <h2>Protocol flags</h2>
+                <ul>
+                    <li><code>DO=1</code> asks for DNSSEC-related records such as RRSIG and denial proofs. Local mode sets it; trust-upstream mode does not need them.</li>
+                    <li><code>CD=1</code> asks the recursive resolver not to reject data based on its own DNSSEC validation. Local mode uses this so rustdns can inspect and validate the response independently.</li>
+                    <li><code>AD=1</code> in a response is the resolver's assertion about authenticated data; it is not itself a signature. Trust-upstream mode sets <code>AD=1</code> in the query to request that assertion without extra DNSSEC records (<a href="https://datatracker.ietf.org/doc/html/rfc6840#section-5.7" target="_blank" rel="noopener">RFC 6840 §5.7</a>).</li>
+                </ul>
+                <p>Learn more: <a href="https://datatracker.ietf.org/doc/html/rfc4033" target="_blank" rel="noopener">RFC 4033</a>, <a href="https://datatracker.ietf.org/doc/html/rfc4035" target="_blank" rel="noopener">RFC 4035</a>, and <a href="https://www.iana.org/dnssec/files" target="_blank" rel="noopener">IANA DNSSEC trust anchors</a>.</p>
+            </section>
+        </main>
+
+        <footer>
+            <p><a href="index.html">Back to Web Dig</a></p>
+        </footer>
+    </div>
+</body>
+</html>

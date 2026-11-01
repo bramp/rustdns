@@ -8,6 +8,8 @@ use rustdns::types::ChannelSecurity;
 use std::sync::Arc;
 use std::time::Duration;
 
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// HTTP method used for DNS-over-HTTPS (DoH, [RFC 8484]) requests.
 ///
 /// [RFC 8484]: https://datatracker.ietf.org/doc/html/rfc8484
@@ -46,18 +48,20 @@ impl BrowserDohClient {
             method,
         }
     }
-}
 
-#[async_trait]
-impl AsyncExchanger for BrowserDohClient {
-    async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
+    pub(crate) async fn exchange_with_timeout(
+        &self,
+        query: &Message,
+        timeout: Duration,
+    ) -> Result<WireResponse, rustdns::Error> {
+        let query_id = query.id;
         let mut query = query.clone();
         // RFC 8484 §4.1: "In order to maximize HTTP cache friendliness, DoH clients using media
         // formats that include the ID field SHOULD use a query ID of 0, but in all cases MUST
         // be prepared to receive a response that contains a different ID."
         query.id = 0;
-
         let wire_query = query.to_vec()?;
+        let channel_security = self.channel_security();
 
         SendWrapper(async move {
             let start = now_millis();
@@ -70,6 +74,7 @@ impl AsyncExchanger for BrowserDohClient {
                             ("Accept", CONTENT_TYPE_APPLICATION_DNS_MESSAGE),
                         ],
                         Some(&wire_query),
+                        timeout,
                     )
                     .await
                     .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
@@ -87,6 +92,7 @@ impl AsyncExchanger for BrowserDohClient {
                         &url,
                         &[("Accept", CONTENT_TYPE_APPLICATION_DNS_MESSAGE)],
                         None,
+                        timeout,
                     )
                     .await
                     .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
@@ -95,20 +101,27 @@ impl AsyncExchanger for BrowserDohClient {
             };
 
             let elapsed = Duration::from_secs_f64(((now_millis() - start).max(0.0)) / 1000.0);
-            let message = Message::from_slice(&resp_bytes)?;
-
+            let mut message = Message::from_slice(&resp_bytes)?;
+            message.id = query_id;
             let meta = WireResponseMeta {
                 server: None,
                 elapsed,
                 bytes_sent,
                 bytes_received: resp_bytes.len(),
-                channel_security: ChannelSecurity::Encrypted,
+                channel_security,
                 tls_info: None,
             };
-
             Ok(WireResponse::new(message, meta))
         })
         .await
+    }
+}
+
+#[async_trait]
+impl AsyncExchanger for BrowserDohClient {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
+        self.exchange_with_timeout(query, DEFAULT_REQUEST_TIMEOUT)
+            .await
     }
 
     fn endpoint(&self) -> Arc<str> {
@@ -116,7 +129,7 @@ impl AsyncExchanger for BrowserDohClient {
     }
 
     fn channel_security(&self) -> ChannelSecurity {
-        ChannelSecurity::Encrypted
+        endpoint_channel_security(&self.endpoint)
     }
 }
 
@@ -134,24 +147,22 @@ impl BrowserJsonClient {
             endpoint: url.into(),
         }
     }
-}
 
-#[async_trait]
-impl AsyncExchanger for BrowserJsonClient {
-    async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
+    pub(crate) async fn exchange_with_timeout(
+        &self,
+        query: &Message,
+        timeout: Duration,
+    ) -> Result<WireResponse, rustdns::Error> {
         if query.questions.len() != 1 {
             return Err(rustdns::Error::InvalidArgument(
                 "expected exactly one question for JSON DoH".to_string(),
             ));
         }
-
         let question = query.questions.first().ok_or_else(|| {
             rustdns::Error::InvalidArgument("query must have a question".to_string())
         })?;
-
         let domain = question.name.as_ascii();
         let rtype = question.r#type.to_string();
-
         let separator = if self.endpoint.contains('?') {
             "&"
         } else {
@@ -161,33 +172,43 @@ impl AsyncExchanger for BrowserJsonClient {
             "{}{}name={}&type={}&cd={}&ct={CONTENT_TYPE_APPLICATION_DNS_JSON}",
             self.endpoint, separator, domain, rtype, query.cd
         );
-
         if let Some(extension) = &query.extension {
             url.push_str(&format!("&do={}", extension.dnssec_ok));
         }
+        let channel_security = self.channel_security();
+        let query_id = query.id;
 
         SendWrapper(async move {
             let start = now_millis();
-            let (json_text, _status) =
-                crate::fetch::fetch_text(&url, &[("Accept", CONTENT_TYPE_APPLICATION_DNS_JSON)])
-                    .await
-                    .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
-
+            let (json_text, _status) = crate::fetch::fetch_text(
+                &url,
+                &[("Accept", CONTENT_TYPE_APPLICATION_DNS_JSON)],
+                timeout,
+            )
+            .await
+            .map_err(|err| rustdns::Error::Io(std::io::Error::other(err)))?;
             let elapsed = Duration::from_secs_f64(((now_millis() - start).max(0.0)) / 1000.0);
-            let message: Message = rustdns::json::from_str(&json_text)?;
-
+            let mut message: Message = rustdns::json::from_str(&json_text)?;
+            message.id = query_id;
             let meta = WireResponseMeta {
                 server: None,
                 elapsed,
                 bytes_sent: url.len(),
                 bytes_received: json_text.len(),
-                channel_security: ChannelSecurity::Encrypted,
+                channel_security,
                 tls_info: None,
             };
-
             Ok(WireResponse::new(message, meta))
         })
         .await
+    }
+}
+
+#[async_trait]
+impl AsyncExchanger for BrowserJsonClient {
+    async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
+        self.exchange_with_timeout(query, DEFAULT_REQUEST_TIMEOUT)
+            .await
     }
 
     fn endpoint(&self) -> Arc<str> {
@@ -195,7 +216,7 @@ impl AsyncExchanger for BrowserJsonClient {
     }
 
     fn channel_security(&self) -> ChannelSecurity {
-        ChannelSecurity::Encrypted
+        endpoint_channel_security(&self.endpoint)
     }
 }
 
@@ -222,6 +243,24 @@ impl BrowserClient {
             _ => Err(format!(
                 "unsupported protocol '{protocol}': must be 'doh', 'doh-get', or 'json'"
             )),
+        }
+    }
+
+    pub(crate) async fn exchange_with_timeout(
+        &self,
+        query: &Message,
+        timeout: Duration,
+    ) -> Result<WireResponse, rustdns::Error> {
+        match self {
+            Self::Doh(client) => client.exchange_with_timeout(query, timeout).await,
+            Self::Json(client) => client.exchange_with_timeout(query, timeout).await,
+        }
+    }
+
+    pub(crate) fn endpoint(&self) -> Arc<str> {
+        match self {
+            Self::Doh(client) => client.endpoint(),
+            Self::Json(client) => client.endpoint(),
         }
     }
 }
@@ -271,4 +310,15 @@ fn now_millis() -> f64 {
         .and_then(|w| w.performance())
         .map(|p| p.now())
         .unwrap_or(0.0)
+}
+
+fn endpoint_channel_security(endpoint: &str) -> ChannelSecurity {
+    if endpoint
+        .get(..8)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+    {
+        ChannelSecurity::Encrypted
+    } else {
+        ChannelSecurity::Insecure
+    }
 }

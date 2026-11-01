@@ -1,4 +1,4 @@
-import init, { dig, supported_record_types, build_commit, build_time } from "./pkg/web_dig.js";
+import init, { dig_dnssec, supported_record_types, build_commit, build_time } from "./pkg/web_dig.js";
 
 const ENDPOINTS = {
     "cloudflare-doh": {
@@ -26,6 +26,7 @@ const ENDPOINTS = {
 const domainInput = document.getElementById("domain-input");
 const typeSelect = document.getElementById("type-select");
 const endpointSelect = document.getElementById("endpoint-select");
+const dnssecModeSelect = document.getElementById("dnssec-mode");
 const customServerRow = document.getElementById("custom-server-row");
 const customServerLabel = document.getElementById("custom-server-label");
 const customServerInput = document.getElementById("custom-server-input");
@@ -34,6 +35,7 @@ const digBtn = document.getElementById("dig-btn");
 const btnText = document.getElementById("btn-text");
 const outputBox = document.getElementById("output-box");
 const statusBadge = document.getElementById("status-badge");
+const dnssecIssueBadge = document.getElementById("dnssec-issue-badge");
 const copyBtn = document.getElementById("copy-btn");
 
 function resolveEndpoint() {
@@ -82,6 +84,9 @@ document.querySelectorAll(".chip-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
         domainInput.value = btn.dataset.domain;
         typeSelect.value = btn.dataset.type;
+        if (btn.dataset.dnssecMode) {
+            dnssecModeSelect.value = btn.dataset.dnssecMode;
+        }
         digForm.requestSubmit();
     });
 });
@@ -107,6 +112,8 @@ digForm.addEventListener("submit", async (event) => {
 
     const domain = domainInput.value.trim();
     const rtype = typeSelect.value;
+    const dnssecMode = dnssecModeSelect.value;
+    dnssecIssueBadge.hidden = true;
 
     if (!domain) {
         domainInput.focus();
@@ -134,11 +141,15 @@ digForm.addEventListener("submit", async (event) => {
     const startTime = performance.now();
 
     try {
-        const result = await dig(domain, rtype, serverUrl, protocol);
+        const result = await dig_dnssec(domain, rtype, serverUrl, protocol, dnssecMode);
         const duration = Math.round(performance.now() - startTime);
 
         outputBox.textContent = result;
-        setStatus(`${duration} ms`, "success");
+        const validationIssue =
+            result.includes(";; DNSSEC ERROR:") ||
+            result.includes(";; DNSSEC STATUS: Bogus");
+        setStatus(`${duration} ms`, "timing");
+        dnssecIssueBadge.hidden = !validationIssue;
     } catch (err) {
         const duration = Math.round(performance.now() - startTime);
         const message = typeof err === "string" ? err : err?.message || String(err);
