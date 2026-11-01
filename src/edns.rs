@@ -97,13 +97,56 @@ impl EdnsOption {
     ///
     /// Use this when a query should include an address prefix for resolver
     /// geolocation or policy. Host bits beyond `source_prefix_len` are cleared
-    /// before encoding.
+    /// before encoding. Use [`EdnsOption::try_client_subnet`] to reject invalid
+    /// prefixes during construction.
     pub fn client_subnet(address: IpAddr, source_prefix_len: u8, scope_prefix_len: u8) -> Self {
         Self::ClientSubnet(EdnsClientSubnet::new(
             address,
             source_prefix_len,
             scope_prefix_len,
         ))
+    }
+
+    /// Creates an EDNS(0) Client Subnet option after validating its prefixes.
+    ///
+    /// Host bits beyond `source_prefix_len` are cleared before encoding.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidOption`] if either prefix exceeds the
+    /// address family's maximum length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::net::{IpAddr, Ipv4Addr};
+    /// use rustdns::{EdnsClientSubnet, EdnsOption};
+    ///
+    /// let option = EdnsOption::try_client_subnet(
+    ///     IpAddr::V4(Ipv4Addr::new(192, 0, 2, 129)),
+    ///     25,
+    ///     0,
+    /// )?;
+    /// let EdnsOption::ClientSubnet(subnet) = option else {
+    ///     unreachable!("constructor returns a client subnet option");
+    /// };
+    /// assert_eq!(
+    ///     subnet,
+    ///     EdnsClientSubnet::try_new(
+    ///         IpAddr::V4(Ipv4Addr::new(192, 0, 2, 128)),
+    ///         25,
+    ///         0,
+    ///     )?
+    /// );
+    /// # Ok::<(), rustdns::EncodeError>(())
+    /// ```
+    pub fn try_client_subnet(
+        address: IpAddr,
+        source_prefix_len: u8,
+        scope_prefix_len: u8,
+    ) -> Result<Self, EncodeError> {
+        EdnsClientSubnet::try_new(address, source_prefix_len, scope_prefix_len)
+            .map(Self::ClientSubnet)
     }
 
     /// Creates an EDNS(0) COOKIE option with only a client cookie.
@@ -116,6 +159,19 @@ impl EdnsOption {
     /// The server cookie must be empty or between 8 and 32 bytes when encoded.
     pub fn cookie_with_server(client_cookie: [u8; 8], server_cookie: impl Into<Vec<u8>>) -> Self {
         Self::Cookie(EdnsCookie::new(client_cookie, server_cookie))
+    }
+
+    /// Creates an EDNS(0) COOKIE option after validating the server cookie.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidOption`] if `server_cookie` is not empty
+    /// and is not between 8 and 32 bytes long.
+    pub fn try_cookie_with_server(
+        client_cookie: [u8; 8],
+        server_cookie: impl Into<Vec<u8>>,
+    ) -> Result<Self, EncodeError> {
+        EdnsCookie::try_new(client_cookie, server_cookie).map(Self::Cookie)
     }
 
     /// Creates an EDNS(0) TCP keepalive option.
@@ -291,12 +347,32 @@ pub struct EdnsCookie {
 impl EdnsCookie {
     /// Creates EDNS(0) COOKIE option data.
     ///
-    /// The server cookie is validated when the option is encoded.
+    /// Use [`EdnsCookie::try_new`] to reject invalid server-cookie lengths during
+    /// construction. This compatibility constructor leaves validation to
+    /// encoding.
     pub fn new(client_cookie: [u8; 8], server_cookie: impl Into<Vec<u8>>) -> Self {
         Self {
             client_cookie,
             server_cookie: server_cookie.into(),
         }
+    }
+
+    /// Creates EDNS(0) COOKIE option data after validating the server cookie.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidOption`] if `server_cookie` is not empty
+    /// and is not between 8 and 32 bytes long.
+    pub fn try_new(
+        client_cookie: [u8; 8],
+        server_cookie: impl Into<Vec<u8>>,
+    ) -> Result<Self, EncodeError> {
+        let server_cookie = server_cookie.into();
+        validate_server_cookie_len(server_cookie.len())?;
+        Ok(Self {
+            client_cookie,
+            server_cookie,
+        })
     }
 
     fn parse(data: &[u8]) -> Result<Self, DecodeError> {
@@ -369,8 +445,9 @@ fn append_tcp_keepalive_to_vec(
 
 /// EDNS(0) Client Subnet option data as defined in [RFC 7871].
 ///
-/// Use [`EdnsOption::client_subnet`] for normal construction. Use this type
-/// directly when matching parsed EDNS options or when the address, source prefix,
+/// Use [`EdnsClientSubnet::try_new`] for validated construction or
+/// [`EdnsOption::try_client_subnet`] to construct an option directly. Use this
+/// type when matching parsed EDNS options or when the address, source prefix,
 /// and scope prefix need to be inspected separately.
 ///
 /// [RFC 7871]: https://datatracker.ietf.org/doc/html/rfc7871
@@ -394,13 +471,41 @@ impl EdnsClientSubnet {
     /// Use [`EdnsOption::client_subnet`] when constructing an EDNS option. This
     /// constructor is useful when the subnet data itself needs to be stored or
     /// inspected before wrapping it in [`EdnsOption::ClientSubnet`]. Host bits
-    /// beyond `source_prefix_len` are cleared.
+    /// beyond `source_prefix_len` are cleared. Use [`Self::try_new`] to reject
+    /// invalid prefixes during construction.
     pub fn new(address: IpAddr, source_prefix_len: u8, scope_prefix_len: u8) -> Self {
         Self {
             address: truncate_address(address, source_prefix_len),
             source_prefix_len,
             scope_prefix_len,
         }
+    }
+
+    /// Creates EDNS(0) Client Subnet option data after validating its prefixes.
+    ///
+    /// Host bits beyond `source_prefix_len` are cleared.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidOption`] if either prefix exceeds the
+    /// address family's maximum length.
+    pub fn try_new(
+        address: IpAddr,
+        source_prefix_len: u8,
+        scope_prefix_len: u8,
+    ) -> Result<Self, EncodeError> {
+        let max_prefix_len = match address {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        if !subnet_prefix_valid(source_prefix_len, scope_prefix_len, max_prefix_len) {
+            return Err(EncodeError::InvalidOption {
+                option: "CLIENT SUBNET",
+                reason: "prefix length is longer than the address family allows",
+            });
+        }
+
+        Ok(Self::new(address, source_prefix_len, scope_prefix_len))
     }
 
     fn parse(data: &[u8]) -> Result<Self, DecodeError> {
@@ -523,7 +628,7 @@ fn truncate_address(address: IpAddr, prefix_len: u8) -> IpAddr {
 mod tests {
     use super::{
         EDNS_OPTION_CLIENT_SUBNET, EDNS_OPTION_COOKIE, EDNS_OPTION_NSID, EDNS_OPTION_PADDING,
-        EDNS_OPTION_TCP_KEEPALIVE, EdnsOption,
+        EDNS_OPTION_TCP_KEEPALIVE, EdnsClientSubnet, EdnsCookie, EdnsOption,
     };
     use std::io::{self, Cursor};
     use std::net::{IpAddr, Ipv4Addr};
@@ -636,6 +741,36 @@ mod tests {
                 .append_to_vec(&mut buf)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn fallible_cookie_constructors_validate_server_cookie_length() {
+        for server_cookie in [Vec::new(), vec![0; 8], vec![0; 32]] {
+            assert!(EdnsCookie::try_new(*b"client01", server_cookie.clone()).is_ok());
+            assert!(EdnsOption::try_cookie_with_server(*b"client01", server_cookie).is_ok());
+        }
+
+        for len in [1, 7, 33] {
+            assert!(EdnsCookie::try_new(*b"client01", vec![0; len]).is_err());
+            assert!(EdnsOption::try_cookie_with_server(*b"client01", vec![0; len]).is_err());
+        }
+    }
+
+    #[test]
+    fn fallible_client_subnet_constructors_validate_prefix_lengths() {
+        let address = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 255));
+        let subnet = EdnsClientSubnet::try_new(address, 24, 0).expect("valid IPv4 prefix");
+        assert_eq!(subnet.address, IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)));
+        assert!(EdnsOption::try_client_subnet(address, 24, 0).is_ok());
+
+        assert!(EdnsClientSubnet::try_new(address, 33, 0).is_err());
+        assert!(EdnsClientSubnet::try_new(address, 24, 33).is_err());
+        assert!(EdnsOption::try_client_subnet(address, 33, 0).is_err());
+
+        let ipv6 = IpAddr::V6("2001:db8::1".parse().expect("valid IPv6 address"));
+        assert!(EdnsClientSubnet::try_new(ipv6, 128, 128).is_ok());
+        assert!(EdnsClientSubnet::try_new(ipv6, 129, 0).is_err());
+        assert!(EdnsOption::try_client_subnet(ipv6, 0, 129).is_err());
     }
 
     #[test]
