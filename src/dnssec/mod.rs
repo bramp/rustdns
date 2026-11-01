@@ -4,8 +4,10 @@
 //! cryptographic signatures (RRSIG) anchored in delegations (DS) up to root
 //! Key-Signing Keys (KSK) per [RFC 4033], [RFC 4034], [RFC 4035], and [RFC 6840].
 //!
-//! Cryptographic RRset verification requires `dnssec`. Chain-of-trust resolution
-//! and query caching additionally require `resolver`.
+//! Cryptographic RRset verification requires a backend feature: `dnssec-ring`
+//! (uses `ring`) or `dnssec-rustcrypto` (pure Rust, no C toolchain). Both
+//! produce identical results; `ring` is used when both are enabled.
+//! Chain-of-trust resolution and query caching additionally require `resolver`.
 //!
 //! [RFC 4033]: https://datatracker.ietf.org/doc/html/rfc4033
 //! [RFC 4034]: https://datatracker.ietf.org/doc/html/rfc4034

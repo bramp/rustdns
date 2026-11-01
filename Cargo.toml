@@ -25,7 +25,7 @@ members = [
 default = ["clients", "zones"]
 
 # Enable the DNS clients (asynchronous, plus the blocking variants).
-clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync", "exchanger", "dnssec"]
+clients = ["doh", "doh-json", "do53", "dot", "resolver", "sync", "exchanger", "dnssec-ring"]
 
 # Generic Exchanger trait and WireResponse types (WASM compatible, no Tokio or HTTP dependencies).
 exchanger = []
@@ -38,10 +38,18 @@ do53 = ["dep:tokio"]
 sync = []
 
 # Async, multi-upstream Resolver (builder-configured, works with any AsyncExchanger).
-resolver = ["dep:tokio", "dnssec"]
+resolver = ["dep:tokio", "dnssec-ring"]
 
-# DNSSEC cryptographic verification and chain-of-trust resolution.
-dnssec = ["dep:ring"]
+# DNSSEC validation API (RRset verification, denial proofs, trust anchors).
+# Requires a cryptographic backend: enable `dnssec-ring` or `dnssec-rustcrypto`.
+dnssec = []
+
+# DNSSEC cryptography backed by `ring` (fastest; needs a C toolchain for the target).
+dnssec-ring = ["dnssec", "dep:ring"]
+
+# DNSSEC cryptography backed by pure-Rust RustCrypto crates (no C toolchain;
+# suited to WebAssembly). If both backends are enabled, `ring` is used.
+dnssec-rustcrypto = ["dnssec", "dep:sha1", "dep:sha2", "dep:rsa", "dep:p256", "dep:p384", "dep:ed25519-dalek"]
 
 # DNS over HTTPS (DoH) client (RFC 8484).
 doh  = ["http_deps"]
@@ -82,6 +90,12 @@ webpki-roots = { version = "1.0.9", optional = true }
 
 # Needed for DNSSEC cryptographic validation
 ring = { version = "0.17", optional = true }
+sha1 = { version = "0.11", default-features = false, optional = true }
+sha2 = { version = "0.11", default-features = false, features = ["oid"], optional = true }
+rsa = { version = "=0.10.0-rc.19", default-features = false, optional = true }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa"], optional = true }
+p384 = { version = "0.14", default-features = false, features = ["ecdsa"], optional = true }
+ed25519-dalek = { version = "3", default-features = false, features = ["fast"], optional = true }
 
 # Needed for DNS over HTTP Json
 serde = { version = "1.0.229", features = ["derive"], optional = true }
@@ -133,8 +147,13 @@ serde = { version = "1.0.229", features = ["derive"] }
 yaml_serde = "0.10.7"
 json_comments = "0.2.2"
 test-env-log = "0.2.8"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 [package.metadata.cargo-all-features]
 skip_optional_dependencies = true
-denylist = ["http_deps"]
+denylist = ["http_deps", "dnssec"]

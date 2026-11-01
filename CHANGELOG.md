@@ -28,7 +28,8 @@ All notable changes to rustdns are documented here.
     rather than accepting unrelated signed answers.
   - Set CD/DO for local validation, ignore forged upstream AD, and enforce shared
     deadlines/work limits plus NSEC3 proof-count and iteration bounds.
-  - Allow standalone `dnssec` builds without resolver dependencies.
+  - Allow standalone `dnssec-ring` or `dnssec-rustcrypto` builds without resolver
+    dependencies.
   - Evaluate upstream AD using the winning exchange's transport security rather
     than the exchanger's advertised classification, including after failover.
     Preserve configurable AD=0 acceptance and document its plaintext downgrade
@@ -96,6 +97,10 @@ All notable changes to rustdns are documented here.
   - The `dnssec` feature provides canonical RRset serialization, signature
     verification for RSA/SHA-256, RSA/SHA-512, ECDSA P-256/P-384, and Ed25519,
     DNSKEY key-tag and DS digest calculation, and configurable IANA root trust anchors.
+    It requires a cryptographic backend: `dnssec-ring` (enabled by `clients`) or
+    the pure-Rust `dnssec-rustcrypto`, which needs no C toolchain and suits
+    WebAssembly. Both backends apply the same RSA key-size and exponent policy.
+    If both are enabled, `ring` is used.
     The `resolver` feature adds `ChainValidator`, `DnssecCache`, and
     `DnssecMode::ValidateLocal` integration.
   - Authenticated NSEC/NSEC3 NODATA/NXDOMAIN and unsigned-delegation validation,
@@ -103,6 +108,9 @@ All notable changes to rustdns are documented here.
     Local signed regression coverage is not a claim of full DNSSEC conformance.
   - Deterministic signed-chain regressions and a frozen, independently published
     root DNSKEY/RRSIG fixture checked against the IANA anchor at a fixed time.
+  - Published RFC 6605 ECDSA and RFC 8080 Ed25519 (with Errata ID 4935) examples
+    validated by each backend, including on `wasm32-unknown-unknown`, plus
+    cross-backend agreement tests for malformed keys and signatures.
 - DNSSEC and zone-digest records (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `NSEC3`,
   `NSEC3PARAM`, `ZONEMD`) in protocol types and wire encoding/decoding, with text,
   formatting, and zone parsing support.
@@ -148,7 +156,8 @@ All notable changes to rustdns are documented here.
   arrays from Google and Cloudflare DNS-over-HTTPS JSON responses.
 - Added `doh-json` feature for the HTTP-based DNS-over-HTTPS JSON client
   (`rustdns::clients::json::Client`), decoupling it from pure serde serialization.
-- Added a declared minimum supported Rust version of 1.87.
+- Added a declared minimum supported Rust version of 1.87 (required by the
+  RustCrypto dependencies of `dnssec-rustcrypto`).
 - Added `DecodeError` and `EncodeError`, structured error types for DNS
   wire-format decoding and encoding, replacing the previous `std::io::Error`
   values. Both implement `From<..> for std::io::Error` so existing callers can

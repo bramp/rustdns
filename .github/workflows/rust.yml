@@ -125,6 +125,17 @@ jobs:
           cargo test -p rustdns --no-default-features --features json
           cargo check -p rustdns --no-default-features --features do53,dot,doh
 
+      - name: Test DNSSEC crypto backends
+        run: |
+          cargo test -p rustdns --no-default-features --features dnssec-ring,zones
+          cargo test -p rustdns --no-default-features --features dnssec-rustcrypto,zones
+          cargo test -p rustdns --no-default-features --features dnssec-ring,dnssec-rustcrypto --lib dnssec::crypto
+          dependencies="$(cargo tree -p rustdns --no-default-features --features dnssec-rustcrypto --edges normal,build --prefix none)"
+          if printf '%s\n' "$dependencies" | grep -E '^(ring|cc) v'; then
+            echo "dnssec-rustcrypto must not depend on ring or C build tooling" >&2
+            exit 1
+          fi
+
       - name: Check wire-only dependencies
         run: |
           dependencies="$(cargo tree -p rustdns --no-default-features --edges normal,build --prefix none)"
@@ -154,6 +165,36 @@ jobs:
           files: lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  wasm:
+    name: WebAssembly DNSSEC tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Find locked wasm-bindgen version
+        id: wasm-bindgen
+        run: |
+          version="$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install wasm-bindgen test runner
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+
+      - name: Test DNSSEC RFC vectors with the pure-Rust backend
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: >-
+          cargo test -p rustdns --target wasm32-unknown-unknown
+          --no-default-features --features dnssec-rustcrypto
+          --test dnssec_rfc_vectors
 
   fuzz:
     name: Fuzz smoke test

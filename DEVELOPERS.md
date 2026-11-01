@@ -124,6 +124,33 @@ deferred negative cases for promotion to `reject`. Rejection locations alone are
 not a substitute for checking BIND's intended failure reason. This is an
 acceptance/rejection baseline, not full BIND policy or normalized-record equivalence.
 
+### DNSSEC Crypto Backends
+
+Run the library tests with each backend, then the cross-backend agreement tests:
+
+```sh
+cargo test -p rustdns --no-default-features --features dnssec-ring,zones
+cargo test -p rustdns --no-default-features --features dnssec-rustcrypto,zones
+cargo test -p rustdns --no-default-features --features dnssec-ring,dnssec-rustcrypto --lib dnssec::crypto
+```
+
+The published RFC 6605/8080 examples in `tests/dnssec_rfc_vectors.rs` also run
+in WebAssembly. Install the `wasm-bindgen-cli` version matching `wasm-bindgen`
+in `Cargo.lock`; Node.js runs the tests:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version <locked wasm-bindgen version> --locked
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+  cargo test -p rustdns --target wasm32-unknown-unknown \
+  --no-default-features --features dnssec-rustcrypto --test dnssec_rfc_vectors
+```
+
+RSA signing fixtures in `src/dnssec/fixtures/` are throwaway test keys. `ring`
+cannot sign with `e = 3` or 8192-bit keys, so those policy-boundary signatures
+(and the rejected 1024-bit one) were produced by OpenSSL and stored as
+`.dnskey` (RFC 3110 public key octets) and `.sig` files.
+
 ## Minimum Supported Rust Version (MSRV) Policy
 
 `rustdns` targets a modern and predictable Rust baseline:

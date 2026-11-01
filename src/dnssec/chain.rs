@@ -58,7 +58,7 @@ mod tests {
     use super::*;
     use crate::dnssec::TrustAnchor;
     use crate::types::{Algorithm, DigestType};
-    use ring::signature::{Ed25519KeyPair, KeyPair};
+    use crate::dnssec::crypto::TestEd25519Key;
     use std::time::{Duration, UNIX_EPOCH};
 
     struct NoNetwork;
@@ -146,7 +146,7 @@ mod tests {
         child: Name,
         parent: Name,
         key: DNSKEY,
-        pair: Ed25519KeyPair,
+        pair: TestEd25519Key,
         answer: Vec<Record>,
         signature: RRSIG,
         now: SystemTime,
@@ -161,13 +161,13 @@ mod tests {
         )
     }
 
-    fn key(seed: u8) -> (Ed25519KeyPair, DNSKEY) {
-        let pair = Ed25519KeyPair::from_seed_unchecked(&[seed; 32]).unwrap();
+    fn key(seed: u8) -> (TestEd25519Key, DNSKEY) {
+        let pair = TestEd25519Key::from_seed([seed; 32]);
         let key = DNSKEY {
             flags: 257,
             protocol: 3,
             algorithm: Algorithm::ED25519,
-            public_key: pair.public_key().as_ref().to_vec(),
+            public_key: pair.public_key(),
         };
         (pair, key)
     }
@@ -177,7 +177,7 @@ mod tests {
         signer: &Name,
         records: &[Record],
         key: &DNSKEY,
-        pair: &Ed25519KeyPair,
+        pair: &TestEd25519Key,
     ) -> RRSIG {
         let mut signature = RRSIG {
             type_covered: records[0].r#type(),
@@ -192,7 +192,7 @@ mod tests {
         };
         let signed =
             crate::dnssec::canonical::signed_data_to_vec(owner, &signature, records).unwrap();
-        signature.signature = pair.sign(&signed).as_ref().to_vec();
+        signature.signature = pair.sign(&signed);
         signature
     }
 
@@ -381,7 +381,7 @@ mod tests {
                     } else {
                         &self.pair
                     };
-                    signature.signature = pair.sign(&data).as_ref().to_vec();
+                    signature.signature = pair.sign(&data);
                 }
             }
         }
@@ -903,7 +903,7 @@ mod tests {
                 let signed =
                     crate::dnssec::canonical::signed_data_to_vec(&owner, &signature, &records)
                         .unwrap();
-                signature.signature = pair.sign(&signed).as_ref().to_vec();
+                signature.signature = pair.sign(&signed);
                 records.push(record(&owner, Resource::RRSIG(signature)));
                 let mut message = chain.negative_answer("missing.example.", Type::A, false);
                 message.answers = records;
@@ -1179,9 +1179,7 @@ mod tests {
                     .sign(
                         &crate::dnssec::canonical::signed_data_to_vec(zone, &signature, &rrset)
                             .unwrap(),
-                    )
-                    .as_ref()
-                    .to_vec();
+                    );
                 keys[1].resource = Resource::RRSIG(signature);
                 chain.cache.insert_dnskeys(zone, keys);
             }
@@ -1197,9 +1195,7 @@ mod tests {
                         &ds[..1],
                     )
                     .unwrap(),
-                )
-                .as_ref()
-                .to_vec();
+                );
             ds[1].resource = Resource::RRSIG(signature);
             chain.cache.insert_ds(&chain.child, ds);
             let mut validator = ChainValidator::new(
@@ -1338,9 +1334,7 @@ mod tests {
                     .sign(
                         &crate::dnssec::canonical::signed_data_to_vec(zone, signature, &rrset)
                             .unwrap(),
-                    )
-                    .as_ref()
-                    .to_vec();
+                    );
                 if rtype == Type::DNSKEY {
                     chain.cache.insert_dnskeys(zone, records);
                 } else {
@@ -1885,7 +1879,7 @@ mod tests {
             &chain.answer,
         )
         .unwrap();
-        chain.signature.signature = chain.pair.sign(&data).as_ref().to_vec();
+        chain.signature.signature = chain.pair.sign(&data);
         assert!(chain.validate().await.is_err());
     }
 
@@ -1899,7 +1893,7 @@ mod tests {
             &chain.answer,
         )
         .unwrap();
-        chain.signature.signature = chain.pair.sign(&data).as_ref().to_vec();
+        chain.signature.signature = chain.pair.sign(&data);
         assert!(chain.validate().await.is_err());
     }
 

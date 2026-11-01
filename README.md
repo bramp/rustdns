@@ -154,7 +154,13 @@ The following optional features are available:
   - `doh`: DNS-over-HTTPS (DoH) binary wire client ([RFC 8484]).
   - `doh-json`: DNS-over-HTTPS JSON client (Google / Cloudflare JSON schema).
   - `resolver`: High-level asynchronous [`Resolver`] with multi-upstream failover, retries, and DNSSEC validation.
-  - `dnssec`: Local DNSSEC cryptographic signature and chain-of-trust verification using `ring`.
+  - `dnssec-ring`: Local DNSSEC signature and chain-of-trust verification using `ring` (enabled by `clients`).
+  - `dnssec-rustcrypto`: The same DNSSEC validation using pure-Rust RustCrypto crates, with no C
+    toolchain required (suited to WebAssembly). Enabling both backends is allowed, because Cargo
+    unifies features across a dependency graph; `ring` is then used. Both backends share key
+    parsing and RSA key-size policy, and are tested to accept and reject the same signatures.
+  - `dnssec`: The backend-independent DNSSEC API; enabled by either backend feature, and a
+    compile error on its own.
   - `exchanger`: Generic [`clients::Exchanger`] and [`clients::AsyncExchanger`] traits without Tokio/HTTP dependencies (WASM compatible).
   - `sync`: Synchronous blocking variants of enabled clients under `rustdns::clients::sync`.
 - `text`: Textual resource record parsing (`FromStr` and `Resource::parse_text`).

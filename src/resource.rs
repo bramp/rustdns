@@ -386,14 +386,15 @@ impl DS {
         owner_name.to_canonical().append_to_vec(&mut wire);
         dnskey.append_rdata_to_vec(&mut wire);
 
+        use crate::dnssec::crypto::HashAlgorithm;
         let algorithm = match digest_type {
-            DigestType::Sha1 => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
-            DigestType::Sha256 => &ring::digest::SHA256,
-            DigestType::Sha384 => &ring::digest::SHA384,
+            DigestType::Sha1 => HashAlgorithm::Sha1ForLegacyUseOnly,
+            DigestType::Sha256 => HashAlgorithm::Sha256,
+            DigestType::Sha384 => HashAlgorithm::Sha384,
             other => return Err(crate::DnssecError::UnsupportedDigestType(other).into()),
         };
 
-        let digest = ring::digest::digest(algorithm, &wire).as_ref().to_vec();
+        let digest = crate::dnssec::crypto::digest(algorithm, &[&wire]);
 
         Ok(DS {
             key_tag: dnskey.key_tag(),

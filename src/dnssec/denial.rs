@@ -441,21 +441,14 @@ pub fn nsec3_hash(name: &Name, salt: &[u8], iterations: u16) -> Vec<u8> {
     let mut wire = Vec::new();
     name.to_canonical().append_to_vec(&mut wire);
 
-    // Initial hash: SHA-1(wire || salt)
-    let mut ctx = ring::digest::Context::new(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY);
-    ctx.update(&wire);
-    ctx.update(salt);
-    let mut digest = ctx.finish();
+    use crate::dnssec::crypto::{HashAlgorithm, digest};
 
-    // Iterations: SHA-1(digest || salt)
+    // Initial hash: SHA-1(wire || salt), then iterations of SHA-1(digest || salt).
+    let mut hash = digest(HashAlgorithm::Sha1ForLegacyUseOnly, &[&wire, salt]);
     for _ in 0..iterations {
-        let mut next_ctx = ring::digest::Context::new(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY);
-        next_ctx.update(digest.as_ref());
-        next_ctx.update(salt);
-        digest = next_ctx.finish();
+        hash = digest(HashAlgorithm::Sha1ForLegacyUseOnly, &[&hash, salt]);
     }
-
-    digest.as_ref().to_vec()
+    hash
 }
 
 /// Checks whether an NSEC3 record covers a target hash in the circular NSEC3 hash ring ([RFC 5155 §8.4]).

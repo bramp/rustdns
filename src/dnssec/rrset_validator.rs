@@ -289,15 +289,15 @@ pub fn validate_rrset(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ring::signature::{Ed25519KeyPair, KeyPair};
+    use crate::dnssec::crypto::TestEd25519Key;
 
     fn signed_fixture(owner: &Name) -> (Vec<Record>, RRSIG, DNSKEY) {
-        let pair = Ed25519KeyPair::from_seed_unchecked(&[17; 32]).unwrap();
+        let pair = TestEd25519Key::from_seed([17; 32]);
         let key = DNSKEY {
             flags: 256,
             protocol: 3,
             algorithm: Algorithm::ED25519,
-            public_key: pair.public_key().as_ref().to_vec(),
+            public_key: pair.public_key(),
         };
         let records = vec![
             Record::try_new(
@@ -331,9 +331,9 @@ mod tests {
     }
 
     fn resign(owner: &Name, records: &[Record], signature: &mut RRSIG) {
-        let pair = Ed25519KeyPair::from_seed_unchecked(&[17; 32]).unwrap();
+        let pair = TestEd25519Key::from_seed([17; 32]);
         let data = crate::dnssec::canonical::signed_data_to_vec(owner, signature, records).unwrap();
-        signature.signature = pair.sign(&data).as_ref().to_vec();
+        signature.signature = pair.sign(&data);
     }
 
     #[test]

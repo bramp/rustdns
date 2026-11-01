@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    # rsa: Marvin attack timing side channel in private-key decryption/signing.
+    # rustdns only uses `rsa` (via `dnssec-rustcrypto`) to verify public DNSSEC
+    # signatures, which involves no secret material. No fixed version exists.
+    "RUSTSEC-2023-0071",
+]
