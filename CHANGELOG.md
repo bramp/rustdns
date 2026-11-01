@@ -156,6 +156,9 @@ All notable changes to rustdns are documented here.
   without Tokio or native HTTP dependencies.
 - Added `EDNS_DOH_PAYLOAD_SIZE` (4096 bytes) constant per RFC 8484 §4.2.1 and
   RFC 6891 §6.2.3 in `rustdns::limits`.
+- Added `EdnsOption::try_tcp_keepalive` to validate wire-size limits at
+  construction; TCP Keepalive timeouts are rounded down to 100 ms units when
+  encoded.
 - Enforced the 65,535-byte DNS message limit in `Message::to_vec` and
   `Message::append_to_vec`, with transport documentation and boundary coverage.
 - Added WebAssembly (`wasm32-unknown-unknown`, `wasm32-wasip1`) support for core

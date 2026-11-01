@@ -177,10 +177,29 @@ impl EdnsOption {
     /// Creates an EDNS(0) TCP keepalive option.
     ///
     /// Use `None` to request TCP keepalive support without suggesting a timeout.
-    /// Use `Some(duration)` to include a timeout, which must be representable in
-    /// 100 millisecond units when encoded.
+    /// Use `Some(duration)` to include a timeout, which is rounded down to
+    /// 100 millisecond units when encoded. Use [`Self::try_tcp_keepalive`] to
+    /// validate that the rounded timeout fits the wire format during construction.
     pub fn tcp_keepalive(timeout: Option<Duration>) -> Self {
         Self::TcpKeepalive(timeout)
+    }
+
+    /// Creates an EDNS(0) TCP keepalive option after validating its timeout.
+    ///
+    /// Use `None` to request TCP keepalive support without suggesting a timeout.
+    /// A timeout is rounded down to 100 millisecond units and must fit in the
+    /// wire format's 16-bit field. Durations below 100 milliseconds encode as
+    /// zero.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::InvalidOption`] if the rounded timeout is too
+    /// large to encode.
+    pub fn try_tcp_keepalive(timeout: Option<Duration>) -> Result<Self, EncodeError> {
+        if let Some(timeout) = timeout {
+            tcp_keepalive_timeout_units(timeout)?;
+        }
+        Ok(Self::TcpKeepalive(timeout))
     }
 
     /// Creates an EDNS(0) Padding option with `len` zero bytes.
@@ -428,19 +447,19 @@ fn append_tcp_keepalive_to_vec(
         return Ok(());
     };
 
-    let millis = timeout.as_millis();
-    if millis % 100 != 0 {
-        return Err(EncodeError::InvalidOption {
-            option: "TCP KEEPALIVE",
-            reason: "timeout must be a whole number of 100ms units",
-        });
-    }
-    let units = u16::try_from(millis / 100).map_err(|_| EncodeError::InvalidOption {
-        option: "TCP KEEPALIVE",
-        reason: "timeout is too large",
-    })?;
+    let units = tcp_keepalive_timeout_units(timeout)?;
     buf.extend_from_slice(&units.to_be_bytes());
     Ok(())
+}
+
+fn tcp_keepalive_timeout_units(timeout: Duration) -> Result<u16, EncodeError> {
+    const UNIT_NANOS: u128 = 100_000_000;
+
+    let nanos = timeout.as_nanos();
+    u16::try_from(nanos / UNIT_NANOS).map_err(|_| EncodeError::InvalidOption {
+        option: "TCP KEEPALIVE",
+        reason: "timeout is too large",
+    })
 }
 
 /// EDNS(0) Client Subnet option data as defined in [RFC 7871].
@@ -736,11 +755,47 @@ mod tests {
                 .append_to_vec(&mut buf)
                 .is_err()
         );
+        let max_timeout = Duration::from_millis(u64::from(u16::MAX) * 100);
         assert!(
-            EdnsOption::tcp_keepalive(Some(Duration::from_millis(150)))
+            EdnsOption::tcp_keepalive(Some(max_timeout + Duration::from_millis(100)))
                 .append_to_vec(&mut buf)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn fallible_tcp_keepalive_constructor_validates_wire_timeout() {
+        assert!(EdnsOption::try_tcp_keepalive(None).is_ok());
+        assert!(EdnsOption::try_tcp_keepalive(Some(Duration::from_millis(100))).is_ok());
+        assert!(EdnsOption::try_tcp_keepalive(Some(Duration::from_micros(100_500))).is_ok());
+
+        let max_timeout = Duration::from_millis(u64::from(u16::MAX) * 100);
+        assert!(EdnsOption::try_tcp_keepalive(Some(max_timeout)).is_ok());
+        assert!(
+            EdnsOption::try_tcp_keepalive(Some(max_timeout + Duration::from_millis(99))).is_ok()
+        );
+        assert!(
+            EdnsOption::try_tcp_keepalive(Some(max_timeout + Duration::from_millis(100))).is_err()
+        );
+    }
+
+    #[test]
+    fn tcp_keepalive_rounds_timeout_down_to_wire_units() {
+        let option = EdnsOption::try_tcp_keepalive(Some(Duration::from_micros(150_500)))
+            .expect("timeout should round down");
+        let mut buf = Vec::new();
+        option
+            .append_to_vec(&mut buf)
+            .expect("rounded timeout should encode");
+        assert_eq!(buf, [0, 11, 0, 2, 0, 1]);
+
+        let option = EdnsOption::try_tcp_keepalive(Some(Duration::from_millis(99)))
+            .expect("sub-unit timeout should round down to zero");
+        let mut buf = Vec::new();
+        option
+            .append_to_vec(&mut buf)
+            .expect("zero timeout should encode");
+        assert_eq!(buf, [0, 11, 0, 2, 0, 0]);
     }
 
     #[test]
