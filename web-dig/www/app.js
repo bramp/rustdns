@@ -37,6 +37,10 @@ const outputBox = document.getElementById("output-box");
 const statusBadge = document.getElementById("status-badge");
 const dnssecIssueBadge = document.getElementById("dnssec-issue-badge");
 const copyBtn = document.getElementById("copy-btn");
+const traceCard = document.getElementById("trace-card");
+const traceCount = document.getElementById("trace-count");
+const traceList = document.getElementById("trace-list");
+const traceToggleBtn = document.getElementById("trace-toggle-btn");
 
 function resolveEndpoint() {
     const choice = endpointSelect.value;
@@ -62,6 +66,62 @@ function clearStatus() {
     statusBadge.style.display = "none";
     statusBadge.textContent = "";
 }
+
+function span(className, text) {
+    const el = document.createElement("span");
+    el.className = className;
+    el.textContent = text;
+    return el;
+}
+
+function clearTrace() {
+    traceCard.hidden = true;
+    traceList.replaceChildren();
+}
+
+// Renders the local-validation trace. All DNS-derived text is set via
+// textContent so response data cannot inject markup.
+function renderTrace(entries) {
+    clearTrace();
+    if (entries.length === 0) return;
+
+    for (const [index, entry] of entries.entries()) {
+        const item = document.createElement("li");
+        item.className = entry.failed ? "trace-entry failed" : "trace-entry";
+
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.append(
+            span("trace-index", String(index + 1)),
+            span("trace-question", entry.question),
+            span("trace-flags", entry.flags),
+            span("trace-summary", entry.summary),
+            span(
+                "trace-time",
+                `+${Math.round(entry.start_ms)} ms · ${Math.round(entry.elapsed_ms)} ms`,
+            ),
+        );
+        const detail = document.createElement("pre");
+        detail.className = "output-box trace-detail";
+        detail.textContent = entry.detail;
+        details.append(summary, detail);
+        item.append(details);
+        traceList.append(item);
+    }
+
+    traceCount.textContent = `${entries.length} ${entries.length === 1 ? "query" : "queries"}`;
+    traceToggleBtn.textContent = "Expand all";
+    traceCard.hidden = false;
+}
+
+traceToggleBtn.addEventListener("click", () => {
+    const all = [...traceList.querySelectorAll("details")];
+    const expand = all.some((d) => !d.open);
+    all.forEach((d) => {
+        d.open = expand;
+    });
+    traceToggleBtn.textContent = expand ? "Collapse all" : "Expand all";
+});
 
 endpointSelect.addEventListener("change", () => {
     const choice = endpointSelect.value;
@@ -114,6 +174,7 @@ digForm.addEventListener("submit", async (event) => {
     const rtype = typeSelect.value;
     const dnssecMode = dnssecModeSelect.value;
     dnssecIssueBadge.hidden = true;
+    clearTrace();
 
     if (!domain) {
         domainInput.focus();
@@ -143,13 +204,18 @@ digForm.addEventListener("submit", async (event) => {
     try {
         const result = await dig_dnssec(domain, rtype, serverUrl, protocol, dnssecMode);
         const duration = Math.round(performance.now() - startTime);
+        const output = result.output;
+        const trace = result.trace;
+        result.free();
 
-        outputBox.textContent = result;
+        outputBox.textContent = output;
         const validationIssue =
-            result.includes(";; DNSSEC ERROR:") ||
-            result.includes(";; DNSSEC STATUS: Bogus");
+            output.includes(";; DNSSEC ERROR:") ||
+            output.includes(";; DNSSEC STATUS: Bogus");
         setStatus(`${duration} ms`, "timing");
         dnssecIssueBadge.hidden = !validationIssue;
+        renderTrace(trace);
+        trace.forEach((entry) => entry.free());
     } catch (err) {
         const duration = Math.round(performance.now() - startTime);
         const message = typeof err === "string" ? err : err?.message || String(err);

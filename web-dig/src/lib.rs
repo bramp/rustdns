@@ -12,6 +12,7 @@ pub mod exchangers;
 pub mod fetch;
 #[cfg(target_arch = "wasm32")]
 pub mod resolver;
+pub mod trace;
 
 #[cfg(target_arch = "wasm32")]
 use crate::exchangers::BrowserClient;
@@ -96,11 +97,27 @@ pub async fn dig(
         .map_err(|e| JsValue::from_str(&e))
 }
 
+/// Dig-style output plus the DNS exchanges made to produce it.
+#[wasm_bindgen(getter_with_clone)]
+pub struct DigResult {
+    /// Dig-style output for the requested query.
+    pub output: String,
+    /// Exchanges made during local DNSSEC validation, in start order. Empty
+    /// for other modes.
+    pub trace: Vec<trace::TraceEntry>,
+}
+
 /// Performs a DoH query with upstream or local DNSSEC validation.
 ///
 /// `mode` is `"off"`, `"upstream"`, or `"local"`. Local validation fetches
 /// DNSKEY and DS dependencies over the same DoH endpoint and validates them
 /// against the built-in IANA root trust anchors.
+///
+/// # Errors
+///
+/// Returns an error if `mode` is unknown, the query is invalid, the browser
+/// clock is unavailable, or the primary exchange fails. DNSSEC validation
+/// failures are reported in [`DigResult::output`] instead.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn dig_dnssec(
@@ -109,7 +126,7 @@ pub async fn dig_dnssec(
     server: &str,
     protocol: &str,
     mode: &str,
-) -> Result<String, JsValue> {
+) -> Result<DigResult, JsValue> {
     let mode = match mode {
         "off" => DnssecMode::Off,
         "upstream" => DnssecMode::TrustUpstream {
@@ -119,7 +136,10 @@ pub async fn dig_dnssec(
         _ => return Err(JsValue::from_str("invalid DNSSEC mode")),
     };
     if mode == DnssecMode::Off {
-        return dig(domain, rtype, server, protocol).await;
+        return Ok(DigResult {
+            output: dig(domain, rtype, server, protocol).await?,
+            trace: Vec::new(),
+        });
     }
     let client = BrowserClient::try_new(protocol, server).map_err(|e| JsValue::from_str(&e))?;
     let resolver = crate::resolver::BrowserResolver::new(client);
@@ -180,12 +200,20 @@ pub async fn dig_dnssec(
         }
     };
 
-    Ok(format_dnssec_output(
-        response.to_string(),
-        mode,
-        response.meta.security_status,
-        issue.as_deref(),
-    ))
+    let trace = if mode == DnssecMode::ValidateLocal {
+        resolver.take_trace()
+    } else {
+        Vec::new()
+    };
+    Ok(DigResult {
+        output: format_dnssec_output(
+            response.to_string(),
+            mode,
+            response.meta.security_status,
+            issue.as_deref(),
+        ),
+        trace,
+    })
 }
 
 #[cfg(any(target_arch = "wasm32", test))]

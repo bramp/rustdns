@@ -123,8 +123,9 @@ All notable changes to rustdns are documented here.
   `NSEC3PARAM`, `ZONEMD`) in protocol types and wire encoding/decoding, with text,
   formatting, and zone parsing support.
 - Web Dig now demonstrates DNSSEC status from upstream `AD` assertions and
-  optional local chain validation, with compact metadata, an in-app guide, and
-  a broken-domain example.
+  optional local chain validation, with compact metadata, an in-app guide,
+  a broken-domain example, and a trace of every query made during local
+  validation.
 - DNAME (type 39) support in protocol types, wire encoding/decoding, text and JSON
   parsing, formatting, zone origin resolution, and DNSSEC canonicalization.
   DNAME targets are emitted uncompressed; compressed targets are rejected.

@@ -124,6 +124,20 @@
 
                 <pre id="output-box" class="output-box empty">Enter a domain name and click "Dig" to perform a query.</pre>
             </div>
+
+            <div id="trace-card" class="card" hidden>
+                <div class="output-header">
+                    <div class="output-header-title">
+                        <span>Validation Trace</span>
+                        <span id="trace-count" class="status-badge timing"></span>
+                    </div>
+                    <div class="output-actions">
+                        <button id="trace-toggle-btn" class="btn-secondary" type="button">Expand all</button>
+                    </div>
+                </div>
+                <p class="trace-help">Every query made to validate the answer locally: the original query, then the DNSKEY and DS lookups that build the chain of trust to the root. Click a row to see the full response.</p>
+                <ol id="trace-list" class="trace-list"></ol>
+            </div>
         </main>
 
         <footer>

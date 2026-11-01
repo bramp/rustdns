@@ -36,6 +36,7 @@
                 <h3>Validate locally</h3>
                 <p>Requests DNSSEC records with checking disabled upstream, then rustdns independently verifies signatures, delegation links, and authenticated denial proofs to its built-in IANA root trust anchors. It reports secure or authenticated-insecure only when it can validate that result. Missing records, unsupported algorithms, network failures, and other validation errors are shown as failures—not as proof that a domain is bogus.</p>
                 <p>DNSSEC dependency queries use the selected DoH endpoint and share a bounded deadline. The app does not send queries to authoritative servers directly.</p>
+                <p>The <strong>Validation Trace</strong> pane below the output lists every query made, in order, with its flags, result, and timing. Expand a row to see the full response, including the RRSIG records being checked.</p>
             </section>
 
             <section class="card">

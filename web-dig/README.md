@@ -10,6 +10,7 @@ Live demo: <https://dig.bramp.net>
 - **AsyncExchanger Integration**: Implements the `rustdns::clients::AsyncExchanger` trait for both binary DoH (`BrowserDohClient`) and JSON DoH (`BrowserJsonClient`).
 - **Authentic Dig Output**: Formats DNS query responses using `rustdns`'s built-in `Display` implementation.
 - **DNSSEC Demonstration**: Compare an upstream resolver's `AD` assertion with local cryptographic chain validation to IANA root trust anchors.
+- **Validation Trace**: In local-validation mode, a trace pane lists every DNSKEY and DS query made to build the chain of trust, with flags, results, timing, and the full responses.
 - **Bounded Browser Resolution**: DNSKEY and DS dependency queries use the selected DoH endpoint, a shared deadline, and abortable fetches.
 - **Provider Support**: Pre-configured for Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9), and custom HTTPS endpoints.
 - **Zero-Bundler Web Setup**: Generates standard ES modules using `wasm-pack --target web`.

@@ -1,6 +1,7 @@
 //! Browser clock and resolver adapter for web-based DNS-over-HTTPS.
 
 use crate::exchangers::BrowserClient;
+use crate::trace::{QueryTrace, TraceEntry};
 use rustdns::Message;
 use rustdns::clients::{AsyncResolver, Response, ResponseMeta};
 use rustdns::dnssec::Clock;
@@ -47,9 +48,11 @@ impl Clock for BrowserClock {
 ///
 /// It performs one DoH exchange. DNSSEC dependency queries made by
 /// [`rustdns::dnssec::ChainValidator`] use the same endpoint and deadline.
+/// Every exchange is recorded; see [`BrowserResolver::take_trace`].
 pub struct BrowserResolver {
     client: BrowserClient,
     clock: BrowserClock,
+    trace: QueryTrace,
 }
 
 impl BrowserResolver {
@@ -58,23 +61,21 @@ impl BrowserResolver {
         Self {
             client,
             clock: BrowserClock,
+            trace: QueryTrace::default(),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl AsyncResolver<BrowserInstant> for BrowserResolver {
-    async fn exchange_with_deadline(
+    /// Removes and returns the exchanges made so far, in start order.
+    pub fn take_trace(&self) -> Vec<TraceEntry> {
+        self.trace.take()
+    }
+
+    async fn exchange_once(
         &self,
         query: &Message,
+        start: BrowserInstant,
         deadline: BrowserInstant,
     ) -> Result<Response, rustdns::Error> {
-        if query.questions.is_empty() {
-            return Err(rustdns::Error::InvalidArgument(
-                "query must have at least one question".into(),
-            ));
-        }
-        let start = self.clock.now().ok_or_else(clock_error)?;
         let timeout = self
             .clock
             .checked_duration_since(deadline, start)
@@ -121,6 +122,30 @@ impl AsyncResolver<BrowserInstant> for BrowserResolver {
                 wire: vec![wire.meta],
             },
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl AsyncResolver<BrowserInstant> for BrowserResolver {
+    async fn exchange_with_deadline(
+        &self,
+        query: &Message,
+        deadline: BrowserInstant,
+    ) -> Result<Response, rustdns::Error> {
+        if query.questions.is_empty() {
+            return Err(rustdns::Error::InvalidArgument(
+                "query must have at least one question".into(),
+            ));
+        }
+        let start = self.clock.now().ok_or_else(clock_error)?;
+        let result = self.exchange_once(query, start, deadline).await;
+        let elapsed = self
+            .clock
+            .now()
+            .and_then(|end| self.clock.checked_duration_since(end, start))
+            .unwrap_or_default();
+        self.trace.record(query, start.0, elapsed, result.as_ref());
+        result
     }
 }
 
