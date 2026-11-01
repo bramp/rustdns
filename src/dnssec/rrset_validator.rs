@@ -56,7 +56,6 @@ impl ValidityPeriod {
 /// Allowed clock skew in seconds when checking signature inception and expiration.
 pub const DEFAULT_CLOCK_SKEW_SECONDS: u64 = 300;
 
-#[cfg(feature = "resolver")]
 pub(crate) fn authenticated_ttl(
     rrset: &[Record],
     signature: &RRSIG,
@@ -177,15 +176,14 @@ impl RRSIG {
 ///
 /// Wildcard reconstruction must remain within the signer's zone. A literal
 /// wildcard's label count excludes its leading `*`. Expanded wildcard answers
-/// additionally require denial proofs, which chain validation checks when
-/// `resolver` is enabled.
+/// additionally require denial proofs, which chain validation checks.
 ///
 /// Signed octets use the RRSIG's Original TTL, not received record TTLs.
 /// This function verifies authenticity without modifying TTLs or establishing
 /// cache lifetime; callers retaining data must also apply RFC 4035 section 5.3.3
 /// TTL limits, including the received RRSIG TTL and remaining signature lifetime.
-/// With `resolver` enabled, `ChainValidator::validate_message_answers_mut`
-/// applies these limits to authenticated response records.
+/// `ChainValidator::validate_message_answers_mut` applies these limits to
+/// authenticated response records.
 ///
 /// # Errors
 ///

@@ -8,11 +8,12 @@ use crate::types::{
 };
 use std::fmt;
 use std::net::IpAddr;
-use std::ops::{Deref, DerefMut};
+#[cfg(test)]
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use std::time::SystemTime;
+pub use crate::clients::{AsyncResolver, Response, ResponseMeta};
 
 use super::Backoff;
 
@@ -27,110 +28,6 @@ pub enum Strategy {
     /// Try upstreams in configured order, moving on for retryable failures.
     #[default]
     Failover,
-}
-
-/// Resolver execution metadata attached to a [`Response`].
-#[derive(Clone, Debug)]
-pub struct ResponseMeta {
-    /// The endpoint or identifier of the upstream that produced this response.
-    pub upstream: Arc<str>,
-
-    /// Number of attempts made across upstreams before this response was returned.
-    pub attempts: u32,
-
-    /// Total time spent resolving, including any retries against earlier upstreams.
-    pub elapsed: Duration,
-
-    /// Timestamp when resolution started.
-    pub when: SystemTime,
-
-    /// DNSSEC security status evaluated for this response.
-    pub security_status: SecurityStatus,
-
-    /// Transport security classification of the channel that serviced this response.
-    pub channel_security: ChannelSecurity,
-
-    /// Low-level transport metadata and metrics from each attempt that produced a wire response,
-    /// in chronological order. The last entry corresponds to the winning response.
-    pub wire: Vec<WireResponseMeta>,
-}
-
-impl ResponseMeta {
-    /// Returns the transport metadata of the winning attempt, if any wire response was received.
-    pub fn winning_wire(&self) -> Option<&WireResponseMeta> {
-        self.wire.last()
-    }
-}
-
-impl fmt::Display for ResponseMeta {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, ";; Query time: {} msec", self.elapsed.as_millis())?;
-        writeln!(f, ";; UPSTREAM: {}", self.upstream)?;
-        if let Some(winning) = self.wire.last() {
-            if let Some(server) = winning.server {
-                writeln!(f, ";; SERVER: {server}")?;
-            }
-        }
-        let when: chrono::DateTime<chrono::Local> = self.when.into();
-        writeln!(f, ";; WHEN: {}", when.format("%a %b %d %H:%M:%S %Z %Y"))?;
-
-        if self.attempts > 1 {
-            writeln!(f, ";; ATTEMPTS: {}", self.attempts)?;
-        }
-        if let Some(winning) = self.wire.last() {
-            writeln!(
-                f,
-                ";; MSG SIZE sent: {} rcvd: {}",
-                winning.bytes_sent, winning.bytes_received
-            )?;
-        }
-        writeln!(f, ";; SECURITY: {}", self.security_status)?;
-        writeln!(f, ";; CHANNEL: {}", self.channel_security)?;
-        if let Some(winning) = self.wire.last() {
-            if let Some(tls) = &winning.tls_info {
-                write!(f, ";; TLS: {}", tls.version)?;
-                if let Some(cs) = &tls.cipher_suite {
-                    write!(f, ", {cs}")?;
-                }
-                if let Some(alpn) = &tls.alpn {
-                    write!(f, ", alpn: {alpn}")?;
-                }
-                writeln!(f)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// A decoded DNS [`Message`] together with resolver execution metadata.
-#[derive(Clone, Debug)]
-pub struct Response {
-    /// The decoded DNS message. Remains the source of truth for protocol contents.
-    pub message: Message,
-
-    /// Metadata describing how this response was obtained.
-    pub meta: ResponseMeta,
-}
-
-impl Deref for Response {
-    type Target = Message;
-
-    fn deref(&self) -> &Self::Target {
-        &self.message
-    }
-}
-
-impl DerefMut for Response {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.message
-    }
-}
-
-impl fmt::Display for Response {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)?;
-        write!(f, "{}", self.meta)
-    }
 }
 
 /// The orchestration layer above single-target transports.
@@ -207,9 +104,11 @@ fn classify(response: &Message) -> Outcome {
 /// reports an error rcode (`rcode != NoError`), an empty Question section is
 /// accepted as correlated so the resolver can classify and act on the error.
 ///
-/// The transaction id is compared loosely: DoH clients may rewrite it to `0`
-/// for HTTP cache-friendliness ([RFC 8484 §4.1]), so a response id of `0` is
-/// always accepted.
+/// The transaction id must match the query. Transports that correlate
+/// exchanges outside DNS, such as the DoH and JSON clients ([RFC 8484 §4.1]),
+/// restore the caller's id on the returned message. A response id of `0` is
+/// still accepted for exchangers that send DoH queries with id `0` and return
+/// the server's id unchanged.
 ///
 /// [RFC 1035 §4.1.1]: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
 /// [RFC 5452 §4.3]: https://datatracker.ietf.org/doc/html/rfc5452#section-4.3
@@ -284,19 +183,6 @@ impl Resolver {
     pub fn payload_size(&self) -> u16 {
         self.payload_size
     }
-}
-
-/// An asynchronous DNS resolver capable of dispatching queries across upstreams.
-#[async_trait::async_trait]
-pub trait AsyncResolver: Send + Sync {
-    /// Exchanges a DNS query message, bounded by an overall resolution deadline.
-    ///
-    /// The implementation handles upstream selection, failover, and retry policies.
-    async fn exchange_with_deadline(
-        &self,
-        query: &Message,
-        deadline: Instant,
-    ) -> Result<Response, crate::Error>;
 }
 
 #[async_trait::async_trait]
@@ -400,39 +286,6 @@ impl AsyncResolver for Resolver {
                 "resolution exceeded the deadline",
             ))
         })?
-    }
-}
-
-#[async_trait::async_trait]
-impl<T: AsyncResolver + ?Sized> AsyncResolver for &T {
-    async fn exchange_with_deadline(
-        &self,
-        query: &Message,
-        deadline: Instant,
-    ) -> Result<Response, crate::Error> {
-        (**self).exchange_with_deadline(query, deadline).await
-    }
-}
-
-#[async_trait::async_trait]
-impl<T: AsyncResolver + ?Sized> AsyncResolver for Arc<T> {
-    async fn exchange_with_deadline(
-        &self,
-        query: &Message,
-        deadline: Instant,
-    ) -> Result<Response, crate::Error> {
-        (**self).exchange_with_deadline(query, deadline).await
-    }
-}
-
-#[async_trait::async_trait]
-impl<T: AsyncResolver + ?Sized> AsyncResolver for Box<T> {
-    async fn exchange_with_deadline(
-        &self,
-        query: &Message,
-        deadline: Instant,
-    ) -> Result<Response, crate::Error> {
-        (**self).exchange_with_deadline(query, deadline).await
     }
 }
 
@@ -564,8 +417,18 @@ impl Resolver {
     ///
     /// Constructs a query [`Message`] with appropriate EDNS extension settings using
     /// [`Resolver::payload_size`] (defaulting to [`crate::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE`],
-    /// 1232 bytes) and, when [`DnssecMode`] is not [`DnssecMode::Off`], sets the `DO`
-    /// (DNSSEC OK) bit.
+    /// 1232 bytes) and DNSSEC flags for the configured [`DnssecMode`]:
+    /// - [`DnssecMode::Off`] sets none.
+    /// - [`DnssecMode::TrustUpstream`] sets `AD=1` without `DO`, requesting the
+    ///   upstream's validation result without RRSIG or denial records
+    ///   ([RFC 6840 §5.7]).
+    /// - [`DnssecMode::ValidateLocal`] sets `DO=1` and `CD=1` to fetch signatures
+    ///   for local validation.
+    ///
+    /// Callers that need other flags can build a [`Message`] and send it with
+    /// [`Resolver::exchange`], which does not modify the query.
+    ///
+    /// [RFC 6840 §5.7]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.7
     ///
     /// Enforces fail-closed DNSSEC validation on the received response according to
     /// the configured [`DnssecMode`].
@@ -583,15 +446,17 @@ impl Resolver {
         rtype: Type,
         deadline: Instant,
     ) -> Result<Response, crate::Error> {
+        let validate_local = self.dnssec_mode == DnssecMode::ValidateLocal;
         let mut query = Message {
-            cd: self.dnssec_mode == DnssecMode::ValidateLocal,
+            ad: matches!(self.dnssec_mode, DnssecMode::TrustUpstream { .. }),
+            cd: validate_local,
             ..Message::default()
         };
         query.try_add_question(name, rtype, Class::Internet)?;
 
         let ext = Extension {
             payload_size: self.payload_size,
-            dnssec_ok: self.dnssec_mode != DnssecMode::Off,
+            dnssec_ok: validate_local,
             ..Default::default()
         };
         query.set_extension(ext);
@@ -886,7 +751,7 @@ mod tests {
         assert!(!do_tracker.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(resp.meta.security_status, SecurityStatus::Secure);
 
-        // When DNSSEC mode is TrustUpstream, DO bit is set on query().
+        // TrustUpstream requests AD without DO.
         let do_tracker2 = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mock2 = DnssecMockExchanger {
             secure: true,
@@ -908,14 +773,75 @@ mod tests {
             .build()
             .expect("build resolver");
         let resp2 = resolver_dnssec.query("bramp.net", Type::A).await.expect("query");
-        assert!(do_tracker2.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!do_tracker2.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(resp2.meta.security_status, SecurityStatus::Secure);
 
         // Direct exchange sends query verbatim without modifying DO bit
-        let q_without_do = query_with_id(1);
-        let resp3 = resolver_dnssec.exchange(&q_without_do).await.expect("exchange");
-        assert!(!do_tracker2.load(std::sync::atomic::Ordering::SeqCst));
+        let mut q_with_do = query_with_id(1);
+        q_with_do.set_extension(Extension {
+            dnssec_ok: true,
+            ..Default::default()
+        });
+        let resp3 = resolver_dnssec.exchange(&q_with_do).await.expect("exchange");
+        assert!(do_tracker2.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(resp3.meta.security_status, SecurityStatus::Secure);
+    }
+
+    type CapturedFlags = Arc<std::sync::Mutex<Vec<(bool, bool, bool)>>>;
+
+    struct FlagCapture {
+        flags: CapturedFlags,
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncExchanger for FlagCapture {
+        async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
+            let dnssec_ok = query.extension.as_ref().is_some_and(|e| e.dnssec_ok);
+            self.flags
+                .lock()
+                .expect("flags lock")
+                .push((query.ad, query.cd, dnssec_ok));
+            Ok(WireResponse::test(
+                response_to(query),
+                ChannelSecurity::Encrypted,
+            ))
+        }
+
+        fn endpoint(&self) -> Arc<str> {
+            "flag-capture".into()
+        }
+
+        fn channel_security(&self) -> ChannelSecurity {
+            ChannelSecurity::Encrypted
+        }
+    }
+
+    #[tokio::test]
+    async fn query_sets_dnssec_flags_per_mode() {
+        for (mode, expected) in [
+            (DnssecMode::Off, (false, false, false)),
+            (
+                DnssecMode::TrustUpstream {
+                    require_secure: false,
+                },
+                (true, false, false),
+            ),
+        ] {
+            let flags = CapturedFlags::default();
+            let resolver = Resolver::builder()
+                .dnssec_mode(mode)
+                .upstream(FlagCapture {
+                    flags: flags.clone(),
+                })
+                .build()
+                .expect("build resolver");
+            resolver.query("bramp.net", Type::A).await.expect("query");
+            assert_eq!(
+                *flags.lock().expect("flags lock"),
+                vec![expected],
+                "{mode:?}"
+            );
+        }
     }
 
     #[tokio::test]

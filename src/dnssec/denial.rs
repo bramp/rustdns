@@ -11,9 +11,7 @@ use crate::resource::{NSEC, NSEC3};
 use crate::types::Type;
 use std::cmp::Ordering;
 
-#[cfg(feature = "resolver")]
 const MAX_NSEC3_PROOFS: usize = 128;
-#[cfg(feature = "resolver")]
 const MAX_NSEC3_ITERATIONS: u16 = 150;
 
 /// Checks whether an NSEC record's interval covers `name` in canonical DNS name order ([RFC 4035 §5.4]).
@@ -126,7 +124,6 @@ fn closest_nsec_encloser(nsecs: &[(&Name, &NSEC)], qname: &Name, zone: &Name) ->
     None
 }
 
-#[cfg(feature = "resolver")]
 pub(crate) fn verify_nsec_response(
     records: &[crate::Record],
     qname: &Name,
@@ -195,7 +192,6 @@ pub(crate) fn verify_nsec_response(
         })
 }
 
-#[cfg(feature = "resolver")]
 pub(crate) fn verify_unsigned_delegation(
     records: &[crate::Record],
     child: &Name,
@@ -218,7 +214,6 @@ pub(crate) fn verify_unsigned_delegation(
     }) || verify_nsec3_response(records, child, Type::DS, zone, false, true)
 }
 
-#[cfg(feature = "resolver")]
 pub(crate) fn verify_nsec3_response(
     records: &[crate::Record],
     qname: &Name,
@@ -318,7 +313,6 @@ pub(crate) fn verify_nsec3_response(
     }
 }
 
-#[cfg(feature = "resolver")]
 fn nsec3_entries<'a>(
     records: &'a [crate::Record],
     zone: &Name,
@@ -353,7 +347,6 @@ fn nsec3_entries<'a>(
     Some(entries)
 }
 
-#[cfg(feature = "resolver")]
 pub(crate) fn verify_wildcard_expansion(
     records: &[crate::Record],
     name: &Name,

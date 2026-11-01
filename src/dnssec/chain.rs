@@ -13,6 +13,7 @@
 
 use crate::clients::AsyncResolver;
 use crate::dnssec::anchor::TrustStore;
+use crate::dnssec::clock::{Clock, SystemClock};
 use crate::dnssec::rrset_validator::{ValidationReport, authenticated_ttl, validate_rrset};
 use crate::errors::DnssecError;
 use crate::names::Name;
@@ -21,19 +22,21 @@ use crate::types::{Class, Message, Record, Resource, SecurityStatus, Type};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+#[cfg(test)]
+use std::time::Instant;
 
 const MAX_CACHE_ENTRIES: usize = 1024;
 const MAX_VALIDATION_WORK: usize = 1024;
 
 #[derive(Clone, Debug)]
-struct CachedRecords {
+struct CachedRecords<I> {
     records: Vec<Record>,
-    inserted: Instant,
+    inserted: I,
     lifetime: Duration,
 }
 
-type RecordCache = Arc<Mutex<HashMap<Name, CachedRecords>>>;
+type RecordCache<I> = Arc<Mutex<HashMap<Name, CachedRecords<I>>>>;
 
 #[derive(Debug)]
 struct AuthenticatedTtl {
@@ -47,10 +50,17 @@ struct AuthenticatedTtl {
 ///
 /// Cached records are not inherently trusted. [`ChainValidator`] revalidates
 /// signatures, validity periods, and delegation links on every use.
-#[derive(Clone, Debug, Default)]
-pub struct DnssecCache {
-    dnskeys: RecordCache,
-    ds_records: RecordCache,
+#[derive(Clone, Debug)]
+pub struct DnssecCache<C: Clock = SystemClock> {
+    clock: Arc<C>,
+    dnskeys: RecordCache<C::Instant>,
+    ds_records: RecordCache<C::Instant>,
+}
+
+impl Default for DnssecCache<SystemClock> {
+    fn default() -> Self {
+        Self::with_clock(SystemClock)
+    }
 }
 
 #[cfg(test)]
@@ -59,16 +69,52 @@ mod tests {
     use crate::dnssec::TrustAnchor;
     use crate::types::{Algorithm, DigestType};
     use crate::dnssec::crypto::TestEd25519Key;
+    use std::sync::atomic::AtomicU64;
     use std::time::{Duration, UNIX_EPOCH};
+
+    #[derive(Clone, Debug, Default)]
+    struct TestClock(Arc<AtomicU64>);
+
+    impl TestClock {
+        fn set(&self, seconds: u64) {
+            self.0.store(seconds, Ordering::SeqCst);
+        }
+    }
+
+    impl Clock for TestClock {
+        type Instant = Duration;
+
+        fn now(&self) -> Option<Self::Instant> {
+            Some(Duration::from_secs(self.0.load(Ordering::SeqCst)))
+        }
+
+        fn checked_add(
+            &self,
+            instant: Self::Instant,
+            duration: Duration,
+        ) -> Option<Self::Instant> {
+            instant.checked_add(duration)
+        }
+
+        fn checked_duration_since(
+            &self,
+            later: Self::Instant,
+            earlier: Self::Instant,
+        ) -> Option<Duration> {
+            later.checked_sub(earlier)
+        }
+    }
 
     struct NoNetwork;
 
     struct DependencyResponse(Message);
 
+    #[cfg(feature = "resolver")]
     struct LocalZoneExchanger {
         responses: HashMap<(Name, Type), Message>,
     }
 
+    #[cfg(feature = "resolver")]
     #[async_trait::async_trait]
     impl crate::clients::AsyncExchanger for LocalZoneExchanger {
         async fn exchange(
@@ -136,6 +182,19 @@ mod tests {
         ) -> Result<crate::clients::Response, crate::Error> {
             Err(crate::Error::InvalidArgument(
                 "unexpected network query in signed-chain fixture".into(),
+            ))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncResolver<Duration> for NoNetwork {
+        async fn exchange_with_deadline(
+            &self,
+            _query: &Message,
+            _deadline: Duration,
+        ) -> Result<crate::clients::Response, crate::Error> {
+            Err(crate::Error::InvalidArgument(
+                "unexpected dependency query in expired-clock fixture".into(),
             ))
         }
     }
@@ -352,6 +411,7 @@ mod tests {
                 .push(record(&owner, Resource::RRSIG(signature)));
         }
 
+        #[cfg(feature = "resolver")]
         fn refresh_signatures(&self, message: &mut Message) {
             for section in [&mut message.answers, &mut message.authoritys] {
                 let originals = section.clone();
@@ -960,6 +1020,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "resolver")]
     #[tokio::test]
     async fn resolver_query_validates_local_denial_without_trusting_forged_ad() {
         let chain = SignedChain::new();
@@ -1105,6 +1166,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "resolver")]
     #[tokio::test]
     async fn resolver_caps_authenticated_answer_and_signature_ttls() {
         for (record_ttl, signature_ttl, original_ttl, expected) in [
@@ -1348,9 +1410,12 @@ mod tests {
                 (&chain.cache.ds_records, &chain.child),
             ] {
                 if expected == 0 {
-                    assert!(DnssecCache::get(cache, zone).is_none());
+                    assert!(
+                        DnssecCache::get(cache, chain.cache.clock.as_ref(), zone).is_none()
+                    );
                 } else {
-                    let records = DnssecCache::get(cache, zone).unwrap();
+                    let records =
+                        DnssecCache::get(cache, chain.cache.clock.as_ref(), zone).unwrap();
                     assert!(
                         records
                             .iter()
@@ -1373,7 +1438,13 @@ mod tests {
             .get_mut(&chain.child)
             .unwrap()
             .inserted = inserted;
-        DnssecCache::cap_ttl(&chain.cache.dnskeys, &chain.child, Duration::from_secs(5)).unwrap();
+        DnssecCache::cap_ttl(
+            &chain.cache.dnskeys,
+            chain.cache.clock.as_ref(),
+            &chain.child,
+            Duration::from_secs(5),
+        )
+        .unwrap();
         let entries = chain.cache.dnskeys.lock().unwrap();
         assert_eq!(entries.get(&chain.child).unwrap().inserted, inserted);
         assert!(entries.get(&chain.child).unwrap().lifetime <= Duration::from_secs(16));
@@ -1973,15 +2044,54 @@ mod tests {
         let (_, key) = key(1);
         let records = vec![record(&zone, Resource::DNSKEY(key))];
         for entries in [&cache.dnskeys, &cache.ds_records] {
-            DnssecCache::insert(entries, &zone, records.clone());
+            DnssecCache::insert(entries, cache.clock.as_ref(), &zone, records.clone());
             entries.lock().unwrap().get_mut(&zone).unwrap().inserted =
                 Instant::now() - Duration::from_secs(10);
-            let cached = DnssecCache::get(entries, &zone).unwrap();
+            let cached = DnssecCache::get(entries, cache.clock.as_ref(), &zone).unwrap();
             assert_eq!(cached[0].ttl, Duration::from_secs(3590));
             entries.lock().unwrap().get_mut(&zone).unwrap().inserted =
                 Instant::now() - Duration::from_secs(3601);
-            assert!(DnssecCache::get(entries, &zone).is_none());
+            assert!(DnssecCache::get(entries, cache.clock.as_ref(), &zone).is_none());
         }
+    }
+
+    #[test]
+    fn injected_clock_controls_cache_age_and_rejects_reversal() {
+        let clock = TestClock::default();
+        let cache = DnssecCache::with_clock(clock.clone());
+        let zone = Name::new("example.").unwrap();
+        let (_, dnskey) = key(1);
+        cache.insert_dnskeys(&zone, vec![record(&zone, Resource::DNSKEY(dnskey))]);
+
+        clock.set(5);
+        assert_eq!(
+            cache.get_dnskeys(&zone).unwrap()[0].ttl,
+            Duration::from_secs(3595)
+        );
+        clock.set(3600);
+        assert!(cache.get_dnskeys(&zone).is_none());
+
+        cache.insert_dnskeys(&zone, vec![record(&zone, Resource::DNSKEY(key(2).1))]);
+        clock.set(3601);
+        assert!(cache.get_dnskeys(&zone).is_some());
+        clock.set(0);
+        assert!(cache.get_dnskeys(&zone).is_none());
+    }
+
+    #[test]
+    fn injected_clock_enforces_validation_deadline() {
+        let clock = TestClock::default();
+        clock.set(2);
+        let cache = DnssecCache::with_clock(clock);
+        let trust_store = TrustStore::empty();
+        let validator = ChainValidator::new(
+            &NoNetwork,
+            &trust_store,
+            &cache,
+            Duration::from_secs(1),
+        );
+
+        assert!(validator.spend_work().is_err());
     }
 
     #[test]
@@ -2073,12 +2183,23 @@ mod tests {
     }
 }
 
-impl DnssecCache {
+impl<C: Clock> DnssecCache<C> {
+    /// Creates a DNSSEC cache using `clock` for expiry and deadline tracking.
+    ///
+    /// Clones of the cache share its entries and the same clock instance.
+    pub fn with_clock(clock: C) -> Self {
+        Self {
+            clock: Arc::new(clock),
+            dnskeys: Arc::default(),
+            ds_records: Arc::default(),
+        }
+    }
+
     /// Caches DNSKEY records until the smallest record TTL expires.
     ///
     /// Invalid names and poisoned cache locks are logged and not cached.
     pub fn insert_dnskeys(&self, zone: impl crate::names::IntoName, records: Vec<Record>) {
-        Self::insert(&self.dnskeys, zone, records);
+        Self::insert(&self.dnskeys, &self.clock, zone, records);
     }
 
     /// Gets unexpired DNSKEY query records with their remaining TTLs.
@@ -2086,14 +2207,14 @@ impl DnssecCache {
     /// Invalid names and poisoned cache locks are logged and treated as misses.
     #[must_use]
     pub fn get_dnskeys(&self, zone: impl crate::names::IntoName) -> Option<Vec<Record>> {
-        Self::get(&self.dnskeys, zone)
+        Self::get(&self.dnskeys, &self.clock, zone)
     }
 
     /// Caches DS records until the smallest record TTL expires.
     ///
     /// Invalid names and poisoned cache locks are logged and not cached.
     pub fn insert_ds(&self, zone: impl crate::names::IntoName, records: Vec<Record>) {
-        Self::insert(&self.ds_records, zone, records);
+        Self::insert(&self.ds_records, &self.clock, zone, records);
     }
 
     /// Gets unexpired DS query records with their remaining TTLs.
@@ -2101,10 +2222,15 @@ impl DnssecCache {
     /// Invalid names and poisoned cache locks are logged and treated as misses.
     #[must_use]
     pub fn get_ds(&self, zone: impl crate::names::IntoName) -> Option<Vec<Record>> {
-        Self::get(&self.ds_records, zone)
+        Self::get(&self.ds_records, &self.clock, zone)
     }
 
-    fn insert(cache: &RecordCache, zone: impl crate::names::IntoName, records: Vec<Record>) {
+    fn insert(
+        cache: &RecordCache<C::Instant>,
+        clock: &C,
+        zone: impl crate::names::IntoName,
+        records: Vec<Record>,
+    ) {
         let name = match zone.into_name() {
             Ok(name) => name,
             Err(error) => {
@@ -2124,7 +2250,15 @@ impl DnssecCache {
             .map(|record| record.ttl)
             .min()
             .unwrap_or_default();
-        map.retain(|_, entry| entry.inserted.elapsed() < entry.lifetime);
+        let Some(now) = clock.now() else {
+            log::warn!("cannot insert DNSSEC cache entry: monotonic clock unavailable");
+            return;
+        };
+        map.retain(|_, entry| {
+            clock
+                .checked_duration_since(now, entry.inserted)
+                .is_some_and(|elapsed| elapsed < entry.lifetime)
+        });
         if lifetime.is_zero() {
             map.remove(&name);
             return;
@@ -2142,20 +2276,32 @@ impl DnssecCache {
             name,
             CachedRecords {
                 records,
-                inserted: Instant::now(),
+                inserted: now,
                 lifetime,
             },
         );
     }
 
-    fn cap_ttl(cache: &RecordCache, zone: &Name, ttl: Duration) -> Result<(), crate::Error> {
+    fn cap_ttl(
+        cache: &RecordCache<C::Instant>,
+        clock: &C,
+        zone: &Name,
+        ttl: Duration,
+    ) -> Result<(), crate::Error> {
         let mut entries = cache.lock().map_err(|error| {
             DnssecError::ValidationFailed(format!("cannot cap authenticated cache TTL: {error}"))
         })?;
         if ttl.is_zero() {
             entries.remove(zone);
         } else if let Some(entry) = entries.get_mut(zone) {
-            let elapsed = entry.inserted.elapsed();
+            let now = clock.now().ok_or_else(|| {
+                DnssecError::ValidationFailed("DNSSEC cache clock unavailable".into())
+            })?;
+            let elapsed = clock
+                .checked_duration_since(now, entry.inserted)
+                .ok_or_else(|| {
+                    DnssecError::ValidationFailed("DNSSEC cache clock moved backwards".into())
+                })?;
             entry.lifetime = entry.lifetime.min(elapsed.saturating_add(ttl));
             let cap = Duration::from_secs(elapsed.as_secs()).saturating_add(ttl);
             for record in &mut entry.records {
@@ -2165,7 +2311,11 @@ impl DnssecCache {
         Ok(())
     }
 
-    fn get(cache: &RecordCache, zone: impl crate::names::IntoName) -> Option<Vec<Record>> {
+    fn get(
+        cache: &RecordCache<C::Instant>,
+        clock: &C,
+        zone: impl crate::names::IntoName,
+    ) -> Option<Vec<Record>> {
         let name = match zone.into_name() {
             Ok(name) => name,
             Err(error) => {
@@ -2181,7 +2331,15 @@ impl DnssecCache {
             }
         };
         let entry = map.get(&name)?;
-        let elapsed = entry.inserted.elapsed();
+        let Some(now) = clock.now() else {
+            log::warn!("cannot read DNSSEC cache entry: monotonic clock unavailable");
+            map.remove(&name);
+            return None;
+        };
+        let Some(elapsed) = clock.checked_duration_since(now, entry.inserted) else {
+            map.remove(&name);
+            return None;
+        };
         if elapsed >= entry.lifetime {
             map.remove(&name);
             return None;
@@ -2198,22 +2356,22 @@ impl DnssecCache {
 
 /// An iterative DNSSEC chain-of-trust validator.
 #[derive(Debug)]
-pub struct ChainValidator<'a, R: AsyncResolver + ?Sized> {
+pub struct ChainValidator<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock = SystemClock> {
     resolver: &'a R,
     trust_store: &'a TrustStore,
-    cache: &'a DnssecCache,
-    deadline: Instant,
+    cache: &'a DnssecCache<C>,
+    deadline: C::Instant,
     work: AtomicUsize,
     ttl_limits: Option<Mutex<Vec<AuthenticatedTtl>>>,
 }
 
-impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
+impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, C> {
     /// Creates a chain validator with a shared deadline and 1,024-unit work budget.
     pub fn new(
         resolver: &'a R,
         trust_store: &'a TrustStore,
-        cache: &'a DnssecCache,
-        deadline: Instant,
+        cache: &'a DnssecCache<C>,
+        deadline: C::Instant,
     ) -> Self {
         Self {
             resolver,
@@ -2569,7 +2727,12 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     Ok(()) => {
                         let ttl =
                             authenticated_ttl(&dnskeys, signature, signature_record.ttl, now)?;
-                        DnssecCache::cap_ttl(&self.cache.dnskeys, zone, ttl)?;
+                        DnssecCache::cap_ttl(
+                            &self.cache.dnskeys,
+                            self.cache.clock.as_ref(),
+                            zone,
+                            ttl,
+                        )?;
                         authenticated = true;
                         break;
                     }
@@ -2679,7 +2842,12 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
                     Ok(_) => {
                         let ttl =
                             authenticated_ttl(&ds_records, signature, signature_record.ttl, now)?;
-                        DnssecCache::cap_ttl(&self.cache.ds_records, zone, ttl)?;
+                        DnssecCache::cap_ttl(
+                            &self.cache.ds_records,
+                            self.cache.clock.as_ref(),
+                            zone,
+                            ttl,
+                        )?;
                         return Ok(());
                     }
                     Err(error) => last_error = error,
@@ -2777,7 +2945,10 @@ impl<'a, R: AsyncResolver + ?Sized> ChainValidator<'a, R> {
     }
 
     fn spend_work(&self) -> Result<(), crate::Error> {
-        if Instant::now() >= self.deadline
+        let now = self.cache.clock.now().ok_or_else(|| {
+            DnssecError::ValidationFailed("DNSSEC validation clock unavailable".into())
+        })?;
+        if self.cache.clock.checked_duration_since(now, self.deadline).is_some()
             || self.work.fetch_add(1, Ordering::Relaxed) >= MAX_VALIDATION_WORK
         {
             return Err(DnssecError::ValidationFailed(

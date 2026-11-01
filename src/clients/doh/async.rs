@@ -179,7 +179,14 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error for request construction failures, unsuccessful HTTP
     /// responses, invalid content types, oversized bodies, or invalid DNS data.
+    ///
+    /// The query is sent with ID `0` ([RFC 8484 §4.1]). HTTP correlates the
+    /// exchange, so the returned message carries the caller's query ID
+    /// regardless of the ID chosen by the server.
+    ///
+    /// [RFC 8484 §4.1]: https://datatracker.ietf.org/doc/html/rfc8484#section-4.1
     async fn exchange(&self, query: &Message) -> Result<WireResponse, crate::Error> {
+        let query_id = query.id;
         let mut query = query.clone();
         query.id = 0;
 
@@ -276,7 +283,7 @@ impl AsyncExchanger for Client {
             body.len()
         );
 
-        let m = Message::from_slice(&body)?;
+        let m = decode_response(&body, query_id)?;
         Ok(builder.finish(
             m,
             remote_addr,
@@ -287,11 +294,20 @@ impl AsyncExchanger for Client {
     }
 }
 
+/// Decodes a DoH response body and restores the caller's `query_id`.
+fn decode_response(body: &[u8], query_id: u16) -> Result<Message, crate::Error> {
+    let mut message = Message::from_slice(body)?;
+    message.id = query_id;
+    Ok(message)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Client, MAX_DOH_BODY_SIZE};
+    use super::{Client, MAX_DOH_BODY_SIZE, decode_response};
+    use crate::Message;
     use crate::clients::AsyncExchanger;
     use crate::clients::common::http as client_http;
+    use crate::types::{Class, QR, Type};
     use http::Method;
     use http::StatusCode;
     use http_body_util::{BodyExt, Full, Limited};
@@ -329,5 +345,27 @@ mod tests {
             crate::types::ChannelSecurity::Encrypted
         );
         assert!(client.is_secure_channel());
+    }
+
+    #[test]
+    fn decode_response_restores_query_id() {
+        let mut response = Message::default();
+        response
+            .try_add_question("bramp.net", Type::A, Class::Internet)
+            .expect("valid question");
+        response.qr = QR::Response;
+
+        for server_id in [0, 0x1234, 0xBEEF] {
+            response.id = server_id;
+            let body = response.to_vec().expect("encodable response");
+            let decoded = decode_response(&body, 0x4242).expect("valid response");
+            assert_eq!(decoded.id, 0x4242);
+            assert_eq!(decoded.questions, response.questions);
+        }
+    }
+
+    #[test]
+    fn decode_response_rejects_malformed_body() {
+        assert!(decode_response(&[0; 4], 0x4242).is_err());
     }
 }

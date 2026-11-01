@@ -364,6 +364,7 @@ mod cfg;
     feature = "dot",
     feature = "sync",
     feature = "resolver",
+    feature = "dnssec",
     feature = "exchanger"
 ))]
 pub mod clients;

@@ -20,6 +20,9 @@
 use crate::Message;
 use std::sync::Arc;
 
+mod resolver_api;
+pub use resolver_api::{AsyncResolver, Response, ResponseMeta};
+
 #[cfg(any(feature = "doh", feature = "exchanger"))]
 pub mod doh;
 
@@ -55,7 +58,7 @@ cfg_feature! {
 
     mod resolver;
     pub use self::resolver::{
-        AsyncResolver, Backoff, Resolver, ResolverBuilder, Response, ResponseMeta, Strategy,
+        Backoff, Resolver, ResolverBuilder, Strategy,
     };
 }
 
@@ -106,6 +109,11 @@ use async_trait::async_trait;
 pub trait AsyncExchanger {
     /// Asynchronously sends a DNS query to the upstream server and returns the raw wire response.
     ///
+    /// Transports that correlate exchanges outside DNS, such as DoH, should
+    /// set the returned message's ID to `query.id`. Datagram and stream
+    /// transports should return the server's ID unchanged so callers can
+    /// detect mismatched responses.
+    ///
     /// # Errors
     ///
     /// Returns an error if encoding the query fails, network I/O fails, or the
@@ -137,7 +145,7 @@ pub trait AsyncExchanger {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "doh", feature = "doh-json")))]
 mod tests {
     #[test]
     fn clients_reject_plaintext_urls() {

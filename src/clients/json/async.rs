@@ -174,6 +174,9 @@ impl AsyncExchanger for Client {
     ///
     /// Returns an error for request construction failures, unsuccessful HTTP
     /// responses, invalid content types, oversized bodies, or invalid JSON/DNS data.
+    ///
+    /// JSON responses carry no DNS ID. HTTP correlates the exchange, so the
+    /// returned message carries the caller's query ID.
     async fn exchange(&self, query: &Message) -> Result<WireResponse, Error> {
         if query.questions.len() != 1 {
             return Err(Error::InvalidArgument(
@@ -276,7 +279,7 @@ impl AsyncExchanger for Client {
             body.len()
         );
 
-        let m = parse_response(&body)?;
+        let m = decode_response(&body, query.id)?;
         Ok(builder.finish(
             m,
             remote_addr,
@@ -291,6 +294,13 @@ fn parse_response(body: &[u8]) -> Result<Message, JsonError> {
     from_slice(body)
 }
 
+/// Decodes a JSON DoH response body and assigns the caller's `query_id`.
+fn decode_response(body: &[u8], query_id: u16) -> Result<Message, JsonError> {
+    let mut message = parse_response(body)?;
+    message.id = query_id;
+    Ok(message)
+}
+
 /// Parses a DNS-over-HTTPS JSON response body into a [`Message`].
 /// Internal helper for fuzzing and testing only.
 #[doc(hidden)]
@@ -303,6 +313,7 @@ pub fn fuzz_parse_response(body: &[u8]) -> Result<Message, JsonError> {
 mod tests {
     use super::MAX_JSON_BODY_SIZE;
     use super::MessageJson;
+    use super::decode_response;
     use crate::Message;
     use crate::clients::common::http as client_http;
     use http_body_util::{BodyExt, Full, Limited};
@@ -480,5 +491,14 @@ mod tests {
         assert!(client_http::validate_status(StatusCode::OK).is_ok());
         assert!(client_http::validate_status(StatusCode::BAD_REQUEST).is_err());
         assert!(client_http::validate_status(StatusCode::INTERNAL_SERVER_ERROR).is_err());
+    }
+
+    #[test]
+    fn decode_response_assigns_query_id() {
+        let body = br#"{"Status":0,"TC":false,"RD":true,"RA":true,"AD":false,"CD":false,
+            "Question":[{"name":"bramp.net.","type":1}]}"#;
+        let decoded = decode_response(body, 0x4242).expect("valid JSON response");
+        assert_eq!(decoded.id, 0x4242);
+        assert_eq!(decoded.questions.len(), 1);
     }
 }

@@ -6,6 +6,9 @@ All notable changes to rustdns are documented here.
 
 ### Fixed
 
+- The DoH and JSON DoH clients now return the caller's query ID because HTTP
+  correlates the exchange. Previously the resolver rejected DoH responses whose
+  server-chosen ID was neither `0` nor the query ID ([RFC 8484 §4.1](https://datatracker.ietf.org/doc/html/rfc8484#section-4.1)).
 - DNSSEC validation hardening:
   - Require parent-authenticated DS signatures at the child owner and try eligible
     DNSKEY/DS signatures and colliding key tags during rollovers.
@@ -37,8 +40,10 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
-- **Breaking (planned for 1.0):** Removed `Name::as_str`. Use `Name::as_ascii`
-  for its case-preserving ASCII presentation or `Name::to_unicode` for Unicode.
+- `Resolver::query` and `lookup` in `DnssecMode::TrustUpstream` now send `AD=1`
+  without `DO`, requesting the upstream's validation result without RRSIG or
+  denial records ([RFC 6840 §5.7](https://datatracker.ietf.org/doc/html/rfc6840#section-5.7)).
+  Callers needing other flags can send their own query with `exchange`.
 - DNS names decoded from wire preserve arbitrary label octets, including literal
   dots, backslashes, and non-UTF-8 data, instead of joining labels into a lossy
   string. Name hierarchy, equality, ordering, case randomization, and DNSSEC
@@ -101,8 +106,11 @@ All notable changes to rustdns are documented here.
     the pure-Rust `dnssec-rustcrypto`, which needs no C toolchain and suits
     WebAssembly. Both backends apply the same RSA key-size and exponent policy.
     If both are enabled, `ring` is used.
-    The `resolver` feature adds `ChainValidator`, `DnssecCache`, and
-    `DnssecMode::ValidateLocal` integration.
+    `ChainValidator` and `DnssecCache` use the runtime-independent
+    `AsyncResolver` interface; the `resolver` feature integrates
+    `DnssecMode::ValidateLocal` into native resolver orchestration.
+  - Added injectable monotonic clocks for deterministic DNSSEC cache and
+    deadline tests, without adding a time/WASM dependency to the library.
   - Authenticated NSEC/NSEC3 NODATA/NXDOMAIN and unsigned-delegation validation,
     including Opt-Out, CNAME terminal negatives, and wildcard expansion proofs.
     Local signed regression coverage is not a claim of full DNSSEC conformance.
@@ -114,6 +122,9 @@ All notable changes to rustdns are documented here.
 - DNSSEC and zone-digest records (`DS`, `DNSKEY`, `RRSIG`, `NSEC`, `NSEC3`,
   `NSEC3PARAM`, `ZONEMD`) in protocol types and wire encoding/decoding, with text,
   formatting, and zone parsing support.
+- Web Dig now demonstrates DNSSEC status from upstream `AD` assertions and
+  optional local chain validation, with compact metadata, an in-app guide, and
+  a broken-domain example.
 - DNAME (type 39) support in protocol types, wire encoding/decoding, text and JSON
   parsing, formatting, zone origin resolution, and DNSSEC canonicalization.
   DNAME targets are emitted uncompressed; compressed targets are rejected.

@@ -373,7 +373,9 @@ pub enum DnssecMode {
 
     /// Relies on upstream recursive resolver DNSSEC validation.
     ///
-    /// Sets the EDNS(0) `DO=1` (DNSSEC OK) bit on queries. Upstream `AD`
+    /// The resolver's `query` and `lookup` methods set `AD=1` without the
+    /// EDNS(0) `DO` (DNSSEC OK) bit, requesting the upstream's validation result
+    /// without RRSIG or denial records ([RFC 6840 §5.7]). Upstream `AD`
     /// (Authenticated Data) assertions are evaluated against the configured
     /// [`UpstreamTrustPolicy`] and transport security:
     /// - Responses with `AD=1` over a trusted channel evaluate to [`SecurityStatus::Secure`].
@@ -387,6 +389,8 @@ pub enum DnssecMode {
     /// plaintext channel. An attacker can strip `AD` to make signed data appear
     /// insecure. Use `require_secure: true` to require a trusted `AD=1`
     /// assertion, or [`DnssecMode::ValidateLocal`] for independent verification.
+    ///
+    /// [RFC 6840 §5.7]: https://datatracker.ietf.org/doc/html/rfc6840#section-5.7
     TrustUpstream {
         /// Whether the resolver requires upstream validation (`SecurityStatus::Secure`).
         ///
