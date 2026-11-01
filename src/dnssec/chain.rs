@@ -180,9 +180,9 @@ mod tests {
             _query: &Message,
             _deadline: Instant,
         ) -> Result<crate::clients::Response, crate::Error> {
-            Err(crate::Error::InvalidArgument(
-                "unexpected network query in signed-chain fixture".into(),
-            ))
+            Err(crate::Error::Io(std::io::Error::other(
+                "unexpected network query in signed-chain fixture",
+            )))
         }
     }
 
@@ -193,9 +193,9 @@ mod tests {
             _query: &Message,
             _deadline: Duration,
         ) -> Result<crate::clients::Response, crate::Error> {
-            Err(crate::Error::InvalidArgument(
-                "unexpected dependency query in expired-clock fixture".into(),
-            ))
+            Err(crate::Error::Io(std::io::Error::other(
+                "unexpected dependency query in expired-clock fixture",
+            )))
         }
     }
 

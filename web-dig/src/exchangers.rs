@@ -154,13 +154,14 @@ impl BrowserJsonClient {
         timeout: Duration,
     ) -> Result<WireResponse, rustdns::Error> {
         if query.questions.len() != 1 {
-            return Err(rustdns::Error::InvalidArgument(
-                "expected exactly one question for JSON DoH".to_string(),
-            ));
+            return Err(rustdns::Error::ExpectedSingleQuestion {
+                actual: query.questions.len(),
+            });
         }
-        let question = query.questions.first().ok_or_else(|| {
-            rustdns::Error::InvalidArgument("query must have a question".to_string())
-        })?;
+        let question = query
+            .questions
+            .first()
+            .ok_or_else(|| rustdns::Error::MissingQuestion)?;
         let domain = question.name.as_ascii();
         let rtype = question.r#type.to_string();
         let separator = if self.endpoint.contains('?') {

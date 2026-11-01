@@ -152,8 +152,8 @@ impl Client {
         let address = tokio::net::lookup_host(server)
             .await?
             .next()
-            .ok_or_else(|| {
-                crate::Error::InvalidArgument(format!("no addresses found for '{server}'"))
+            .ok_or_else(|| crate::Error::NoAddressesFound {
+                server: server.to_string(),
             })?;
 
         Self::try_new(&server_name, address)
@@ -288,7 +288,10 @@ impl AsyncExchanger for Client {
 pub(crate) fn validate_server_name(server_name: &str) -> Result<(), crate::Error> {
     ServerName::try_from(server_name.to_string())
         .map(|_| ())
-        .map_err(|error| crate::Error::InvalidArgument(format!("invalid DoT server name: {error}")))
+        .map_err(|error| crate::Error::InvalidTlsServerName {
+            server_name: server_name.to_string(),
+            reason: error.to_string(),
+        })
 }
 
 /// Extracts the TLS server name from a `host:port` string.
@@ -298,22 +301,21 @@ pub(crate) fn server_name_from_addr(server: &str) -> Result<String, crate::Error
     let host = server
         .rsplit_once(':')
         .map(|(host, _)| host)
-        .ok_or_else(|| {
-            crate::Error::InvalidArgument("DoT server must include a port".to_string())
+        .ok_or_else(|| crate::Error::MissingDotPort {
+            endpoint: server.to_string(),
         })?;
     let host = host.trim_start_matches('[').trim_end_matches(']');
 
     if host.is_empty() {
-        return Err(crate::Error::InvalidArgument(
-            "DoT server must include a host".to_string(),
-        ));
+        return Err(crate::Error::MissingDotHost {
+            endpoint: server.to_string(),
+        });
     }
 
     if host.parse::<IpAddr>().is_ok() {
-        return Err(crate::Error::InvalidArgument(
-            "DoT server host must be a DNS name; use new_with_server_name for IP addresses"
-                .to_string(),
-        ));
+        return Err(crate::Error::DotIpAddressRequiresServerName {
+            host: host.to_string(),
+        });
     }
 
     validate_server_name(host)?;

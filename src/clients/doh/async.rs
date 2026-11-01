@@ -102,16 +102,17 @@ impl Client {
         match method {
             Method::GET | Method::POST => (),
             _ => {
-                return Err(crate::Error::InvalidArgument(
-                    "only GET and POST allowed".to_string(),
-                ));
+                return Err(crate::Error::UnsupportedDohMethod {
+                    method: method.to_string(),
+                });
             }
         }
 
         if server.scheme() != "https" {
-            return Err(crate::Error::InvalidArgument(
-                "DoH servers must use HTTPS".to_string(),
-            ));
+            return Err(crate::Error::HttpsRequired {
+                transport: "DoH",
+                scheme: server.scheme().to_string(),
+            });
         }
 
         Ok(Self {
@@ -132,7 +133,10 @@ impl Client {
     pub fn try_from_url(url: &str, method: Method) -> Result<Self, crate::Error> {
         let parsed = url
             .parse::<Url>()
-            .map_err(|e| crate::Error::InvalidArgument(format!("invalid URL '{url}': {e}")))?;
+            .map_err(|source| crate::Error::InvalidUrl {
+                url: url.to_string(),
+                source,
+            })?;
         Self::try_new(parsed, method)
     }
 
@@ -315,7 +319,18 @@ mod tests {
 
     #[test]
     fn rejects_plaintext_http_server() {
-        assert!(Client::new("http://dns.example/dns-query", Method::GET).is_err());
+        assert!(matches!(
+            Client::new("http://dns.example/dns-query", Method::GET),
+            Err(crate::Error::HttpsRequired { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_unsupported_http_method() {
+        assert!(matches!(
+            Client::new("https://dns.example/dns-query", Method::PUT),
+            Err(crate::Error::UnsupportedDohMethod { .. })
+        ));
     }
 
     #[tokio::test]

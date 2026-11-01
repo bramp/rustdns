@@ -202,7 +202,10 @@ mod tests {
         let trace = QueryTrace::default();
         let ds = query("example.com", Type::DS);
         let failed = query("com", Type::DNSKEY);
-        let error = rustdns::Error::InvalidArgument("timed out".into());
+        let error = rustdns::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "timed out",
+        ));
 
         // Completion order differs from start order.
         trace.record(

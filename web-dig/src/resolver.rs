@@ -133,9 +133,7 @@ impl AsyncResolver<BrowserInstant> for BrowserResolver {
         deadline: BrowserInstant,
     ) -> Result<Response, rustdns::Error> {
         if query.questions.is_empty() {
-            return Err(rustdns::Error::InvalidArgument(
-                "query must have at least one question".into(),
-            ));
+            return Err(rustdns::Error::MissingQuestion);
         }
         let start = self.clock.now().ok_or_else(clock_error)?;
         let result = self.exchange_once(query, start, deadline).await;
@@ -158,9 +156,7 @@ impl AsyncResolver<BrowserInstant> for BrowserResolver {
 /// [RFC 8484 §4.1]: https://datatracker.ietf.org/doc/html/rfc8484#section-4.1
 fn correlate_doh_response(query: &Message, response: &mut Message) -> Result<(), rustdns::Error> {
     if response.qr != QR::Response || response.questions != query.questions {
-        return Err(rustdns::Error::InvalidArgument(
-            "DoH response does not match the query".into(),
-        ));
+        return Err(rustdns::Error::ResponseMismatch);
     }
     response.id = query.id;
     Ok(())
@@ -176,7 +172,7 @@ pub(crate) fn browser_system_time() -> Option<SystemTime> {
 }
 
 fn clock_error() -> rustdns::Error {
-    rustdns::Error::InvalidArgument("browser clock is unavailable".into())
+    rustdns::Error::ClockUnavailable
 }
 
 fn timeout_error() -> rustdns::Error {

@@ -28,6 +28,7 @@ The current baseline is `0.7.0`.
 - [ ] Add targeted fallible constructors for caller-provided DNS and EDNS values with semantic invariants; keep ordinary record structs usable as data types and validate wire constraints during encoding.
   - [x] Add fallible EDNS COOKIE and Client Subnet constructors with immediate validation.
 - [ ] Replace broad `Error::InvalidArgument(String)` with typed error variants.
+  - [x] Migrate internal call sites to typed variants; retain the deprecated catch-all for removal in 1.0.
 - [x] Audit public method names against [DEVELOPERS.md](DEVELOPERS.md).
 - [ ] Replace stateless encoding helpers with a stateful message encoder (compression, size limits, EDNS sizing).
 - [ ] Add explicit DNS encoding options API (opt-in name compression).

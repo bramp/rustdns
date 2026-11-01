@@ -1,4 +1,4 @@
-use crate::types::{Algorithm, Class, DigestType, SecurityStatus, Type};
+use crate::types::{Algorithm, Class, DigestType, Rcode, SecurityStatus, Type};
 use thiserror::Error;
 
 /// An error encountered when parsing human-readable DNS text representations.
@@ -335,8 +335,169 @@ impl From<EncodeError> for std::io::Error {
 #[non_exhaustive]
 pub enum Error {
     /// An invalid argument was provided to an API method.
+    ///
+    /// Prefer the specific error variants for new code. This compatibility
+    /// variant will be removed in the next breaking release.
     #[error("invalid argument: {0}")]
+    #[deprecated(note = "use a specific Error variant")]
     InvalidArgument(String),
+
+    /// A DNS server address or endpoint could not be parsed.
+    #[error("invalid endpoint '{endpoint}'")]
+    InvalidEndpoint {
+        /// The endpoint that could not be parsed.
+        endpoint: String,
+    },
+
+    /// A URL could not be parsed.
+    #[cfg(feature = "http_deps")]
+    #[error("invalid URL '{url}': {source}")]
+    InvalidUrl {
+        /// The URL that could not be parsed.
+        url: String,
+        /// The underlying URL parse error.
+        #[source]
+        source: url::ParseError,
+    },
+
+    /// An endpoint resolved to no addresses.
+    #[error("no addresses found for '{server}'")]
+    NoAddressesFound {
+        /// The server name or endpoint that was resolved.
+        server: String,
+    },
+
+    /// A transport requires a Cargo feature that is not enabled.
+    #[error("transport '{transport}' requires the '{feature}' feature")]
+    TransportFeatureDisabled {
+        /// The transport scheme or name.
+        transport: &'static str,
+        /// The Cargo feature required by the transport.
+        feature: &'static str,
+    },
+
+    /// An endpoint used a transport scheme this crate does not recognize.
+    #[error("unsupported transport scheme '{scheme}' in endpoint '{endpoint}'")]
+    UnsupportedTransportScheme {
+        /// The unrecognized scheme.
+        scheme: String,
+        /// The endpoint containing the scheme.
+        endpoint: String,
+    },
+
+    /// A plaintext HTTP endpoint was supplied where HTTPS is required.
+    #[error("insecure transport scheme '{scheme}'; DNS-over-HTTPS requires HTTPS")]
+    InsecureTransportScheme {
+        /// The insecure scheme that was supplied.
+        scheme: String,
+    },
+
+    /// An HTTP-based DNS transport requires HTTPS.
+    #[error("{transport} requires HTTPS, got '{scheme}'")]
+    HttpsRequired {
+        /// The HTTP-based DNS transport.
+        transport: &'static str,
+        /// The endpoint scheme that was supplied.
+        scheme: String,
+    },
+
+    /// A DoH client was configured with an unsupported HTTP method.
+    #[cfg(feature = "http")]
+    #[error("unsupported DoH HTTP method '{method}'")]
+    UnsupportedDohMethod {
+        /// The HTTP method that was supplied.
+        method: String,
+    },
+
+    /// A DoT endpoint omitted its port.
+    #[error("DoT endpoint '{endpoint}' must include a port")]
+    MissingDotPort {
+        /// The DoT endpoint that omitted its port.
+        endpoint: String,
+    },
+
+    /// A DoT endpoint omitted its host.
+    #[error("DoT endpoint '{endpoint}' must include a host")]
+    MissingDotHost {
+        /// The DoT endpoint that omitted its host.
+        endpoint: String,
+    },
+
+    /// A DoT endpoint used an IP address where a TLS server name is required.
+    #[error("DoT host '{host}' is an IP address; configure a TLS server name explicitly")]
+    DotIpAddressRequiresServerName {
+        /// The IP address used as the DoT host.
+        host: String,
+    },
+
+    /// A name could not be used for TLS server-name validation.
+    #[error("invalid TLS server name '{server_name}': {reason}")]
+    InvalidTlsServerName {
+        /// The name that failed TLS validation.
+        server_name: String,
+        /// The validation failure detail.
+        reason: String,
+    },
+
+    /// A DNS query did not contain any questions.
+    #[error("DNS query must contain at least one question")]
+    MissingQuestion,
+
+    /// A DNS protocol endpoint requires exactly one question.
+    #[error("expected exactly one DNS question, got {actual}")]
+    ExpectedSingleQuestion {
+        /// The number of questions supplied.
+        actual: usize,
+    },
+
+    /// A DNS response did not match the query that produced it.
+    #[error("DNS response does not match the query")]
+    ResponseMismatch,
+
+    /// A DNS query returned a failure response code.
+    #[error("DNS query failed with rcode {rcode}")]
+    QueryFailed {
+        /// The response code returned by the server.
+        rcode: Rcode,
+    },
+
+    /// An upstream returned a retryable response code.
+    #[error("upstream '{upstream}' returned rcode {rcode}")]
+    UpstreamRcode {
+        /// The upstream endpoint.
+        upstream: String,
+        /// The response code returned by the upstream.
+        rcode: Rcode,
+    },
+
+    /// An upstream response did not match the query that was sent.
+    #[error("upstream '{upstream}' returned a response that did not match the query")]
+    UpstreamResponseMismatch {
+        /// The upstream endpoint.
+        upstream: String,
+    },
+
+    /// All attempts against an upstream were exhausted without a usable response.
+    #[error("upstream '{upstream}' exhausted all attempts")]
+    UpstreamAttemptsExhausted {
+        /// The upstream endpoint.
+        upstream: String,
+    },
+
+    /// No configured upstream returned a usable response.
+    #[error("no upstream returned a usable response (tried: {upstreams:?})")]
+    NoUsableUpstreamResponse {
+        /// The upstream endpoints that were tried.
+        upstreams: Vec<String>,
+    },
+
+    /// A resolver was built without any upstreams.
+    #[error("at least one upstream is required")]
+    NoUpstreamsConfigured,
+
+    /// The system clock could not provide a usable timestamp.
+    #[error("system clock is unavailable")]
+    ClockUnavailable,
 
     /// An HTTP response did not include a `content-type` header.
     #[cfg(feature = "http")]

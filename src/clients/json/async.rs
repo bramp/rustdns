@@ -99,9 +99,10 @@ impl Client {
     /// Returns an error if `server` does not use HTTPS.
     pub fn try_new(server: Url) -> Result<Self, Error> {
         if server.scheme() != "https" {
-            return Err(Error::InvalidArgument(
-                "DoH JSON servers must use HTTPS".to_string(),
-            ));
+            return Err(Error::HttpsRequired {
+                transport: "JSON DoH",
+                scheme: server.scheme().to_string(),
+            });
         }
 
         Ok(Self {
@@ -119,9 +120,10 @@ impl Client {
     ///
     /// Returns an error if `url` cannot be parsed or does not use HTTPS.
     pub fn try_from_url(url: &str) -> Result<Self, Error> {
-        let parsed = url
-            .parse::<Url>()
-            .map_err(|e| Error::InvalidArgument(format!("invalid URL '{url}': {e}")))?;
+        let parsed = url.parse::<Url>().map_err(|source| Error::InvalidUrl {
+            url: url.to_string(),
+            source,
+        })?;
         Self::try_new(parsed)
     }
 
@@ -179,17 +181,14 @@ impl AsyncExchanger for Client {
     /// returned message carries the caller's query ID.
     async fn exchange(&self, query: &Message) -> Result<WireResponse, Error> {
         if query.questions.len() != 1 {
-            return Err(Error::InvalidArgument(
-                "expected exactly one question must be provided".to_string(),
-            ));
+            return Err(Error::ExpectedSingleQuestion {
+                actual: query.questions.len(),
+            });
         }
 
         let client = &self.http_client;
 
-        let question = query
-            .questions
-            .first()
-            .ok_or_else(|| Error::InvalidArgument("expected one DNS question".to_string()))?;
+        let question = query.questions.first().ok_or(Error::MissingQuestion)?;
 
         let ascii_name = question.name.as_ascii();
 
@@ -311,16 +310,32 @@ pub fn fuzz_parse_response(body: &[u8]) -> Result<Message, JsonError> {
 
 #[cfg(test)]
 mod tests {
+    use super::Client;
     use super::MAX_JSON_BODY_SIZE;
     use super::MessageJson;
     use super::decode_response;
     use crate::Message;
+    use crate::clients::AsyncExchanger;
     use crate::clients::common::http as client_http;
     use http_body_util::{BodyExt, Full, Limited};
     use hyper::body::Bytes;
     use json_comments::StripComments;
     use std::convert::TryInto;
     use std::io::Read;
+
+    #[tokio::test]
+    async fn rejects_queries_with_wrong_question_count() {
+        let client = Client::new("https://dns.google/resolve").expect("valid JSON DoH URL");
+        let error = client
+            .exchange(&Message::default())
+            .await
+            .expect_err("query without a question should fail");
+
+        assert!(matches!(
+            error,
+            crate::Error::ExpectedSingleQuestion { actual: 0 }
+        ));
+    }
 
     #[test]
     fn test_parse_response() {

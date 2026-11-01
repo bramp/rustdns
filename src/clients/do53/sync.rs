@@ -83,9 +83,13 @@ impl Client {
     ///
     /// Returns an error if address resolution fails or produces no addresses.
     pub fn try_from_host_port(server: &str) -> Result<Self, crate::Error> {
-        let address = server.to_socket_addrs()?.next().ok_or_else(|| {
-            crate::Error::InvalidArgument(format!("no addresses found for '{server}'"))
-        })?;
+        let address =
+            server
+                .to_socket_addrs()?
+                .next()
+                .ok_or_else(|| crate::Error::NoAddressesFound {
+                    server: server.to_string(),
+                })?;
         Ok(Self::new(address))
     }
 

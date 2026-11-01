@@ -217,9 +217,7 @@ impl AsyncResolver for Resolver {
         deadline: Instant,
     ) -> Result<Response, crate::Error> {
         if query.questions.is_empty() {
-            return Err(crate::Error::InvalidArgument(
-                "query must have at least one question".to_string(),
-            ));
+            return Err(crate::Error::MissingQuestion);
         }
 
         let start = Instant::now();
@@ -273,10 +271,9 @@ impl AsyncResolver for Resolver {
             }
 
             Err(last_err.unwrap_or_else(|| {
-                crate::Error::InvalidArgument(format!(
-                    "no upstream returned a usable response (tried: {})",
-                    tried.join(", ")
-                ))
+                crate::Error::NoUsableUpstreamResponse {
+                    upstreams: tried.into_iter().map(|upstream| upstream.to_string()).collect(),
+                }
             }))
         })
         .await
@@ -517,10 +514,9 @@ impl Resolver {
             );
 
             if response.message.rcode != Rcode::NoError {
-                return Err(crate::Error::InvalidArgument(format!(
-                    "query failed with rcode: {}",
-                    response.message.rcode
-                )));
+                return Err(crate::Error::QueryFailed {
+                    rcode: response.message.rcode,
+                });
             }
 
             for answer in response.message.answers {
@@ -586,25 +582,25 @@ impl Resolver {
                         }
                         Outcome::Retryable => {
                             wires.push(response.meta.clone());
-                            last_err = Some(crate::Error::InvalidArgument(format!(
-                                "upstream '{id}' returned rcode {}",
-                                response.rcode
-                            )));
+                            last_err = Some(crate::Error::UpstreamRcode {
+                                upstream: id.to_string(),
+                                rcode: response.rcode,
+                            });
                         }
                     }
                 }
                 Ok(uncorrelated) => {
                     wires.push(uncorrelated.meta);
-                    last_err = Some(crate::Error::InvalidArgument(format!(
-                        "upstream '{id}' returned a response that did not match the query"
-                    )));
+                    last_err = Some(crate::Error::UpstreamResponseMismatch {
+                        upstream: id.to_string(),
+                    });
                 }
                 Err(error) => last_err = Some(error),
             }
         }
 
-        let err = last_err.unwrap_or_else(|| {
-            crate::Error::InvalidArgument(format!("upstream '{id}' exhausted all attempts"))
+        let err = last_err.unwrap_or_else(|| crate::Error::UpstreamAttemptsExhausted {
+            upstream: id.to_string(),
         });
         Err((err, attempts, wires))
     }

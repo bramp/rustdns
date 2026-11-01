@@ -107,9 +107,13 @@ impl Client {
     /// TLS server name, resolution fails, or produces no addresses.
     pub fn try_from_host_port(server: &str) -> Result<Self, crate::Error> {
         let server_name = server_name_from_addr(server)?;
-        let address = server.to_socket_addrs()?.next().ok_or_else(|| {
-            crate::Error::InvalidArgument(format!("no addresses found for '{server}'"))
-        })?;
+        let address =
+            server
+                .to_socket_addrs()?
+                .next()
+                .ok_or_else(|| crate::Error::NoAddressesFound {
+                    server: server.to_string(),
+                })?;
 
         Self::try_new(&server_name, address)
     }

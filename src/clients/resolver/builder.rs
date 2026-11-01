@@ -148,9 +148,7 @@ impl ResolverBuilder {
         }
 
         if self.upstreams.is_empty() {
-            return Err(crate::Error::InvalidArgument(
-                "at least one upstream is required".to_string(),
-            ));
+            return Err(crate::Error::NoUpstreamsConfigured);
         }
 
         Ok(Resolver {
@@ -191,7 +189,10 @@ mod tests {
 
     #[test]
     fn builder_rejects_empty_upstreams() {
-        assert!(ResolverBuilder::default().build().is_err());
+        assert!(matches!(
+            ResolverBuilder::default().build(),
+            Err(crate::Error::NoUpstreamsConfigured)
+        ));
     }
 
     #[test]
@@ -211,7 +212,10 @@ mod tests {
     fn builder_rejects_invalid_upstream_string() {
         let result = Resolver::builder().upstream("invalid://foo").build();
 
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(crate::Error::UnsupportedTransportScheme { .. })
+        ));
     }
 
     #[test]

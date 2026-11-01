@@ -179,6 +179,10 @@ All notable changes to rustdns are documented here.
   migrate with a single `?` or `.into()`.
 - Added `JsonError` for DNS-over-HTTPS JSON responses, and `Error::Decode`,
   `Error::Encode`, `Error::FromStr`, and `Error::Json` variants.
+- Added typed `Error` variants for endpoint configuration, query-shape failures,
+  and resolver outcomes. Internal callers no longer use `Error::InvalidArgument`;
+  that variant is deprecated for compatibility and remains until the 1.0 breaking
+  release.
 - Added `Error::MissingContentType` and `Error::UnexpectedContentType` in place
   of stringly-typed HTTP content-type failures.
 - Added a `rustdns::Result<T, E = Error>` type alias.

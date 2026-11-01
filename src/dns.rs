@@ -201,9 +201,7 @@ impl Message {
         r#type: Type,
         class: Class,
     ) -> Result<(), crate::Error> {
-        let name = domain
-            .into_name()
-            .map_err(|error| crate::Error::InvalidArgument(error.to_string()))?;
+        let name = domain.into_name()?;
 
         limits::validate_section_count(self.questions.len() + 1)?;
 

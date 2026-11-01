@@ -40,9 +40,10 @@ impl IntoAsyncExchanger for SocketAddr {
             Ok(Box::new(crate::clients::do53::Client::new(self)))
         }
         #[cfg(not(feature = "do53"))]
-        Err(crate::Error::InvalidArgument(
-            "feature 'do53' is required for SocketAddr exchangers".to_string(),
-        ))
+        Err(crate::Error::TransportFeatureDisabled {
+            transport: "dns",
+            feature: "do53",
+        })
     }
 }
 
@@ -100,9 +101,9 @@ fn parse_socket_addr(s: &str, default_port: u16) -> Result<SocketAddr, crate::Er
             return Ok(addr);
         }
     }
-    Err(crate::Error::InvalidArgument(format!(
-        "cannot parse address '{s}'"
-    )))
+    Err(crate::Error::InvalidEndpoint {
+        endpoint: s.to_string(),
+    })
 }
 
 #[cfg(feature = "dot")]
@@ -131,9 +132,10 @@ fn parse_async_exchanger_str(
                     Ok(Box::new(crate::clients::do53::Client::new(addr)))
                 }
                 #[cfg(not(feature = "do53"))]
-                Err(crate::Error::InvalidArgument(
-                    "feature 'do53' is required for dns:// exchangers".to_string(),
-                ))
+                Err(crate::Error::TransportFeatureDisabled {
+                    transport: "dns",
+                    feature: "do53",
+                })
             }
             "udp" => {
                 #[cfg(feature = "do53")]
@@ -142,9 +144,10 @@ fn parse_async_exchanger_str(
                     Ok(Box::new(crate::clients::udp::Client::new(addr)))
                 }
                 #[cfg(not(feature = "do53"))]
-                Err(crate::Error::InvalidArgument(
-                    "feature 'do53' is required for udp:// exchangers".to_string(),
-                ))
+                Err(crate::Error::TransportFeatureDisabled {
+                    transport: "udp",
+                    feature: "do53",
+                })
             }
             "tcp" => {
                 #[cfg(feature = "do53")]
@@ -153,9 +156,10 @@ fn parse_async_exchanger_str(
                     Ok(Box::new(crate::clients::tcp::Client::new(addr)))
                 }
                 #[cfg(not(feature = "do53"))]
-                Err(crate::Error::InvalidArgument(
-                    "feature 'do53' is required for tcp:// exchangers".to_string(),
-                ))
+                Err(crate::Error::TransportFeatureDisabled {
+                    transport: "tcp",
+                    feature: "do53",
+                })
             }
             "tls" | "dot" => {
                 #[cfg(feature = "dot")]
@@ -170,33 +174,36 @@ fn parse_async_exchanger_str(
                             .to_socket_addrs()
                             .map_err(crate::Error::Io)?
                             .next()
-                            .ok_or_else(|| {
-                                crate::Error::InvalidArgument(format!(
-                                    "no addresses found for '{host_port}'"
-                                ))
+                            .ok_or_else(|| crate::Error::NoAddressesFound {
+                                server: host_port.clone(),
                             })?
                     };
                     let client = crate::clients::dot::Client::try_new(&host, addr)?;
                     Ok(Box::new(client))
                 }
                 #[cfg(not(feature = "dot"))]
-                Err(crate::Error::InvalidArgument(
-                    "feature 'dot' is required for tls:// exchangers".to_string(),
-                ))
+                Err(crate::Error::TransportFeatureDisabled {
+                    transport: "tls",
+                    feature: "dot",
+                })
             }
             "https" => {
                 #[cfg(feature = "doh")]
                 {
                     let url = s.parse::<url::Url>().map_err(|e| {
-                        crate::Error::InvalidArgument(format!("invalid DoH URL '{s}': {e}"))
+                        crate::Error::InvalidUrl {
+                            url: s.to_string(),
+                            source: e,
+                        }
                     })?;
                     let client = crate::clients::doh::Client::try_new(url, http::Method::GET)?;
                     Ok(Box::new(client))
                 }
                 #[cfg(not(feature = "doh"))]
-                Err(crate::Error::InvalidArgument(
-                    "feature 'doh' is required for https:// exchangers".to_string(),
-                ))
+                Err(crate::Error::TransportFeatureDisabled {
+                    transport: "https",
+                    feature: "doh",
+                })
             }
             "json+https" => {
                 #[cfg(feature = "doh-json")]
@@ -204,22 +211,27 @@ fn parse_async_exchanger_str(
                     // json+https:// is an unofficial URI scheme to distinguish JSON DoH from binary DoH (RFC 8484).
                     let https_str = format!("https://{rest}");
                     let url = https_str.parse::<url::Url>().map_err(|e| {
-                        crate::Error::InvalidArgument(format!("invalid JSON DoH URL '{s}': {e}"))
+                        crate::Error::InvalidUrl {
+                            url: s.to_string(),
+                            source: e,
+                        }
                     })?;
                     let client = crate::clients::json::Client::try_new(url)?;
                     Ok(Box::new(client))
                 }
                 #[cfg(not(feature = "doh-json"))]
-                Err(crate::Error::InvalidArgument(
-                    "feature 'doh-json' is required for json+https:// exchangers".to_string(),
-                ))
+                Err(crate::Error::TransportFeatureDisabled {
+                    transport: "json+https",
+                    feature: "doh-json",
+                })
             }
-            "http" => Err(crate::Error::InvalidArgument(
-                "HTTP is insecure; DoH requires HTTPS".to_string(),
-            )),
-            other => Err(crate::Error::InvalidArgument(format!(
-                "unsupported exchanger scheme '{other}' in '{s}'"
-            ))),
+            "http" => Err(crate::Error::InsecureTransportScheme {
+                scheme: "http".to_string(),
+            }),
+            other => Err(crate::Error::UnsupportedTransportScheme {
+                scheme: other.to_string(),
+                endpoint: s.to_string(),
+            }),
         }
     } else {
         #[cfg(feature = "do53")]
@@ -228,9 +240,10 @@ fn parse_async_exchanger_str(
             Ok(Box::new(crate::clients::do53::Client::new(addr)))
         }
         #[cfg(not(feature = "do53"))]
-        Err(crate::Error::InvalidArgument(
-            "feature 'do53' is required for IP exchangers".to_string(),
-        ))
+        Err(crate::Error::TransportFeatureDisabled {
+            transport: "dns",
+            feature: "do53",
+        })
     }
 }
 
@@ -286,6 +299,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_exchanger_string() {
-        assert!("invalid://foo".into_async_exchanger().is_err());
+        assert!(matches!(
+            "invalid://foo".into_async_exchanger(),
+            Err(crate::Error::UnsupportedTransportScheme { .. })
+        ));
     }
 }
