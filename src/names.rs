@@ -315,15 +315,6 @@ impl Name {
         &self.ascii
     }
 
-    /// Returns the canonical ASCII domain name as a string slice.
-    ///
-    /// Equivalent to [`as_ascii`](Self::as_ascii).
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.ascii
-    }
-
     /// Returns the byte slice of the canonical ASCII representation.
     ///
     /// # Examples

@@ -36,6 +36,8 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- **Breaking (planned for 1.0):** Removed `Name::as_str`. Use `Name::as_ascii`
+  for its case-preserving ASCII presentation or `Name::to_unicode` for Unicode.
 - DNS names decoded from wire preserve arbitrary label octets, including literal
   dots, backslashes, and non-UTF-8 data, instead of joining labels into a lossy
   string. Name hierarchy, equality, ordering, case randomization, and DNSSEC

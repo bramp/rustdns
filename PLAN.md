@@ -10,7 +10,7 @@ The current baseline is `0.7.0`.
 - `0.5.1`: Security, parser, client, and fuzzing fixes. *(Complete)*
 - `0.6.0`: Compatibility-preserving fixes and API documentation. *(Complete)*
 - `0.7.0`: Additive features (resolver, DNSSEC trust, WASM JSON decoupling). *(In progress)*
-- `1.0.0`: Deliberate breaking cleanup, Rust 1.85.0, edition 2024, and Cargo resolver 3.
+- `1.0.0`: Deliberate breaking cleanup, Rust 1.86.0, edition 2024, and Cargo resolver 3.
 
 ---
 
@@ -25,15 +25,32 @@ The current baseline is `0.7.0`.
 - [x] Consolidate text and zone RDATA parsing under `text`, retaining `FromStr` entry points and unresolved zone names.
   - [x] Share borrowed SOA fields and numeric parsing between core and zone records.
   - [x] Share MX, SRV, RRSIG, and NSEC fields; reuse core DS, DNSKEY, and ZONEMD parsers.
-- [ ] Add validated constructors/builders for public DNS and EDNS structs.
+- [ ] Add targeted fallible constructors for caller-provided DNS and EDNS values with semantic invariants; keep ordinary record structs usable as data types and validate wire constraints during encoding.
 - [ ] Replace broad `Error::InvalidArgument(String)` with typed error variants.
-- [ ] Audit all public methods against naming conventions in [DEVELOPERS.md](DEVELOPERS.md).
+- [x] Audit public method names against [DEVELOPERS.md](DEVELOPERS.md).
 - [ ] Replace stateless encoding helpers with a stateful message encoder (compression, size limits, EDNS sizing).
 - [ ] Add explicit DNS encoding options API (opt-in name compression).
 - [ ] Complete removal of input-dependent `expect`, `unwrap`, and assertions in production paths.
 - [ ] Final public API and semver compatibility audit.
-- [ ] Let's move the EDNS types into a edns submodule (e.g EdnsCookie -> edns::Cookie)
-- [ ] Change the API to have getters and setters (encapsulate struct fields where appropriate). - Is this a good idea?
+- [x] Remove `Name::as_str` in favor of explicit `Name::as_ascii` and `Name::to_unicode`.
+- [x] Decide whether to move EDNS types into an `edns` submodule: keep the existing root-level names and exports; a second namespace or renaming (for example, `EdnsCookie` to `edns::Cookie`) has no clear benefit for 1.0.
+- [x] Decide whether to add getters/setters: do not convert public record structs wholesale; retain their field-based data model and add encapsulation only when needed to enforce a specific invariant.
+
+### Public API audit decisions
+
+The public method naming audit is complete. Public parsers and encoders generally
+follow the `from_slice`/`FromStr`, `to_vec`, and `append_to_vec` conventions in
+[DEVELOPERS.md](DEVELOPERS.md). The redundant `Name::as_str` alias has been
+removed; use `Name::as_ascii` or `Name::to_unicode` to make the representation
+explicit.
+
+The current release baseline is Rust **1.86.0**, matching `Cargo.toml`, the
+workspace CI matrix, edition 2024, and Cargo resolver 3. No crate-wide field
+privacy migration is planned: DNS message and record structs are public data
+models, and blanket getters/setters would add churn without establishing useful
+invariants. Constructor work should target caller-provided values whose
+constraints can be checked at construction; parsing and wire encoding must
+continue to validate untrusted input.
 
 ---
 
@@ -202,7 +219,7 @@ Transition from stringly-typed domain names (`String` / `&str`) to a strongly-ty
   - [x] `DnssecCache` methods (`insert_dnskeys`, `get_dnskeys`, `insert_ds`, `get_ds`)
   - [x] `denial.rs` methods (`nsec_covers`, `verify_nsec_nodata`, `verify_nsec_nxdomain`, `nsec3_hash`)
 - [x] Update `Resolver::query` and `Resolver::lookup` in [src/clients/resolver/async.rs](src/clients/resolver/async.rs) to accept `impl IntoName`.
-- [ ] Deprecate or remove `Name::as_str` in favor of explicit `Name::as_ascii` and `Name::to_unicode`.
+- [x] Deprecate or remove `Name::as_str` in favor of explicit `Name::as_ascii` and `Name::to_unicode`.
 - [x] Support 0x20-bit case preservation and randomization ([draft-vixie-dnsext-dns0x20-00]) via case-preserving `Name`, case-insensitive equality/hashing, `Name::to_0x20()`, `Name::to_canonical()`, and `case_sensitive_eq`.
 
 ---

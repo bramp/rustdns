@@ -48,7 +48,7 @@ mod tests {
         /// Returns mock DNS answers for test records.
         async fn exchange(&self, query: &Message) -> Result<WireResponse, rustdns::Error> {
             let question = &query.questions[0];
-            let answer = match (question.name.as_str(), question.r#type) {
+            let answer = match (question.name.as_ascii(), question.r#type) {
                 ("a.bramp.net.", Type::A) => Some(Resource::A("127.0.0.1".parse().unwrap())),
                 ("aaaa.bramp.net.", Type::AAAA) => Some(Resource::AAAA("::1".parse().unwrap())),
                 ("aaaaa.bramp.net.", Type::A) => Some(Resource::A("127.0.0.1".parse().unwrap())),
