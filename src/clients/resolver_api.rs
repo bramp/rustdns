@@ -1,6 +1,6 @@
-use crate::Message;
 use crate::clients::WireResponseMeta;
-use crate::types::{ChannelSecurity, SecurityStatus};
+use crate::types::{ChannelSecurity, SecuritySource, SecurityStatus, UpstreamTrustPolicy};
+use crate::{DnssecError, Message, Rcode};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -23,6 +23,12 @@ pub struct ResponseMeta {
 
     /// DNSSEC security status evaluated for this response.
     pub security_status: SecurityStatus,
+
+    /// How [`Self::security_status`] was determined.
+    pub security_source: SecuritySource,
+
+    /// Why DNSSEC validation failed, if it did.
+    pub dnssec_error: Option<DnssecError>,
 
     /// Transport security classification of the channel that serviced this response.
     pub channel_security: ChannelSecurity,
@@ -61,7 +67,13 @@ impl fmt::Display for ResponseMeta {
                 winning.bytes_sent, winning.bytes_received
             )?;
         }
-        writeln!(f, ";; SECURITY: {}", self.security_status)?;
+        match self.security_source {
+            SecuritySource::AdFlag => writeln!(f, ";; SECURITY: {}", self.security_status)?,
+            source => writeln!(f, ";; SECURITY: {} ({source})", self.security_status)?,
+        }
+        if let Some(error) = &self.dnssec_error {
+            writeln!(f, ";; DNSSEC ERROR: {error}")?;
+        }
         writeln!(f, ";; CHANNEL: {}", self.channel_security)?;
         if let Some(winning) = self.wire.last() {
             if let Some(tls) = &winning.tls_info {
@@ -79,6 +91,32 @@ impl fmt::Display for ResponseMeta {
     }
 }
 
+/// Evaluates the DNSSEC status that an upstream's `AD` flag indicates for `message`.
+///
+/// - `SERVFAIL` is [`SecurityStatus::Bogus`].
+/// - `AD=1` is [`SecurityStatus::Secure`] if `channel_security` is secure or
+///   `trust_policy` is [`UpstreamTrustPolicy::AlwaysTrust`], and
+///   [`SecurityStatus::Indeterminate`] otherwise.
+/// - `AD=0` is [`SecurityStatus::Insecure`].
+#[must_use]
+pub fn upstream_security_status(
+    message: &Message,
+    channel_security: ChannelSecurity,
+    trust_policy: UpstreamTrustPolicy,
+) -> SecurityStatus {
+    if message.rcode == Rcode::ServFail {
+        SecurityStatus::Bogus
+    } else if message.ad {
+        if channel_security.is_secure() || trust_policy == UpstreamTrustPolicy::AlwaysTrust {
+            SecurityStatus::Secure
+        } else {
+            SecurityStatus::Indeterminate
+        }
+    } else {
+        SecurityStatus::Insecure
+    }
+}
+
 /// A decoded DNS [`Message`] together with resolver execution metadata.
 #[derive(Clone, Debug)]
 pub struct Response {
@@ -87,6 +125,33 @@ pub struct Response {
 
     /// Metadata describing how this response was obtained.
     pub meta: ResponseMeta,
+}
+
+impl Response {
+    /// Applies [`DnssecMode::TrustUpstream`] to this response's upstream-derived
+    /// [`ResponseMeta::security_status`].
+    ///
+    /// Marks the status as coming from [`SecuritySource::UpstreamValidation`]
+    /// and records any failure in [`ResponseMeta::dnssec_error`].
+    ///
+    /// # Errors
+    ///
+    /// - [`DnssecError::InsecureResponse`] if `require_secure` is set and the status is insecure
+    /// - [`DnssecError::BogusResponse`] if the upstream reported a validation failure
+    /// - [`DnssecError::UntrustedChannel`] if `AD=1` arrived over an untrusted channel
+    ///
+    /// [`DnssecMode::TrustUpstream`]: crate::types::DnssecMode::TrustUpstream
+    pub fn trust_upstream(&mut self, require_secure: bool) -> Result<(), DnssecError> {
+        self.meta.security_source = SecuritySource::UpstreamValidation;
+        let error = match self.meta.security_status {
+            SecurityStatus::Secure => None,
+            SecurityStatus::Insecure => require_secure.then_some(DnssecError::InsecureResponse),
+            SecurityStatus::Bogus => Some(DnssecError::BogusResponse),
+            SecurityStatus::Indeterminate => Some(DnssecError::UntrustedChannel),
+        };
+        self.meta.dnssec_error.clone_from(&error);
+        error.map_or(Ok(()), Err)
+    }
 }
 
 impl Deref for Response {

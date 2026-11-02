@@ -11,6 +11,11 @@ All notable changes to rustdns are documented here.
   `MissingInsecureProof` instead of being proven insecure. The default policy now
   accepts 1024–4096-bit keys ([RFC 3110 §2](https://datatracker.ietf.org/doc/html/rfc3110#section-2),
   [RFC 5702 §2](https://datatracker.ietf.org/doc/html/rfc5702#section-2)).
+- `dig +validate` now validates locally (and sets CD), printing the result and
+  any error, and exits with status 1 on failure. Previously it only reported the
+  upstream AD flag.
+- web-dig prints the same response format as `dig`, so the security status and
+  its source can't be misread.
 - The DoH and JSON DoH clients now return the caller's query ID because HTTP
   correlates the exchange. Previously the resolver rejected DoH responses whose
   server-chosen ID was neither `0` nor the query ID ([RFC 8484 §4.1](https://datatracker.ietf.org/doc/html/rfc8484#section-4.1)).
@@ -57,7 +62,7 @@ All notable changes to rustdns are documented here.
 - **Breaking:** `DnssecError::MissingInsecureProof` gains `rejected_proof`, the
   reason the last candidate denial proof was rejected. New variants
   `DnssecError::RsaKeySize` and `Error::UnsupportedRsaKeySizes` report RSA key
-  policy violations.
+  policy violations. `ResponseMeta` gains `security_source` and `dnssec_error`.
 - **Breaking:** The accepted RSA DNSKEY modulus range changed from 2048–8192 bits
   to a configurable 1024–4096 by default. Keys up to 8192 bits can be enabled
   with `RsaKeySizePolicy`.
@@ -114,8 +119,22 @@ All notable changes to rustdns are documented here.
   validation. Configure it with `ResolverBuilder::rsa_key_sizes` or
   `ChainValidator::with_rsa_key_sizes`, or pass it to
   `validate_rrset_with_policy`.
+- Shared helpers for validating and reporting a response, so any client shows
+  the same DNSSEC result:
+  - `Resolver::validate` applies the resolver's `DnssecMode` to a response
+    from `exchange`.
+  - `ChainValidator::validate_response_mut` and `Response::trust_upstream`
+    validate a response and record the result in its metadata.
+  - `upstream_security_status` interprets an upstream AD flag.
+- `ResponseMeta::security_source` (`SecuritySource`) records whether the
+  security status came from the raw AD flag, upstream validation, or local
+  validation. `ResponseMeta::dnssec_error` holds the validation failure, if any.
+  `Response` display labels the status, for example
+  `;; SECURITY: Insecure (local validation)`, and adds a `;; DNSSEC ERROR:`
+  line when validation fails.
 - An offline replay test of the `🍕.ws` DNSSEC chain, also run on
   `wasm32-unknown-unknown` with the pure-Rust backend.
+
 - DNSSEC validation APIs and upstream-trust controls:
   - `DnssecMode`, `UpstreamTrustPolicy`, `SecurityStatus`, and `DnssecError`, with
     transport-guarded upstream AD handling in `Resolver::query` and

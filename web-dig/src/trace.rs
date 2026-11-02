@@ -151,6 +151,8 @@ mod tests {
                 elapsed: Duration::from_millis(5),
                 when: SystemTime::UNIX_EPOCH,
                 security_status: SecurityStatus::Insecure,
+                security_source: rustdns::types::SecuritySource::AdFlag,
+                dnssec_error: None,
                 channel_security: ChannelSecurity::Encrypted,
                 wire: Vec::new(),
             },

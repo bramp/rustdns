@@ -169,6 +169,8 @@ mod tests {
                     elapsed: Duration::ZERO,
                     when: UNIX_EPOCH,
                     security_status: SecurityStatus::Indeterminate,
+                    security_source: crate::types::SecuritySource::AdFlag,
+                    dnssec_error: None,
                     channel_security: crate::ChannelSecurity::Insecure,
                     wire: Vec::new(),
                 },
@@ -2418,6 +2420,53 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
     pub fn with_rsa_key_sizes(mut self, policy: RsaKeySizePolicy) -> Self {
         self.rsa_key_sizes = policy;
         self
+    }
+
+    /// Validates `response` like [`Self::validate_message_answers_mut`] and
+    /// records the outcome in its [`ResponseMeta`].
+    ///
+    /// Sets [`ResponseMeta::security_source`] to
+    /// [`SecuritySource::LocalValidation`]. On success, sets
+    /// [`ResponseMeta::security_status`] to the validated status. On failure,
+    /// sets it from [`DnssecError::security_status`] (or
+    /// [`SecurityStatus::Bogus`] for non-DNSSEC errors, such as a failed
+    /// DNSKEY fetch) and stores the reason in [`ResponseMeta::dnssec_error`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::validate_message_answers_mut`].
+    ///
+    /// [`ResponseMeta`]: crate::clients::ResponseMeta
+    /// [`ResponseMeta::security_source`]: crate::clients::ResponseMeta::security_source
+    /// [`ResponseMeta::security_status`]: crate::clients::ResponseMeta::security_status
+    /// [`ResponseMeta::dnssec_error`]: crate::clients::ResponseMeta::dnssec_error
+    /// [`SecuritySource::LocalValidation`]: crate::types::SecuritySource::LocalValidation
+    pub async fn validate_response_mut(
+        &mut self,
+        response: &mut crate::clients::Response,
+        now: SystemTime,
+    ) -> Result<(), crate::Error> {
+        let result = self
+            .validate_message_answers_mut(&mut response.message, now)
+            .await;
+        let meta = &mut response.meta;
+        meta.security_source = crate::types::SecuritySource::LocalValidation;
+        match result {
+            Ok(status) => {
+                meta.security_status = status;
+                meta.dnssec_error = None;
+                Ok(())
+            }
+            Err(error) => {
+                let dnssec_error = match &error {
+                    crate::Error::Dnssec(dnssec_error) => dnssec_error.clone(),
+                    other => DnssecError::ValidationFailed(other.to_string()),
+                };
+                meta.security_status = dnssec_error.security_status();
+                meta.dnssec_error = Some(dnssec_error);
+                Err(error)
+            }
+        }
     }
 
     /// Validates a response and caps authenticated RRset and accepted RRSIG TTLs.

@@ -21,7 +21,7 @@ use crate::Message;
 use std::sync::Arc;
 
 mod resolver_api;
-pub use resolver_api::{AsyncResolver, Response, ResponseMeta};
+pub use resolver_api::{AsyncResolver, Response, ResponseMeta, upstream_security_status};
 
 #[cfg(any(feature = "doh", feature = "exchanger"))]
 pub mod doh;

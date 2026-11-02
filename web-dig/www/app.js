@@ -206,12 +206,10 @@ digForm.addEventListener("submit", async (event) => {
         const duration = Math.round(performance.now() - startTime);
         const output = result.output;
         const trace = result.trace;
+        const validationIssue = result.dnssec_error !== undefined;
         result.free();
 
         outputBox.textContent = output;
-        const validationIssue =
-            output.includes(";; DNSSEC ERROR:") ||
-            output.includes(";; DNSSEC STATUS: Bogus");
         setStatus(`${duration} ms`, "timing");
         dnssecIssueBadge.hidden = !validationIssue;
         renderTrace(trace);

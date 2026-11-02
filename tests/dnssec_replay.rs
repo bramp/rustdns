@@ -7,7 +7,7 @@
 
 use rustdns::clients::{AsyncResolver, Response, ResponseMeta};
 use rustdns::dnssec::{ChainValidator, Clock, DnssecCache, RsaKeySizePolicy, TrustStore};
-use rustdns::types::{ChannelSecurity, SecurityStatus, Type};
+use rustdns::types::{ChannelSecurity, SecuritySource, SecurityStatus, Type};
 use rustdns::{DnssecError, Message, Name};
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
@@ -66,6 +66,8 @@ impl AsyncResolver<u64> for Replay {
                 elapsed: Duration::ZERO,
                 when: UNIX_EPOCH,
                 security_status: SecurityStatus::Indeterminate,
+                security_source: rustdns::types::SecuritySource::AdFlag,
+                dnssec_error: None,
                 channel_security: ChannelSecurity::Encrypted,
                 wire: Vec::new(),
             },
@@ -104,29 +106,43 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-fn validate_pizza_ws(policy: RsaKeySizePolicy) -> Result<SecurityStatus, rustdns::Error> {
+/// Validates the captured `xn--vi8h.ws. A` response, returning it with the
+/// outcome recorded in its metadata.
+fn validate_pizza_ws(policy: RsaKeySizePolicy) -> (Response, Result<(), rustdns::Error>) {
     let resolver = Replay::load(include_str!("replays/pizza-ws.txt"));
-    let mut answer = resolver.response("xn--vi8h.ws.", Type::A);
+    let query = resolver.response("xn--vi8h.ws.", Type::A);
+    let mut response = block_on(resolver.exchange_with_deadline(&query, 0)).expect("captured");
     let store = TrustStore::default();
     let cache = DnssecCache::with_clock(FixedClock);
     let mut validator =
         ChainValidator::new(&resolver, &store, &cache, 1_000).with_rsa_key_sizes(policy);
-    block_on(validator.validate_message_answers_mut(&mut answer, UNIX_EPOCH + PIZZA_WS_NOW))
+    let result =
+        block_on(validator.validate_response_mut(&mut response, UNIX_EPOCH + PIZZA_WS_NOW));
+    (response, result)
 }
 
 #[test]
 fn unsigned_delegation_from_1024_bit_rsa_zone_is_insecure() {
-    let status = validate_pizza_ws(RsaKeySizePolicy::default());
+    let (response, result) = validate_pizza_ws(RsaKeySizePolicy::default());
+    assert_eq!(result.map_err(|e| e.to_string()), Ok(()));
+    assert_eq!(response.meta.security_status, SecurityStatus::Insecure);
     assert_eq!(
-        status.map_err(|e| e.to_string()),
-        Ok(SecurityStatus::Insecure)
+        response.meta.security_source,
+        SecuritySource::LocalValidation
     );
+    assert_eq!(response.meta.dnssec_error, None);
 }
 
 #[test]
 fn rsa_key_size_policy_rejects_1024_bit_zone_signing_key() {
     let policy = RsaKeySizePolicy::new(2048, 4096).expect("valid policy");
-    let error = validate_pizza_ws(policy).expect_err("1024-bit key rejected");
+    let (response, result) = validate_pizza_ws(policy);
+    let error = result.expect_err("1024-bit key rejected");
+    assert_eq!(response.meta.security_status, SecurityStatus::Bogus);
+    assert_eq!(
+        response.meta.dnssec_error.as_ref().map(ToString::to_string),
+        Some(error.to_string())
+    );
     let rustdns::Error::Dnssec(DnssecError::MissingInsecureProof {
         name,
         signed_zone,

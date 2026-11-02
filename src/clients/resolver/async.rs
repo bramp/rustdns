@@ -3,7 +3,7 @@ use crate::Message;
 use crate::clients::resolver::ResolverBuilder;
 use crate::clients::{AsyncExchanger, WireResponse, WireResponseMeta};
 use crate::types::{
-    ChannelSecurity, Class, DnssecMode, QR, Rcode, Resource, SecurityStatus, Type,
+    Class, DnssecMode, QR, Rcode, Resource, SecuritySource, Type,
     UpstreamTrustPolicy,
 };
 use std::fmt;
@@ -49,9 +49,9 @@ pub struct Resolver {
     #[cfg(feature = "dnssec")]
     pub(crate) trust_store: crate::dnssec::TrustStore,
     #[cfg(feature = "dnssec")]
-    pub(crate) dnssec_cache: crate::dnssec::DnssecCache,
-    #[cfg(feature = "dnssec")]
     pub(crate) rsa_key_sizes: crate::dnssec::RsaKeySizePolicy,
+    #[cfg(feature = "dnssec")]
+    pub(crate) dnssec_cache: crate::dnssec::DnssecCache,
 }
 
 impl fmt::Debug for Resolver {
@@ -144,27 +144,6 @@ fn correlates(query: &Message, response: &Message) -> bool {
     })
 }
 
-/// Evaluates the DNSSEC security status of a response.
-fn evaluate_security_status(
-    response: &Message,
-    channel_security: ChannelSecurity,
-    trust_policy: UpstreamTrustPolicy,
-) -> SecurityStatus {
-    if response.rcode == Rcode::ServFail {
-        return SecurityStatus::Bogus;
-    }
-
-    if response.ad {
-        if channel_security.is_secure() || trust_policy == UpstreamTrustPolicy::AlwaysTrust {
-            SecurityStatus::Secure
-        } else {
-            SecurityStatus::Indeterminate
-        }
-    } else {
-        SecurityStatus::Insecure
-    }
-}
-
 impl Resolver {
     /// Returns a new [`ResolverBuilder`].
     pub fn builder() -> ResolverBuilder {
@@ -244,7 +223,7 @@ impl AsyncResolver for Resolver {
                                 total_attempts += attempts;
                                 all_wire.append(&mut wires);
                                 let channel_security = wire_response.meta.channel_security;
-                                let security_status = evaluate_security_status(
+                                let security_status = crate::clients::upstream_security_status(
                                     &wire_response.message,
                                     channel_security,
                                     self.upstream_trust_policy,
@@ -257,6 +236,8 @@ impl AsyncResolver for Resolver {
                                         elapsed: start.elapsed(),
                                         when,
                                         security_status,
+                                        security_source: SecuritySource::AdFlag,
+                                        dnssec_error: None,
                                         channel_security,
                                         wire: all_wire,
                                     },
@@ -299,108 +280,76 @@ impl Resolver {
             .await
     }
 
-    /// Enforces the upstream DNSSEC validation policy on a response.
+    /// Applies the configured [`DnssecMode`] to an exchanged `response`.
     ///
-    /// This method trusts the upstream recursive resolver's DNSSEC validation assertions
-    /// (the `AD` Authenticated Data bit) evaluated against the [`UpstreamTrustPolicy`].
-    /// Unlike [`Resolver::validate_local`], this relies on upstream trust assertions
-    /// and does not perform cryptographic signature verification locally.
-    fn validate_dnssec(&self, response: &Response) -> Result<(), crate::Error> {
+    /// Use this with [`Resolver::exchange`] to validate a hand-built query's
+    /// response; [`Resolver::query`] and [`Resolver::lookup`] validate
+    /// automatically. Local validation needs a query sent with `DO=1` and
+    /// `CD=1` so the response includes signatures.
+    ///
+    /// Updates [`ResponseMeta::security_status`],
+    /// [`ResponseMeta::security_source`], and [`ResponseMeta::dnssec_error`]
+    /// so `response` describes the outcome even when validation fails:
+    /// - [`DnssecMode::Off`] leaves the response unchanged.
+    /// - [`DnssecMode::TrustUpstream`] checks the upstream's `AD` assertion
+    ///   with [`Response::trust_upstream`].
+    /// - [`DnssecMode::ValidateLocal`] verifies the chain of trust to the
+    ///   configured trust anchors with
+    ///   [`ChainValidator::validate_response_mut`](crate::dnssec::ChainValidator::validate_response_mut),
+    ///   capping authenticated TTLs.
+    ///
+    /// # Errors
+    ///
+    /// Returns the DNSSEC failure, or an exchange error from fetching DNSKEY
+    /// and DS records during local validation.
+    ///
+    /// [`ResponseMeta::security_status`]: crate::clients::ResponseMeta::security_status
+    /// [`ResponseMeta::security_source`]: crate::clients::ResponseMeta::security_source
+    /// [`ResponseMeta::dnssec_error`]: crate::clients::ResponseMeta::dnssec_error
+    pub async fn validate(&self, response: &mut Response) -> Result<(), crate::Error> {
+        self.validate_with_deadline(response, Instant::now() + self.timeout)
+            .await
+    }
+
+    async fn validate_with_deadline(
+        &self,
+        response: &mut Response,
+        deadline: Instant,
+    ) -> Result<(), crate::Error> {
         match self.dnssec_mode {
             DnssecMode::Off => Ok(()),
-            DnssecMode::TrustUpstream { require_secure } => match response.meta.security_status {
-                SecurityStatus::Secure => Ok(()),
-                SecurityStatus::Insecure => {
-                    if require_secure {
-                        Err(crate::Error::Dnssec(
-                            crate::errors::DnssecError::InsecureResponse,
-                        ))
-                    } else {
-                        Ok(())
-                    }
-                }
-                SecurityStatus::Bogus => {
-                    Err(crate::Error::Dnssec(crate::errors::DnssecError::BogusResponse))
-                }
-                SecurityStatus::Indeterminate => {
-                    Err(crate::Error::Dnssec(crate::errors::DnssecError::UntrustedChannel))
-                }
-            },
-            DnssecMode::ValidateLocal => {
-                // In ValidateLocal mode, full cryptographic validation is performed by
-                // validate_local(). If called on a validated response, ensure
-                // the status is not Bogus or Indeterminate.
-                match response.meta.security_status {
-                    SecurityStatus::Secure | SecurityStatus::Insecure => Ok(()),
-                    SecurityStatus::Bogus => {
-                        Err(crate::Error::Dnssec(crate::errors::DnssecError::BogusResponse))
-                    }
-                    SecurityStatus::Indeterminate => {
-                        Err(crate::Error::Dnssec(crate::errors::DnssecError::UntrustedChannel))
-                    }
-                }
+            DnssecMode::TrustUpstream { require_secure } => {
+                Ok(response.trust_upstream(require_secure)?)
             }
+            DnssecMode::ValidateLocal => self.validate_local(response, deadline).await,
         }
     }
 
-    /// Performs full local cryptographic DNSSEC chain-of-trust validation for [`DnssecMode::ValidateLocal`].
-    ///
-    /// Unlike [`Resolver::validate_dnssec`], which trusts the upstream resolver's `AD` bit,
-    /// this method independently verifies the entire cryptographic chain:
-    /// - Verifies RRSIG signatures over RRsets using the zone's DNSKEYs.
-    /// - Follows delegation chains upwards, checking DS records against parent DNSKEYs.
-    /// - Validates all the way to configured local trust anchors (e.g. the IANA root anchors).
-    ///
-    /// On success, updates `response.meta.security_status` with the cryptographic validation outcome
-    /// ([`SecurityStatus::Secure`] or [`SecurityStatus::Insecure`] for unsigned zones per [RFC 4035 §5.2]).
-    /// Caps authenticated RRset and accepted RRSIG TTLs using their received TTLs,
-    /// Original TTL, and remaining signature lifetime.
-    /// On failure, updates `response.meta.security_status` to [`SecurityStatus::Bogus`] and returns an error.
-    ///
-    /// [RFC 4035 §5.2]: https://datatracker.ietf.org/doc/html/rfc4035#section-5.2
     #[cfg(feature = "dnssec")]
     async fn validate_local(
         &self,
         response: &mut Response,
         deadline: Instant,
     ) -> Result<(), crate::Error> {
-        let mut validator = crate::dnssec::ChainValidator::new(
-            self,
-            &self.trust_store,
-            &self.dnssec_cache,
-            deadline,
-        )
-        .with_rsa_key_sizes(self.rsa_key_sizes);
-        match validator
-            .validate_message_answers_mut(&mut response.message, SystemTime::now())
+        crate::dnssec::ChainValidator::new(self, &self.trust_store, &self.dnssec_cache, deadline)
+            .with_rsa_key_sizes(self.rsa_key_sizes)
+            .validate_response_mut(response, SystemTime::now())
             .await
-        {
-            Ok(status) => {
-                response.meta.security_status = status;
-                Ok(())
-            }
-            Err(err) => {
-                if let crate::Error::Dnssec(ref dnssec_err) = err {
-                    response.meta.security_status = dnssec_err.security_status();
-                } else {
-                    response.meta.security_status = SecurityStatus::Bogus;
-                }
-                Err(err)
-            }
-        }
     }
 
     #[cfg(not(feature = "dnssec"))]
     async fn validate_local(
         &self,
-        _response: &mut Response,
+        response: &mut Response,
         _deadline: Instant,
     ) -> Result<(), crate::Error> {
-        Err(crate::Error::Dnssec(
-            crate::errors::DnssecError::ValidationFailed(
-                "DNSSEC feature is disabled".to_string(),
-            ),
-        ))
+        let error = crate::errors::DnssecError::ValidationFailed(
+            "DNSSEC feature is disabled".to_string(),
+        );
+        response.meta.security_status = crate::types::SecurityStatus::Bogus;
+        response.meta.security_source = SecuritySource::LocalValidation;
+        response.meta.dnssec_error = Some(error.clone());
+        Err(error.into())
     }
 
     /// Like [`Resolver::query_with_deadline`], using a deadline `self.timeout` from now.
@@ -462,17 +411,7 @@ impl Resolver {
         query.set_extension(ext);
 
         let mut response = self.exchange_with_deadline(&query, deadline).await?;
-
-        match self.dnssec_mode {
-            DnssecMode::Off => {}
-            DnssecMode::TrustUpstream { .. } => {
-                self.validate_dnssec(&response)?;
-            }
-            DnssecMode::ValidateLocal => {
-                self.validate_local(&mut response, deadline).await?;
-            }
-        }
-
+        self.validate_with_deadline(&mut response, deadline).await?;
         Ok(response)
     }
 
@@ -614,6 +553,7 @@ mod tests {
     use super::*;
     use crate::Record;
     use crate::types::Algorithm;
+    use crate::types::{ChannelSecurity, SecurityStatus};
 
     fn query_with_id(id: u16) -> Message {
         let mut query = Message {
@@ -956,7 +896,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            evaluate_security_status(
+            crate::clients::upstream_security_status(
                 &servfail_msg,
                 ChannelSecurity::Encrypted,
                 UpstreamTrustPolicy::SecureTransportOnly
@@ -964,7 +904,7 @@ mod tests {
             SecurityStatus::Bogus
         );
         assert_eq!(
-            evaluate_security_status(
+            crate::clients::upstream_security_status(
                 &servfail_msg,
                 ChannelSecurity::Insecure,
                 UpstreamTrustPolicy::AlwaysTrust
@@ -1250,7 +1190,7 @@ mod tests {
                         ..Default::default()
                     };
                     assert_eq!(
-                        evaluate_security_status(&response, channel, policy),
+                        crate::clients::upstream_security_status(&response, channel, policy),
                         SecurityStatus::Bogus
                     );
                 }
@@ -1289,8 +1229,14 @@ mod tests {
         assert!(formatted.contains(";; Query time:"));
         assert!(formatted.contains(";; UPSTREAM: dnssec-mock"));
         assert!(formatted.contains(";; WHEN:"));
-        assert!(formatted.contains(";; SECURITY: Secure"));
+        assert!(formatted.contains(";; SECURITY: Secure (upstream validation)\n"));
         assert!(formatted.contains(";; CHANNEL: Encrypted"));
+        assert!(!formatted.contains(";; DNSSEC ERROR"));
+
+        // Exchanging without validation reports the raw AD flag, unlabeled.
+        let resp = resolver.exchange(&resp.message).await.unwrap();
+        assert_eq!(resp.meta.security_source, SecuritySource::AdFlag);
+        assert!(format!("{resp}").contains(";; SECURITY: Secure\n"));
     }
 
     struct FlakyMockExchanger {
@@ -1447,6 +1393,67 @@ mod tests {
 
         let result = resolver_local.query("bramp.net", Type::A).await;
         assert!(result.is_err());
+
+        // Validating an exchanged response records the failure on it.
+        let mut query = Message::default();
+        query.try_add_question("bramp.net", Type::A, Class::Internet).unwrap();
+        let mut response = resolver_local.exchange(&query).await.unwrap();
+        let error = resolver_local.validate(&mut response).await.unwrap_err();
+        assert_eq!(response.meta.security_status, SecurityStatus::Bogus);
+        assert_eq!(response.meta.security_source, SecuritySource::LocalValidation);
+        let recorded = response.meta.dnssec_error.as_ref().expect("recorded error");
+        assert_eq!(error.to_string(), recorded.to_string());
+        assert!(
+            format!("{response}").contains(&format!(
+                ";; SECURITY: Bogus (local validation)\n;; DNSSEC ERROR: {recorded}\n"
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_applies_upstream_trust_to_exchanged_responses() {
+        let mock = DnssecMockExchanger {
+            secure: false,
+            ad: true,
+            rcode: Rcode::NoError,
+            answers: vec![],
+            received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let resolver = Resolver::builder()
+            .dnssec_mode(DnssecMode::TrustUpstream {
+                require_secure: false,
+            })
+            .upstream(mock)
+            .build()
+            .unwrap();
+        let mut query = Message::default();
+        query.try_add_question("bramp.net", Type::A, Class::Internet).unwrap();
+        let mut response = resolver.exchange(&query).await.unwrap();
+        assert_eq!(response.meta.security_status, SecurityStatus::Indeterminate);
+        assert!(matches!(
+            resolver.validate(&mut response).await,
+            Err(crate::Error::Dnssec(crate::DnssecError::UntrustedChannel))
+        ));
+        assert_eq!(response.meta.security_source, SecuritySource::UpstreamValidation);
+        assert_eq!(
+            response.meta.dnssec_error,
+            Some(crate::DnssecError::UntrustedChannel)
+        );
+
+        let off = Resolver::builder()
+            .upstream(DnssecMockExchanger {
+                secure: false,
+                ad: true,
+                rcode: Rcode::NoError,
+                answers: vec![],
+                received_do: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            })
+            .build()
+            .unwrap();
+        let mut response = off.exchange(&query).await.unwrap();
+        off.validate(&mut response).await.unwrap();
+        assert_eq!(response.meta.security_source, SecuritySource::AdFlag);
+        assert_eq!(response.meta.dnssec_error, None);
     }
 
     fn mock_insecure_client(mock: DnssecMockExchanger) -> DnssecMockExchanger {

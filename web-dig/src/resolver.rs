@@ -5,7 +5,7 @@ use crate::trace::{QueryTrace, TraceEntry};
 use rustdns::Message;
 use rustdns::clients::{AsyncResolver, Response, ResponseMeta};
 use rustdns::dnssec::Clock;
-use rustdns::types::{QR, Rcode, SecurityStatus};
+use rustdns::types::{QR, UpstreamTrustPolicy};
 use std::time::{Duration, SystemTime};
 
 /// Opaque monotonic browser instant used by the shared resolver interface.
@@ -99,15 +99,11 @@ impl BrowserResolver {
             .checked_duration_since(completed, start)
             .ok_or_else(clock_error)?;
         let channel_security = wire.meta.channel_security;
-        let security_status = if wire.message.rcode == Rcode::ServFail {
-            SecurityStatus::Bogus
-        } else if wire.message.ad && channel_security.is_secure() {
-            SecurityStatus::Secure
-        } else if wire.message.ad {
-            SecurityStatus::Indeterminate
-        } else {
-            SecurityStatus::Insecure
-        };
+        let security_status = rustdns::clients::upstream_security_status(
+            &wire.message,
+            channel_security,
+            UpstreamTrustPolicy::SecureTransportOnly,
+        );
         let upstream = self.client.endpoint();
 
         Ok(Response {
@@ -118,6 +114,8 @@ impl BrowserResolver {
                 elapsed,
                 when,
                 security_status,
+                security_source: rustdns::types::SecuritySource::AdFlag,
+                dnssec_error: None,
                 channel_security,
                 wire: vec![wire.meta],
             },

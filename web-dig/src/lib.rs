@@ -22,9 +22,9 @@ use rustdns::Message;
 #[cfg(target_arch = "wasm32")]
 use rustdns::clients::AsyncExchanger;
 use rustdns::limits::EDNS_DOH_PAYLOAD_SIZE;
+#[cfg(target_arch = "wasm32")]
+use rustdns::types::DnssecMode;
 use rustdns::types::{Class, Extension, Type};
-#[cfg(any(target_arch = "wasm32", test))]
-use rustdns::types::{DnssecMode, SecurityStatus};
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 
@@ -105,6 +105,8 @@ pub struct DigResult {
     /// Exchanges made during local DNSSEC validation, in start order. Empty
     /// for other modes.
     pub trace: Vec<trace::TraceEntry>,
+    /// Why DNSSEC validation failed, if it was requested and failed.
+    pub dnssec_error: Option<String>,
 }
 
 /// Performs a DoH query with upstream or local DNSSEC validation.
@@ -139,6 +141,7 @@ pub async fn dig_dnssec(
         return Ok(DigResult {
             output: dig(domain, rtype, server, protocol).await?,
             trace: Vec::new(),
+            dnssec_error: None,
         });
     }
     let client = BrowserClient::try_new(protocol, server).map_err(|e| JsValue::from_str(&e))?;
@@ -165,74 +168,30 @@ pub async fn dig_dnssec(
             .await
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let issue = match mode {
-        DnssecMode::Off | DnssecMode::TrustUpstream { .. } => None,
+    // Failures are recorded in the response metadata and shown in the output.
+    let trace = match mode {
+        DnssecMode::Off => Vec::new(),
+        DnssecMode::TrustUpstream { require_secure } => {
+            let _ = response.trust_upstream(require_secure);
+            Vec::new()
+        }
         DnssecMode::ValidateLocal => {
             let cache = rustdns::dnssec::DnssecCache::with_clock(clock);
             let trust_store = rustdns::dnssec::TrustStore::default();
-            let mut validator =
-                rustdns::dnssec::ChainValidator::new(&resolver, &trust_store, &cache, deadline);
             let validation_time = crate::resolver::browser_system_time()
                 .ok_or_else(|| JsValue::from_str("browser wall clock is unavailable"))?;
-            match validator
-                .validate_message_answers_mut(&mut response.message, validation_time)
-                .await
-            {
-                Ok(SecurityStatus::Secure) => {
-                    response.meta.security_status = SecurityStatus::Secure;
-                    None
-                }
-                Ok(SecurityStatus::Insecure) => {
-                    response.meta.security_status = SecurityStatus::Insecure;
-                    None
-                }
-                Ok(SecurityStatus::Bogus | SecurityStatus::Indeterminate) => {
-                    response.meta.security_status = SecurityStatus::Indeterminate;
-                    Some(
-                        "could not establish a secure or authenticated-insecure result".to_string(),
-                    )
-                }
-                Err(error) => {
-                    response.meta.security_status = SecurityStatus::Indeterminate;
-                    Some(error.to_string())
-                }
-            }
+            let _ = rustdns::dnssec::ChainValidator::new(&resolver, &trust_store, &cache, deadline)
+                .validate_response_mut(&mut response, validation_time)
+                .await;
+            resolver.take_trace()
         }
     };
 
-    let trace = if mode == DnssecMode::ValidateLocal {
-        resolver.take_trace()
-    } else {
-        Vec::new()
-    };
     Ok(DigResult {
-        output: format_dnssec_output(
-            response.to_string(),
-            mode,
-            response.meta.security_status,
-            issue.as_deref(),
-        ),
+        output: response.to_string(),
         trace,
+        dnssec_error: response.meta.dnssec_error.map(|error| error.to_string()),
     })
-}
-
-#[cfg(any(target_arch = "wasm32", test))]
-fn format_dnssec_output(
-    output: String,
-    mode: DnssecMode,
-    status: SecurityStatus,
-    issue: Option<&str>,
-) -> String {
-    let method = match mode {
-        DnssecMode::Off => return output,
-        DnssecMode::TrustUpstream { .. } => "upstream AD",
-        DnssecMode::ValidateLocal => "local validation",
-    };
-    let mut output = format!("{output};; DNSSEC STATUS: {status} ({method})\n");
-    if let Some(issue) = issue {
-        output.push_str(&format!(";; DNSSEC ERROR: {issue}\n"));
-    }
-    output
 }
 
 /// Returns the git commit hash embedded at build time.
@@ -250,55 +209,6 @@ pub fn build_time() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn dnssec_off_preserves_query_output() {
-        let output = ";; ->>HEADER<<-\n;; Query time: 42 msec\n".to_string();
-        assert_eq!(
-            format_dnssec_output(
-                output.clone(),
-                DnssecMode::Off,
-                SecurityStatus::Indeterminate,
-                None,
-            ),
-            output,
-        );
-    }
-
-    #[test]
-    fn dnssec_status_is_appended_to_metadata() {
-        let output = ";; ->>HEADER<<-\n;; SECURITY: Secure\n;; CHANNEL: Encrypted\n";
-        for (mode, method) in [
-            (DnssecMode::ValidateLocal, "local validation"),
-            (
-                DnssecMode::TrustUpstream {
-                    require_secure: false,
-                },
-                "upstream AD",
-            ),
-        ] {
-            assert_eq!(
-                format_dnssec_output(output.into(), mode, SecurityStatus::Secure, None),
-                format!("{output};; DNSSEC STATUS: Secure ({method})\n"),
-            );
-        }
-    }
-
-    #[test]
-    fn dnssec_failure_retains_output_and_error_context() {
-        let output = ";; ->>HEADER<<-\n;; CHANNEL: Encrypted\n";
-        assert_eq!(
-            format_dnssec_output(
-                output.into(),
-                DnssecMode::ValidateLocal,
-                SecurityStatus::Indeterminate,
-                Some("signature expired"),
-            ),
-            format!(
-                "{output};; DNSSEC STATUS: Indeterminate (local validation)\n;; DNSSEC ERROR: signature expired\n"
-            ),
-        );
-    }
 
     #[test]
     fn test_supported_record_types() {

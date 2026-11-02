@@ -85,7 +85,8 @@ DNSSEC Options:
   +nodnssec / +nodo              Do not request DNSSEC records (default)
   +ad / +noad                    Set/clear the Authentic Data (AD) query bit (default: +ad)
   +cd / +nocd                    Set/clear the Checking Disabled (CD) query bit (default: +nocd)
-  +validate / +strict            Perform local cryptographic DNSSEC validation to root anchors
+  +validate / +strict            Validate DNSSEC locally to the root anchors (sets +dnssec +cd);
+                                 exits with status 1 if validation fails
 
 EDNS(0) Options:
   +nsid                          Request Name Server Identifier (RFC 5001)
@@ -518,6 +519,7 @@ fn test_parse_dnssec_flags() {
     .expect("validate should parse");
     assert!(args_strict.validate);
     assert!(args_strict.dnssec_ok);
+    assert!(args_strict.cd);
 }
 
 #[test]
@@ -557,8 +559,10 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "+cd" | "+cdflag" => result.cd = true,
             "+nocd" | "+nocdflag" => result.cd = false,
             "+validate" | "+strict" => {
+                // Local validation needs signatures (DO) and unfiltered data (CD).
                 result.validate = true;
                 result.dnssec_ok = true;
+                result.cd = true;
             }
 
             _ => {
@@ -811,10 +815,19 @@ async fn main() -> Result<(), DigError> {
         trace_request(&args, first_server, &query)?;
     }
 
-    let response = resolver.exchange(&query).await?;
+    let mut response = resolver.exchange(&query).await?;
+    // The response records validation failures, so print it before exiting.
+    let validation = if args.validate {
+        resolver.validate(&mut response).await
+    } else {
+        Ok(())
+    };
 
     println!("response:");
     println!("{response}");
 
+    if validation.is_err() {
+        process::exit(1);
+    }
     Ok(())
 }

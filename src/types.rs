@@ -363,6 +363,33 @@ pub enum SecurityStatus {
     Indeterminate,
 }
 
+/// How the [`SecurityStatus`] of a response was determined.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[non_exhaustive]
+pub enum SecuritySource {
+    /// Read from the upstream's `AD` flag and the channel's security, without
+    /// applying a [`DnssecMode`] (default).
+    #[default]
+    AdFlag,
+
+    /// The upstream's `AD` flag was checked under [`DnssecMode::TrustUpstream`].
+    UpstreamValidation,
+
+    /// The chain of trust was validated locally under [`DnssecMode::ValidateLocal`].
+    LocalValidation,
+}
+
+impl std::fmt::Display for SecuritySource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SecuritySource::AdFlag => "upstream AD flag",
+            SecuritySource::UpstreamValidation => "upstream validation",
+            SecuritySource::LocalValidation => "local validation",
+        })
+    }
+}
+
 /// The DNSSEC validation policy configured on a resolver.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum DnssecMode {
