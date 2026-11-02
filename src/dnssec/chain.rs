@@ -14,7 +14,10 @@
 use crate::clients::AsyncResolver;
 use crate::dnssec::anchor::TrustStore;
 use crate::dnssec::clock::{Clock, SystemClock};
-use crate::dnssec::rrset_validator::{ValidationReport, authenticated_ttl, validate_rrset};
+use crate::dnssec::RsaKeySizePolicy;
+use crate::dnssec::rrset_validator::{
+    ValidationReport, authenticated_ttl, validate_rrset_with_policy,
+};
 use crate::errors::DnssecError;
 use crate::names::Name;
 use crate::resource::{DNSKEY, DS, RRSIG};
@@ -521,11 +524,23 @@ mod tests {
                     Err(crate::Error::Dnssec(DnssecError::MissingInsecureProof {
                         name,
                         signed_zone,
+                        rejected_proof: None,
                     })) => {
                         assert_eq!(name, answer);
                         assert_eq!(signed_zone, Some(chain.parent.clone()));
                     }
                     other => panic!("expected MissingInsecureProof, got {other:?}"),
+                }
+            } else if mutation == "tampered" {
+                match result {
+                    Err(crate::Error::Dnssec(DnssecError::MissingInsecureProof {
+                        rejected_proof: Some(reason),
+                        ..
+                    })) => assert!(
+                        reason.to_string().contains("verification failed"),
+                        "{reason}"
+                    ),
+                    other => panic!("expected a rejected proof, got {other:?}"),
                 }
             } else {
                 assert!(
@@ -2375,6 +2390,7 @@ pub struct ChainValidator<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock = 
     deadline: C::Instant,
     work: AtomicUsize,
     ttl_limits: Option<Mutex<Vec<AuthenticatedTtl>>>,
+    rsa_key_sizes: RsaKeySizePolicy,
 }
 
 impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, C> {
@@ -2392,7 +2408,16 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
             deadline,
             work: AtomicUsize::new(0),
             ttl_limits: None,
+            rsa_key_sizes: RsaKeySizePolicy::default(),
         }
+    }
+
+    /// Accepts signatures from RSA keys allowed by `policy` instead of the
+    /// default [`RsaKeySizePolicy`].
+    #[must_use]
+    pub fn with_rsa_key_sizes(mut self, policy: RsaKeySizePolicy) -> Self {
+        self.rsa_key_sizes = policy;
+        self
     }
 
     /// Validates a response and caps authenticated RRset and accepted RRSIG TTLs.
@@ -2585,7 +2610,7 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 match self.validate_rrset_chain(name, set, rrsig, now).await {
                     Ok(_) => {
                         if rrsig.labels < super::canonical::rrsig_labels_for_name(name) {
-                            let proofs = self
+                            let (proofs, _) = self
                                 .authenticated_proofs(
                                     &message.authoritys,
                                     &rrsig.signer_name,
@@ -2735,7 +2760,14 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 if key.algorithm != signature.algorithm || key.key_tag() != signature.key_tag {
                     continue;
                 }
-                if let Err(error) = validate_rrset(zone, &dnskeys, signature, key, now) {
+                if let Err(error) = validate_rrset_with_policy(
+                    zone,
+                    &dnskeys,
+                    signature,
+                    key,
+                    now,
+                    &self.rsa_key_sizes,
+                ) {
                     last_error = error.into();
                     continue;
                 }
@@ -2777,7 +2809,7 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
             if key.algorithm != rrsig.algorithm || key.key_tag() != rrsig.key_tag {
                 continue;
             }
-            match validate_rrset(&owner, rrset, rrsig, key, now) {
+            match validate_rrset_with_policy(&owner, rrset, rrsig, key, now, &self.rsa_key_sizes) {
                 Ok(report) => {
                     self.spend_work()?;
                     return Ok(report);
@@ -3010,6 +3042,7 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
         let anchor = self.closest_anchor(name);
         let mut candidate = Some(name.clone());
         let mut signed_zone = None;
+        let mut rejected_proof = None;
         while let Some(zone) = candidate {
             self.spend_work()?;
             if !self.trust_store.find_anchors(&zone).is_empty() || zone.is_root() {
@@ -3050,6 +3083,7 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 return Err(DnssecError::MissingInsecureProof {
                     name: name.clone(),
                     signed_zone: Some(zone),
+                    rejected_proof: rejected_proof.map(Box::new),
                 }
                 .into());
             }
@@ -3069,19 +3103,21 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 }
             }
             for signer in signers {
-                let proofs = self
+                let (proofs, rejected) = self
                     .authenticated_proofs(&response.authoritys, &signer, now, false)
                     .await?;
                 if super::denial::verify_unsigned_delegation(&proofs, &zone, &signer) {
                     self.spend_work()?;
                     return Ok(());
                 }
+                rejected_proof = rejected.or(rejected_proof);
             }
             candidate = zone.parent();
         }
         Err(DnssecError::MissingInsecureProof {
             name: name.clone(),
             signed_zone,
+            rejected_proof: rejected_proof.map(Box::new),
         }
         .into())
     }
@@ -3109,7 +3145,7 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
             }
         }
         for zone in zones {
-            let proofs = self
+            let (proofs, _) = self
                 .authenticated_proofs(&message.authoritys, &zone, now, true)
                 .await?;
             if super::denial::verify_nsec_response(
@@ -3147,13 +3183,15 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
         Ok(SecurityStatus::Insecure)
     }
 
+    /// Returns the NSEC and NSEC3 records in `records` that are authenticated
+    /// by `zone`, and why the last rejected proof RRset failed validation.
     async fn authenticated_proofs(
         &self,
         records: &[Record],
         zone: &Name,
         now: SystemTime,
         response_ttls: bool,
-    ) -> Result<Vec<Record>, crate::Error> {
+    ) -> Result<(Vec<Record>, Option<DnssecError>), crate::Error> {
         let mut sets: HashMap<(Name, Type), Vec<Record>> = HashMap::new();
         for record in records {
             self.spend_work()?;
@@ -3167,6 +3205,7 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
             }
         }
         let mut proofs = Vec::new();
+        let mut rejected = None;
         for ((owner, rtype), set) in sets {
             for record in records {
                 self.spend_work()?;
@@ -3181,20 +3220,20 @@ impl<'a, R: AsyncResolver<C::Instant> + ?Sized, C: Clock> ChainValidator<'a, R, 
                 {
                     continue;
                 }
-                if self
-                    .validate_rrset_chain(&owner, &set, signature, now)
-                    .await
-                    .is_ok()
-                {
-                    if response_ttls {
-                        self.remember_ttl(&set, record, now)?;
+                match self.validate_rrset_chain(&owner, &set, signature, now).await {
+                    Ok(_) => {
+                        if response_ttls {
+                            self.remember_ttl(&set, record, now)?;
+                        }
+                        proofs.extend(set);
+                        break;
                     }
-                    proofs.extend(set);
-                    break;
+                    Err(crate::Error::Dnssec(error)) => rejected = Some(error),
+                    Err(error) => rejected = Some(DnssecError::ValidationFailed(error.to_string())),
                 }
             }
         }
         self.spend_work()?;
-        Ok(proofs)
+        Ok((proofs, rejected))
     }
 }

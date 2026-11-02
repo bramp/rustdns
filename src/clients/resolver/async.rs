@@ -50,6 +50,8 @@ pub struct Resolver {
     pub(crate) trust_store: crate::dnssec::TrustStore,
     #[cfg(feature = "dnssec")]
     pub(crate) dnssec_cache: crate::dnssec::DnssecCache,
+    #[cfg(feature = "dnssec")]
+    pub(crate) rsa_key_sizes: crate::dnssec::RsaKeySizePolicy,
 }
 
 impl fmt::Debug for Resolver {
@@ -367,7 +369,8 @@ impl Resolver {
             &self.trust_store,
             &self.dnssec_cache,
             deadline,
-        );
+        )
+        .with_rsa_key_sizes(self.rsa_key_sizes);
         match validator
             .validate_message_answers_mut(&mut response.message, SystemTime::now())
             .await

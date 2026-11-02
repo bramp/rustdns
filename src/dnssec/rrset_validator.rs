@@ -5,7 +5,8 @@ use crate::Name;
 use crate::dnssec::canonical::{
     append_signed_data_to_vec, canonical_owner_for_rrsig, rrsig_labels_for_name,
 };
-use crate::dnssec::crypto::verify_signature;
+use crate::dnssec::RsaKeySizePolicy;
+use crate::dnssec::crypto::{rsa_modulus_bits, verify_signature};
 use crate::resource::{DNSKEY, RRSIG};
 use crate::types::{Algorithm, Record};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -185,10 +186,14 @@ impl RRSIG {
 /// `ChainValidator::validate_message_answers_mut` applies these limits to
 /// authenticated response records.
 ///
+/// RSA keys must satisfy the default [`RsaKeySizePolicy`]; use
+/// [`validate_rrset_with_policy`] to choose different key sizes.
+///
 /// # Errors
 ///
-/// Returns [`DnssecError::ValidationFailed`] if any check fails. The message
-/// names the RRset owner, type, signer, and key tag.
+/// Returns [`DnssecError::RsaKeySize`] if an RSA key is outside the default
+/// [`RsaKeySizePolicy`], or [`DnssecError::ValidationFailed`] if any other
+/// check fails. The message names the RRset owner, type, signer, and key tag.
 pub fn validate_rrset(
     owner_name: impl crate::names::IntoName,
     rrset: &[Record],
@@ -196,10 +201,35 @@ pub fn validate_rrset(
     dnskey: &DNSKEY,
     now: SystemTime,
 ) -> Result<ValidationReport, DnssecError> {
+    validate_rrset_with_policy(
+        owner_name,
+        rrset,
+        rrsig,
+        dnskey,
+        now,
+        &RsaKeySizePolicy::default(),
+    )
+}
+
+/// Validates an RRset like [`validate_rrset`], accepting RSA keys allowed by `rsa_key_sizes`.
+///
+/// # Errors
+///
+/// Returns [`DnssecError::RsaKeySize`] if an RSA key is outside
+/// `rsa_key_sizes`, or [`DnssecError::ValidationFailed`] if any other check
+/// fails. The message names the RRset owner, type, signer, and key tag.
+pub fn validate_rrset_with_policy(
+    owner_name: impl crate::names::IntoName,
+    rrset: &[Record],
+    rrsig: &RRSIG,
+    dnskey: &DNSKEY,
+    now: SystemTime,
+    rsa_key_sizes: &RsaKeySizePolicy,
+) -> Result<ValidationReport, DnssecError> {
     let owner_name = owner_name
         .into_name()
         .map_err(|e| DnssecError::ValidationFailed(format!("invalid owner name: {e}")))?;
-    validate_named_rrset(&owner_name, rrset, rrsig, dnskey, now).map_err(|error| match error {
+    validate_named_rrset(&owner_name, rrset, rrsig, dnskey, now, rsa_key_sizes).map_err(|error| match error {
         DnssecError::ValidationFailed(reason) => DnssecError::ValidationFailed(format!(
             "'{owner_name}' {} RRSIG by '{}' (key tag {}): {reason}",
             rrsig.type_covered, rrsig.signer_name, rrsig.key_tag
@@ -214,6 +244,7 @@ fn validate_named_rrset(
     rrsig: &RRSIG,
     dnskey: &DNSKEY,
     now: SystemTime,
+    rsa_key_sizes: &RsaKeySizePolicy,
 ) -> Result<ValidationReport, DnssecError> {
     let Some(first) = rrset.first() else {
         return Err(DnssecError::ValidationFailed(
@@ -290,6 +321,19 @@ fn validate_named_rrset(
     })?;
 
     // 4. Cryptographic verification
+    if matches!(dnskey.algorithm, Algorithm::RSASHA256 | Algorithm::RSASHA512) {
+        let bits = rsa_modulus_bits(&dnskey.public_key)?;
+        if !rsa_key_sizes.allows(bits) {
+            return Err(DnssecError::RsaKeySize {
+                owner: owner_name.clone(),
+                rtype: rrsig.type_covered,
+                signer: rrsig.signer_name.clone(),
+                key_tag: rrsig.key_tag,
+                bits,
+                allowed: *rsa_key_sizes,
+            });
+        }
+    }
     verify_signature(rrsig.algorithm, dnskey, &signed_data, &rrsig.signature)?;
 
     Ok(ValidationReport {

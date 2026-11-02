@@ -188,13 +188,13 @@ jobs:
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
-      - name: Test DNSSEC RFC vectors with the pure-Rust backend
+      - name: Test DNSSEC RFC vectors and replays with the pure-Rust backend
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
         run: >-
           cargo test -p rustdns --target wasm32-unknown-unknown
           --no-default-features --features dnssec-rustcrypto
-          --test dnssec_rfc_vectors
+          --test dnssec_rfc_vectors --test dnssec_replay
 
       - name: Test web-dig browser modules
         env:

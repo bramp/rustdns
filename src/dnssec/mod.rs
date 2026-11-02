@@ -22,9 +22,13 @@ pub(crate) mod canonical;
 pub mod chain;
 pub(crate) mod crypto;
 pub mod denial;
+pub mod policy;
 pub mod rrset_validator;
 
 pub use anchor::{TrustAnchor, TrustStore};
 pub use clock::{Clock, SystemClock};
 pub use chain::{ChainValidator, DnssecCache};
-pub use rrset_validator::{ValidationReport, ValidityPeriod, validate_rrset};
+pub use policy::RsaKeySizePolicy;
+pub use rrset_validator::{
+    ValidationReport, ValidityPeriod, validate_rrset, validate_rrset_with_policy,
+};

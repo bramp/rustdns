@@ -496,6 +496,20 @@ pub enum Error {
     #[error("at least one upstream is required")]
     NoUpstreamsConfigured,
 
+    /// An RSA key size range is empty or outside the supported range.
+    #[cfg(feature = "dnssec")]
+    #[error(
+        "unsupported RSA key size range {min_bits}..={max_bits} bits; bounds must be ordered and within {}..={} bits",
+        crate::dnssec::RsaKeySizePolicy::SUPPORTED_BITS.start(),
+        crate::dnssec::RsaKeySizePolicy::SUPPORTED_BITS.end()
+    )]
+    UnsupportedRsaKeySizes {
+        /// Requested minimum modulus size.
+        min_bits: u16,
+        /// Requested maximum modulus size.
+        max_bits: u16,
+    },
+
     /// The system clock could not provide a usable timestamp.
     #[error("system clock is unavailable")]
     ClockUnavailable,
@@ -619,14 +633,40 @@ pub enum DnssecError {
     /// Data at `name` is unsigned, but no authenticated proof shows that it is
     /// below an unsigned delegation.
     #[error(
-        "DNSSEC validation failed: '{name}' is unsigned, but no authenticated proof shows it is in an unsigned zone{}",
-        signed_zone_suffix(.signed_zone.as_ref())
+        "DNSSEC validation failed: '{name}' is unsigned, but no authenticated proof shows it is in an unsigned zone{}{}",
+        signed_zone_suffix(.signed_zone.as_ref()),
+        rejected_proof_suffix(.rejected_proof.as_deref())
     )]
     MissingInsecureProof {
         /// Name whose data is unsigned.
         name: Name,
         /// Nearest signed ancestor zone that should have proven the delegation unsigned.
         signed_zone: Option<Name>,
+        /// Why the last candidate NSEC or NSEC3 proof failed validation, if any was present.
+        rejected_proof: Option<Box<DnssecError>>,
+    },
+
+    /// A signature was made by an RSA key whose modulus size is outside the
+    /// configured [`RsaKeySizePolicy`].
+    ///
+    /// [`RsaKeySizePolicy`]: crate::dnssec::RsaKeySizePolicy
+    #[cfg(feature = "dnssec")]
+    #[error(
+        "DNSSEC validation failed: '{owner}' {rtype} RRSIG by '{signer}' (key tag {key_tag}) uses a {bits}-bit RSA key, outside the allowed {allowed}"
+    )]
+    RsaKeySize {
+        /// Owner name of the signed RRset.
+        owner: Name,
+        /// Type of the signed RRset.
+        rtype: Type,
+        /// Zone whose key made the signature.
+        signer: Name,
+        /// Key tag of the signing key.
+        key_tag: u16,
+        /// Modulus size of the signing key, in bits.
+        bits: usize,
+        /// Accepted key sizes.
+        allowed: crate::dnssec::RsaKeySizePolicy,
     },
 
     /// No matching trust anchor was found for the delegation chain.
@@ -648,6 +688,12 @@ pub enum DnssecError {
 
 fn signed_zone_suffix(zone: Option<&Name>) -> String {
     zone.map(|zone| format!(" (nearest signed zone: '{zone}')"))
+        .unwrap_or_default()
+}
+
+fn rejected_proof_suffix(error: Option<&DnssecError>) -> String {
+    error
+        .map(|error| format!("; rejected proof: {error}"))
         .unwrap_or_default()
 }
 
@@ -677,6 +723,8 @@ impl DnssecError {
             | DnssecError::MissingSignature { .. }
             | DnssecError::MissingInsecureProof { .. }
             | DnssecError::ValidationFailed(_) => SecurityStatus::Bogus,
+            #[cfg(feature = "dnssec")]
+            DnssecError::RsaKeySize { .. } => SecurityStatus::Bogus,
         }
     }
 
@@ -725,6 +773,7 @@ mod tests {
         let unproven = DnssecError::MissingInsecureProof {
             name: name.clone(),
             signed_zone: Some("example.com.".parse().expect("valid zone")),
+            rejected_proof: None,
         };
         assert!(unproven.is_bogus());
         assert!(
@@ -734,11 +783,21 @@ mod tests {
         );
         assert!(
             DnssecError::MissingInsecureProof {
-                name,
-                signed_zone: None
+                name: name.clone(),
+                signed_zone: None,
+                rejected_proof: None,
             }
             .to_string()
             .ends_with("in an unsigned zone")
+        );
+        assert!(
+            DnssecError::MissingInsecureProof {
+                name,
+                signed_zone: None,
+                rejected_proof: Some(Box::new(DnssecError::ValidationFailed("bad".into()))),
+            }
+            .to_string()
+            .ends_with("in an unsigned zone; rejected proof: DNSSEC local validation failed: bad")
         );
         assert!(DnssecError::ValidationFailed("bad sig".to_string()).is_bogus());
     }

@@ -87,7 +87,7 @@ pub(crate) trait Backend {
     /// Hashes the concatenation of `parts`.
     fn digest(algorithm: HashAlgorithm, parts: &[&[u8]]) -> Vec<u8>;
 
-    /// Verifies an RSASSA-PKCS1-v1_5 signature with a 2048 to 8192-bit modulus.
+    /// Verifies an RSASSA-PKCS1-v1_5 signature with a 1024 to 8192-bit modulus.
     ///
     /// `hash` is [`HashAlgorithm::Sha256`] or [`HashAlgorithm::Sha512`].
     fn verify_rsa_pkcs1(
@@ -208,17 +208,31 @@ fn parse_rsa_public_key(public_key: &[u8]) -> Result<RsaPublicKey<'_>, DnssecErr
     Ok(RsaPublicKey { n, e })
 }
 
-/// Minimum and maximum accepted RSA modulus sizes, in bits.
-const RSA_MODULUS_BITS: core::ops::RangeInclusive<usize> = 2048..=8192;
+/// Returns the modulus size, in bits, of RFC 3110 RSA DNSKEY public key octets.
+///
+/// # Errors
+///
+/// Returns [`DnssecError::ValidationFailed`] if the key is malformed.
+pub(crate) fn rsa_modulus_bits(public_key: &[u8]) -> Result<usize, DnssecError> {
+    let key = parse_rsa_public_key(public_key)?;
+    let leading = key.n.iter().take_while(|&&b| b == 0).count();
+    let n = &key.n[leading..];
+    Ok(n.first()
+        .map_or(0, |&n0| n.len() * 8 - n0.leading_zeros() as usize))
+}
 
 /// Largest accepted RSA public exponent (2^33 - 1).
 const RSA_MAX_EXPONENT: u64 = (1 << 33) - 1;
 
 /// Applies the RSA key policy shared by every backend.
 ///
-/// Requires minimally encoded values, a 2048 to 8192-bit modulus, and an odd
-/// exponent from 3 to 2^33 - 1. This matches `ring`, so backends agree on
-/// which keys are usable.
+/// Requires minimally encoded values, a modulus within
+/// [`RsaKeySizePolicy::SUPPORTED_BITS`], and an odd exponent from 3 to
+/// 2^33 - 1. This matches `ring`, so backends agree on which keys are usable.
+/// Callers apply the narrower, caller-configured [`RsaKeySizePolicy`].
+///
+/// [`RsaKeySizePolicy`]: crate::dnssec::RsaKeySizePolicy
+/// [`RsaKeySizePolicy::SUPPORTED_BITS`]: crate::dnssec::RsaKeySizePolicy::SUPPORTED_BITS
 fn check_rsa_key_bounds(key: RsaPublicKey<'_>) -> Result<RsaPublicKey<'_>, DnssecError> {
     let rejected = |reason: String| {
         DnssecError::ValidationFailed(format!("unsupported RSA public key: {reason}"))
@@ -230,7 +244,8 @@ fn check_rsa_key_bounds(key: RsaPublicKey<'_>) -> Result<RsaPublicKey<'_>, Dnsse
         return Err(rejected("non-minimal encoding".to_string()));
     }
     let bits = key.n.len() * 8 - n0.leading_zeros() as usize;
-    if !RSA_MODULUS_BITS.contains(&bits) {
+    let supported = crate::dnssec::RsaKeySizePolicy::SUPPORTED_BITS;
+    if !(usize::from(*supported.start())..=usize::from(*supported.end())).contains(&bits) {
         return Err(rejected(format!("{bits}-bit modulus")));
     }
     let exponent = if key.e.len() <= 8 {
@@ -349,7 +364,8 @@ mod tests {
         assert!(ok(&n2048, &[1, 0, 1]));
         assert!(ok(&n2048, &[3]));
         assert!(ok(&[0xFF; 1024], &[1, 0, 1]));
-        assert!(!ok(&[0x7F; 256], &[1, 0, 1]), "2047-bit modulus");
+        assert!(ok(&[0x80; 128], &[1, 0, 1]), "1024-bit modulus");
+        assert!(!ok(&[0x7F; 128], &[1, 0, 1]), "1023-bit modulus");
         assert!(!ok(&[0x01; 1025], &[1, 0, 1]), "8193-bit modulus");
         assert!(!ok(&[0x00, 0x80], &[1, 0, 1]), "leading zero in modulus");
         assert!(!ok(&n2048, &[0, 3]), "leading zero in exponent");
@@ -358,6 +374,26 @@ mod tests {
         assert!(ok(&n2048, &[1, 0xFF, 0xFF, 0xFF, 0xFF]), "2^33 - 1");
         assert!(!ok(&n2048, &[2, 0, 0, 0, 1]), "exponent above 2^33 - 1");
         assert!(!ok(&n2048, &[1; 9]), "oversized exponent");
+    }
+
+    #[test]
+    fn test_rsa_modulus_bits() {
+        let encode = |n: &[u8]| [&[1u8, 3][..], n].concat();
+        assert_eq!(rsa_modulus_bits(&encode(&[0x80; 128])).unwrap(), 1024);
+        assert_eq!(rsa_modulus_bits(&encode(&[0x7F; 128])).unwrap(), 1023);
+        assert_eq!(rsa_modulus_bits(&encode(&[0, 0, 1])).unwrap(), 1);
+        assert_eq!(rsa_modulus_bits(&encode(&[0])).unwrap(), 0);
+        assert!(rsa_modulus_bits(&[]).is_err());
+    }
+
+    #[test]
+    fn test_rsa_1024_signature_verifies() {
+        let public_key = include_bytes!("../fixtures/test-rsa-1024.dnskey").to_vec();
+        let sig = include_bytes!("../fixtures/test-rsa-1024-sha256.sig");
+        let data = b"rustdns 1024-bit RSA test";
+        let key = dnskey(Algorithm::RSASHA256, public_key);
+        verify_signature(Algorithm::RSASHA256, &key, data, sig).expect("valid signature");
+        assert!(verify_signature(Algorithm::RSASHA256, &key, b"other", sig).is_err());
     }
 
     #[test]
@@ -593,6 +629,13 @@ mod tests {
                 b"rustdns RSA exponent 3 test",
             ));
             cases.push((
+                "1024-bit",
+                Algorithm::RSASHA256,
+                include_bytes!("../fixtures/test-rsa-1024.dnskey").to_vec(),
+                include_bytes!("../fixtures/test-rsa-1024-sha256.sig").to_vec(),
+                b"rustdns 1024-bit RSA test",
+            ));
+            cases.push((
                 "8192-bit",
                 Algorithm::RSASHA512,
                 include_bytes!("../fixtures/test-rsa-8192.dnskey").to_vec(),
@@ -642,18 +685,7 @@ mod tests {
 
         #[test]
         fn rsa_key_policy_agrees() {
-            // A genuine OpenSSL signature from a 1024-bit key, which the shared policy rejects.
-            let public_key = include_bytes!("../fixtures/test-rsa-1024.dnskey").to_vec();
-            let sig = include_bytes!("../fixtures/test-rsa-1024-sha256.sig");
-            let data = b"rustdns 1024-bit RSA test";
-            let small = parse_rsa_public_key(&public_key).unwrap();
-            assert!(RustCrypto::verify_rsa_pkcs1(HashAlgorithm::Sha256, small, data, sig).is_ok());
-            let key = dnskey(Algorithm::RSASHA256, public_key);
-            assert!(!agreed(Algorithm::RSASHA256, &key, data, sig));
-            let error = verify_signature_with::<RustCrypto>(Algorithm::RSASHA256, &key, data, sig)
-                .unwrap_err();
-            assert!(error.to_string().contains("1024-bit modulus"), "{error}");
-
+            let data = b"rustdns RSA key policy test";
             let (public_key, sig) = ring::test_rsa_sign(RSA_2048, HashAlgorithm::Sha256, data);
             let RsaPublicKey { n, e } = parse_rsa_public_key(&public_key).unwrap();
             let encode = |e: &[u8], n: &[u8]| [&[e.len() as u8][..], e, n].concat();

@@ -17,6 +17,8 @@ pub struct ResolverBuilder {
     payload_size: u16,
     #[cfg(feature = "dnssec")]
     trust_store: crate::dnssec::TrustStore,
+    #[cfg(feature = "dnssec")]
+    rsa_key_sizes: crate::dnssec::RsaKeySizePolicy,
 }
 
 impl fmt::Debug for ResolverBuilder {
@@ -32,7 +34,8 @@ impl fmt::Debug for ResolverBuilder {
             .field("upstream_trust_policy", &self.upstream_trust_policy)
             .field("payload_size", &self.payload_size);
         #[cfg(feature = "dnssec")]
-        d.field("trust_store", &self.trust_store);
+        d.field("trust_store", &self.trust_store)
+            .field("rsa_key_sizes", &self.rsa_key_sizes);
         d.finish()
     }
 }
@@ -51,6 +54,8 @@ impl Default for ResolverBuilder {
             payload_size: crate::limits::EDNS_SAFE_UDP_PAYLOAD_SIZE,
             #[cfg(feature = "dnssec")]
             trust_store: crate::dnssec::TrustStore::default(),
+            #[cfg(feature = "dnssec")]
+            rsa_key_sizes: crate::dnssec::RsaKeySizePolicy::default(),
         }
     }
 }
@@ -114,6 +119,20 @@ impl ResolverBuilder {
         self
     }
 
+    /// Sets the RSA key sizes accepted by [`DnssecMode::ValidateLocal`].
+    ///
+    /// Defaults to [`RsaKeySizePolicy::default`] (1024 to 4096 bits). Raise
+    /// the minimum to reject zones signed with smaller keys; their answers
+    /// then fail with [`DnssecError::RsaKeySize`].
+    ///
+    /// [`RsaKeySizePolicy::default`]: crate::dnssec::RsaKeySizePolicy::default
+    /// [`DnssecError::RsaKeySize`]: crate::DnssecError::RsaKeySize
+    #[cfg(feature = "dnssec")]
+    pub fn rsa_key_sizes(mut self, policy: crate::dnssec::RsaKeySizePolicy) -> Self {
+        self.rsa_key_sizes = policy;
+        self
+    }
+
     /// Sets the policy for trusting upstream `AD` (Authenticated Data) assertions.
     /// Defaults to [`UpstreamTrustPolicy::SecureTransportOnly`].
     ///
@@ -162,6 +181,8 @@ impl ResolverBuilder {
             payload_size: self.payload_size,
             #[cfg(feature = "dnssec")]
             trust_store: self.trust_store,
+            #[cfg(feature = "dnssec")]
+            rsa_key_sizes: self.rsa_key_sizes,
             #[cfg(feature = "dnssec")]
             dnssec_cache: crate::dnssec::DnssecCache::default(),
         })

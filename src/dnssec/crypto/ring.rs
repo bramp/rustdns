@@ -28,8 +28,9 @@ impl Backend for Ring {
         signature: &[u8],
     ) -> Result<(), String> {
         let parameters = match hash {
-            HashAlgorithm::Sha256 => &signature::RSA_PKCS1_2048_8192_SHA256,
-            HashAlgorithm::Sha512 => &signature::RSA_PKCS1_2048_8192_SHA512,
+            // Key sizes are checked against `RsaKeySizePolicy` before verification.
+            HashAlgorithm::Sha256 => &signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
+            HashAlgorithm::Sha512 => &signature::RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY,
             other => return Err(format!("unsupported RSA hash {other:?}")),
         };
         signature::RsaPublicKeyComponents { n: key.n, e: key.e }

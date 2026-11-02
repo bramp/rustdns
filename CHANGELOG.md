@@ -6,6 +6,11 @@ All notable changes to rustdns are documented here.
 
 ### Fixed
 
+- Local DNSSEC validation rejected zones signed with 1024-bit RSA keys, such as
+  the `.ws` zone signing key, so unsigned delegations like `🍕.ws` failed with
+  `MissingInsecureProof` instead of being proven insecure. The default policy now
+  accepts 1024–4096-bit keys ([RFC 3110 §2](https://datatracker.ietf.org/doc/html/rfc3110#section-2),
+  [RFC 5702 §2](https://datatracker.ietf.org/doc/html/rfc5702#section-2)).
 - The DoH and JSON DoH clients now return the caller's query ID because HTTP
   correlates the exchange. Previously the resolver rejected DoH responses whose
   server-chosen ID was neither `0` nor the query ID ([RFC 8484 §4.1](https://datatracker.ietf.org/doc/html/rfc8484#section-4.1)).
@@ -49,6 +54,13 @@ All notable changes to rustdns are documented here.
   `DnssecError::MissingInsecureProof` reports unsigned data that lacks an
   authenticated unsigned-delegation proof, with the nearest signed zone.
   `validate_rrset` failures now name the RRset owner, type, signer, and key tag.
+- **Breaking:** `DnssecError::MissingInsecureProof` gains `rejected_proof`, the
+  reason the last candidate denial proof was rejected. New variants
+  `DnssecError::RsaKeySize` and `Error::UnsupportedRsaKeySizes` report RSA key
+  policy violations.
+- **Breaking:** The accepted RSA DNSKEY modulus range changed from 2048–8192 bits
+  to a configurable 1024–4096 by default. Keys up to 8192 bits can be enabled
+  with `RsaKeySizePolicy`.
 - DNS names decoded from wire preserve arbitrary label octets, including literal
   dots, backslashes, and non-UTF-8 data, instead of joining labels into a lossy
   string. Name hierarchy, equality, ordering, case randomization, and DNSSEC
@@ -98,6 +110,12 @@ All notable changes to rustdns are documented here.
 
 ### Added
 
+- `RsaKeySizePolicy` sets the RSA DNSKEY modulus sizes accepted during DNSSEC
+  validation. Configure it with `ResolverBuilder::rsa_key_sizes` or
+  `ChainValidator::with_rsa_key_sizes`, or pass it to
+  `validate_rrset_with_policy`.
+- An offline replay test of the `🍕.ws` DNSSEC chain, also run on
+  `wasm32-unknown-unknown` with the pure-Rust backend.
 - DNSSEC validation APIs and upstream-trust controls:
   - `DnssecMode`, `UpstreamTrustPolicy`, `SecurityStatus`, and `DnssecError`, with
     transport-guarded upstream AD handling in `Resolver::query` and
