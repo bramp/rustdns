@@ -524,8 +524,11 @@ mod tests {
         let mut message = Message::default();
         message.set_extension(
             Extension::default()
-                .with_option(EdnsOption::nsid(Vec::new()))
-                .with_option(EdnsOption::tcp_keepalive(Some(Duration::from_secs(30))))
+                .with_option(EdnsOption::try_nsid(Vec::new()).expect("valid NSID request"))
+                .with_option(
+                    EdnsOption::try_tcp_keepalive(Some(Duration::from_secs(30)))
+                        .expect("valid keepalive timeout"),
+                )
                 .with_option(EdnsOption::padding(4)),
         );
 

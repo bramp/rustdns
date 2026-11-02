@@ -213,11 +213,10 @@ impl Record {
 ///
 /// let mut message = Message::default();
 /// message.set_extension(
-///     Extension::default().with_option(EdnsOption::client_subnet(
-///         "192.0.2.129".parse().unwrap(),
-///         24,
-///         0,
-///     )),
+///     Extension::default().with_option(
+///         EdnsOption::try_client_subnet("192.0.2.129".parse().unwrap(), 24, 0)
+///             .expect("valid subnet"),
+///     ),
 /// );
 /// ```
 ///
@@ -264,9 +263,10 @@ pub struct Extension {
     ///
     /// Options are encoded in order into the OPT record RDATA. Use
     /// [`Extension::add_option`] or [`Extension::with_option`] to add typed
-    /// options such as [`EdnsOption::nsid`], [`EdnsOption::cookie`],
-    /// [`EdnsOption::tcp_keepalive`], or [`EdnsOption::padding`]. Unknown option
-    /// codes can be preserved with [`EdnsOption::unknown`].
+    /// options such as [`EdnsOption::try_nsid`], [`EdnsOption::cookie`],
+    /// [`EdnsOption::try_client_subnet`], [`EdnsOption::try_cookie_with_server`],
+    /// [`EdnsOption::try_tcp_keepalive`], or [`EdnsOption::padding`]. Unknown
+    /// option codes can be preserved with [`EdnsOption::try_unknown`].
     pub options: Vec<EdnsOption>,
 }
 

@@ -201,6 +201,10 @@ All notable changes to rustdns are documented here.
 - Added `EdnsOption::try_tcp_keepalive` to validate wire-size limits at
   construction; TCP Keepalive timeouts are rounded down to 100 ms units when
   encoded.
+- Added fallible EDNS constructors for COOKIE, Client Subnet, NSID, unknown
+  options, and TCP Keepalive. Deprecated their infallible counterparts when
+  inputs can fail validation; encoding-time checks remain for options assembled
+  directly through public variants.
 - Enforced the 65,535-byte DNS message limit in `Message::to_vec` and
   `Message::append_to_vec`, with transport documentation and boundary coverage.
 - Added WebAssembly (`wasm32-unknown-unknown`, `wasm32-wasip1`) support for core

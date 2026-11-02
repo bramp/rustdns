@@ -32,11 +32,11 @@ pub const EDNS_OPTION_PADDING: u16 = 12;
 
 /// EDNS(0) option data as defined in [RFC 6891].
 ///
-/// Use typed constructors such as [`EdnsOption::nsid`],
-/// [`EdnsOption::client_subnet`], [`EdnsOption::cookie`],
-/// [`EdnsOption::tcp_keepalive`], and [`EdnsOption::padding`] when constructing
-/// a query. Use [`EdnsOption::unknown`] for options that do not yet have a typed
-/// variant.
+/// Use typed constructors such as [`EdnsOption::try_nsid`],
+/// [`EdnsOption::try_client_subnet`], [`EdnsOption::cookie`],
+/// [`EdnsOption::try_cookie_with_server`], [`EdnsOption::try_tcp_keepalive`],
+/// and [`EdnsOption::padding`] when constructing a query. Use
+/// [`EdnsOption::try_unknown`] for options that do not yet have a typed variant.
 ///
 /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[non_exhaustive]
@@ -87,20 +87,36 @@ pub enum EdnsOption {
 impl EdnsOption {
     /// Creates an EDNS(0) NSID option.
     ///
-    /// Use an empty value to request that the server include its NSID in the
-    /// response. Use a non-empty value when sending an explicit NSID payload.
+    /// Compatibility constructor. Prefer [`EdnsOption::try_nsid`], which
+    /// rejects payloads exceeding the EDNS option data limit.
+    #[deprecated(note = "use EdnsOption::try_nsid to validate at construction")]
     pub fn nsid(data: impl Into<Vec<u8>>) -> Self {
         Self::Nsid(data.into())
     }
 
+    /// Creates an EDNS(0) NSID option after validating its payload length.
+    ///
+    /// Use an empty value to request that the server include its NSID in the
+    /// response. Use a non-empty value when sending an explicit NSID payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::OptionDataTooLong`] if `data` exceeds the maximum
+    /// EDNS option data length.
+    pub fn try_nsid(data: impl Into<Vec<u8>>) -> Result<Self, EncodeError> {
+        let data = data.into();
+        encoded_option_data_len(data.len())?;
+        Ok(Self::Nsid(data))
+    }
+
     /// Creates an EDNS(0) Client Subnet option.
     ///
-    /// Use this when a query should include an address prefix for resolver
-    /// geolocation or policy. Host bits beyond `source_prefix_len` are cleared
-    /// before encoding. Use [`EdnsOption::try_client_subnet`] to reject invalid
-    /// prefixes during construction.
+    /// Compatibility constructor. Prefer [`EdnsOption::try_client_subnet`],
+    /// which rejects invalid prefixes during construction. Host bits beyond
+    /// `source_prefix_len` are cleared before encoding.
+    #[deprecated(note = "use EdnsOption::try_client_subnet to validate prefixes at construction")]
     pub fn client_subnet(address: IpAddr, source_prefix_len: u8, scope_prefix_len: u8) -> Self {
-        Self::ClientSubnet(EdnsClientSubnet::new(
+        Self::ClientSubnet(EdnsClientSubnet::from_prefix(
             address,
             source_prefix_len,
             scope_prefix_len,
@@ -151,14 +167,22 @@ impl EdnsOption {
 
     /// Creates an EDNS(0) COOKIE option with only a client cookie.
     pub fn cookie(client_cookie: [u8; 8]) -> Self {
-        Self::Cookie(EdnsCookie::new(client_cookie, Vec::new()))
+        Self::Cookie(EdnsCookie {
+            client_cookie,
+            server_cookie: Vec::new(),
+        })
     }
 
     /// Creates an EDNS(0) COOKIE option with a client cookie and server cookie.
     ///
-    /// The server cookie must be empty or between 8 and 32 bytes when encoded.
+    /// Compatibility constructor. Prefer [`EdnsOption::try_cookie_with_server`],
+    /// which rejects invalid server-cookie lengths during construction.
+    #[deprecated(note = "use EdnsOption::try_cookie_with_server to validate at construction")]
     pub fn cookie_with_server(client_cookie: [u8; 8], server_cookie: impl Into<Vec<u8>>) -> Self {
-        Self::Cookie(EdnsCookie::new(client_cookie, server_cookie))
+        Self::Cookie(EdnsCookie {
+            client_cookie,
+            server_cookie: server_cookie.into(),
+        })
     }
 
     /// Creates an EDNS(0) COOKIE option after validating the server cookie.
@@ -180,6 +204,7 @@ impl EdnsOption {
     /// Use `Some(duration)` to include a timeout, which is rounded down to
     /// 100 millisecond units when encoded. Use [`Self::try_tcp_keepalive`] to
     /// validate that the rounded timeout fits the wire format during construction.
+    #[deprecated(note = "use EdnsOption::try_tcp_keepalive to validate at construction")]
     pub fn tcp_keepalive(timeout: Option<Duration>) -> Self {
         Self::TcpKeepalive(timeout)
     }
@@ -209,12 +234,28 @@ impl EdnsOption {
 
     /// Creates an unknown EDNS(0) option from its option code and raw data.
     ///
-    /// Use this for EDNS options that do not yet have a typed variant.
+    /// Compatibility constructor. Prefer [`EdnsOption::try_unknown`], which
+    /// rejects payloads exceeding the EDNS option data limit.
+    #[deprecated(note = "use EdnsOption::try_unknown to validate at construction")]
     pub fn unknown(code: u16, data: impl Into<Vec<u8>>) -> Self {
         Self::Unknown {
             code,
             data: data.into(),
         }
+    }
+
+    /// Creates an unknown EDNS(0) option after validating its payload length.
+    ///
+    /// Use this for options that do not yet have a typed variant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError::OptionDataTooLong`] if `data` exceeds the maximum
+    /// EDNS option data length.
+    pub fn try_unknown(code: u16, data: impl Into<Vec<u8>>) -> Result<Self, EncodeError> {
+        let data = data.into();
+        encoded_option_data_len(data.len())?;
+        Ok(Self::Unknown { code, data })
     }
 
     /// Returns the EDNS(0) option code.
@@ -298,9 +339,7 @@ impl EdnsOption {
             }
         }
 
-        let data_len = u16::try_from(data.len()).map_err(|_| EncodeError::OptionDataTooLong {
-            max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
-        })?;
+        let data_len = encoded_option_data_len(data.len())?;
         buf.extend_from_slice(&self.code().to_be_bytes());
         buf.extend_from_slice(&data_len.to_be_bytes());
         buf.extend_from_slice(&data);
@@ -338,6 +377,12 @@ fn hex(data: &[u8]) -> String {
     data.iter().map(|value| format!("{value:02x}")).collect()
 }
 
+fn encoded_option_data_len(len: usize) -> Result<u16, EncodeError> {
+    u16::try_from(len).map_err(|_| EncodeError::OptionDataTooLong {
+        max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
+    })
+}
+
 fn display_duration(duration: Duration) -> String {
     let millis = duration.as_millis();
     if millis.is_multiple_of(1000) {
@@ -350,7 +395,7 @@ fn display_duration(duration: Duration) -> String {
 /// EDNS(0) COOKIE option data as defined in [RFC 7873].
 ///
 /// Use [`EdnsOption::cookie`] for client-only cookies and
-/// [`EdnsOption::cookie_with_server`] when a server cookie is available.
+/// [`EdnsOption::try_cookie_with_server`] when a server cookie is available.
 ///
 /// [RFC 7873]: https://datatracker.ietf.org/doc/html/rfc7873
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -366,9 +411,9 @@ pub struct EdnsCookie {
 impl EdnsCookie {
     /// Creates EDNS(0) COOKIE option data.
     ///
-    /// Use [`EdnsCookie::try_new`] to reject invalid server-cookie lengths during
-    /// construction. This compatibility constructor leaves validation to
-    /// encoding.
+    /// Compatibility constructor. Prefer [`EdnsCookie::try_new`], which rejects
+    /// invalid server-cookie lengths during construction.
+    #[deprecated(note = "use EdnsCookie::try_new to validate at construction")]
     pub fn new(client_cookie: [u8; 8], server_cookie: impl Into<Vec<u8>>) -> Self {
         Self {
             client_cookie,
@@ -487,12 +532,15 @@ pub struct EdnsClientSubnet {
 impl EdnsClientSubnet {
     /// Creates EDNS(0) Client Subnet option data.
     ///
-    /// Use [`EdnsOption::client_subnet`] when constructing an EDNS option. This
-    /// constructor is useful when the subnet data itself needs to be stored or
-    /// inspected before wrapping it in [`EdnsOption::ClientSubnet`]. Host bits
-    /// beyond `source_prefix_len` are cleared. Use [`Self::try_new`] to reject
-    /// invalid prefixes during construction.
+    /// Compatibility constructor. Prefer [`Self::try_new`] to reject invalid
+    /// prefixes during construction. Host bits beyond `source_prefix_len` are
+    /// cleared.
+    #[deprecated(note = "use EdnsClientSubnet::try_new to validate prefixes at construction")]
     pub fn new(address: IpAddr, source_prefix_len: u8, scope_prefix_len: u8) -> Self {
+        Self::from_prefix(address, source_prefix_len, scope_prefix_len)
+    }
+
+    fn from_prefix(address: IpAddr, source_prefix_len: u8, scope_prefix_len: u8) -> Self {
         Self {
             address: truncate_address(address, source_prefix_len),
             source_prefix_len,
@@ -524,7 +572,11 @@ impl EdnsClientSubnet {
             });
         }
 
-        Ok(Self::new(address, source_prefix_len, scope_prefix_len))
+        Ok(Self::from_prefix(
+            address,
+            source_prefix_len,
+            scope_prefix_len,
+        ))
     }
 
     fn parse(data: &[u8]) -> Result<Self, DecodeError> {
@@ -694,7 +746,8 @@ mod tests {
         assert_eq!(options[0].code(), EDNS_OPTION_CLIENT_SUBNET);
         assert_eq!(
             options[0],
-            EdnsOption::client_subnet(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)), 24, 0)
+            EdnsOption::try_client_subnet(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 0)), 24, 0,)
+                .expect("valid client subnet")
         );
     }
 
@@ -714,7 +767,8 @@ mod tests {
             options,
             vec![
                 EdnsOption::cookie(*b"client01"),
-                EdnsOption::tcp_keepalive(Some(Duration::from_secs(10))),
+                EdnsOption::try_tcp_keepalive(Some(Duration::from_secs(10)))
+                    .expect("valid keepalive timeout"),
                 EdnsOption::padding(4),
             ]
         );
@@ -724,9 +778,11 @@ mod tests {
     fn append_to_vec_round_trips_cookie_tcp_keepalive_and_padding() {
         let options = vec![
             EdnsOption::cookie(*b"client01"),
-            EdnsOption::cookie_with_server(*b"client02", b"server01".to_vec()),
-            EdnsOption::tcp_keepalive(None),
-            EdnsOption::tcp_keepalive(Some(Duration::from_secs(30))),
+            EdnsOption::try_cookie_with_server(*b"client02", b"server01".to_vec())
+                .expect("valid server cookie"),
+            EdnsOption::try_tcp_keepalive(None).expect("valid keepalive request"),
+            EdnsOption::try_tcp_keepalive(Some(Duration::from_secs(30)))
+                .expect("valid keepalive timeout"),
             EdnsOption::padding(4),
         ];
         let mut buf = Vec::new();
@@ -750,14 +806,21 @@ mod tests {
         assert!(EdnsOption::parse(&mut Cursor::new(&[0, 11, 0, 1, 0])).is_err());
 
         let mut buf = Vec::new();
+        assert!(EdnsOption::try_cookie_with_server(*b"client01", b"short".to_vec()).is_err());
         assert!(
-            EdnsOption::cookie_with_server(*b"client01", b"short".to_vec())
-                .append_to_vec(&mut buf)
-                .is_err()
+            EdnsOption::Cookie(EdnsCookie {
+                client_cookie: *b"client01",
+                server_cookie: b"short".to_vec(),
+            })
+            .append_to_vec(&mut buf)
+            .is_err()
         );
         let max_timeout = Duration::from_millis(u64::from(u16::MAX) * 100);
         assert!(
-            EdnsOption::tcp_keepalive(Some(max_timeout + Duration::from_millis(100)))
+            EdnsOption::try_tcp_keepalive(Some(max_timeout + Duration::from_millis(100))).is_err()
+        );
+        assert!(
+            EdnsOption::TcpKeepalive(Some(max_timeout + Duration::from_millis(100)))
                 .append_to_vec(&mut buf)
                 .is_err()
         );
@@ -809,6 +872,15 @@ mod tests {
             assert!(EdnsCookie::try_new(*b"client01", vec![0; len]).is_err());
             assert!(EdnsOption::try_cookie_with_server(*b"client01", vec![0; len]).is_err());
         }
+    }
+
+    #[test]
+    fn fallible_raw_option_constructors_validate_data_length() {
+        let max_len = crate::limits::MAX_EDNS_OPTION_DATA_LEN;
+        assert!(EdnsOption::try_nsid(vec![0; max_len]).is_ok());
+        assert!(EdnsOption::try_unknown(65001, vec![0; max_len]).is_ok());
+        assert!(EdnsOption::try_nsid(vec![0; max_len + 1]).is_err());
+        assert!(EdnsOption::try_unknown(65001, vec![0; max_len + 1]).is_err());
     }
 
     #[test]

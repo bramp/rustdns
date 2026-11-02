@@ -230,14 +230,18 @@ impl Message {
     /// let mut message = Message::default();
     /// message.set_extension(
     ///     Extension::default()
-    ///         .with_option(EdnsOption::nsid(Vec::new()))
-    ///         .with_option(EdnsOption::client_subnet(
-    ///             "192.0.2.129".parse().unwrap(), 24, 0
-    ///         ))
+    ///         .with_option(EdnsOption::try_nsid(Vec::new()).expect("valid NSID"))
+    ///         .with_option(
+    ///             EdnsOption::try_client_subnet("192.0.2.129".parse().unwrap(), 24, 0)
+    ///                 .expect("valid subnet"),
+    ///         )
     ///         .with_option(EdnsOption::cookie(*b"client01"))
-    ///         .with_option(EdnsOption::tcp_keepalive(Some(Duration::from_secs(30))))
+    ///         .with_option(
+    ///             EdnsOption::try_tcp_keepalive(Some(Duration::from_secs(30)))
+    ///                 .expect("valid keepalive timeout"),
+    ///         )
     ///         .with_option(EdnsOption::padding(16))
-    ///         .with_option(EdnsOption::unknown(65001, vec![1, 2, 3])),
+    ///         .with_option(EdnsOption::try_unknown(65001, vec![1, 2, 3]).expect("valid option")),
     /// );
     /// ```
     ///
@@ -514,12 +518,11 @@ mod tests {
         };
         message.set_extension(
             Extension::default()
-                .with_option(EdnsOption::nsid(b"abc".to_vec()))
-                .with_option(EdnsOption::client_subnet(
-                    "192.0.2.129".parse().unwrap(),
-                    24,
-                    0,
-                )),
+                .with_option(EdnsOption::try_nsid(b"abc".to_vec()).expect("valid NSID"))
+                .with_option(
+                    EdnsOption::try_client_subnet("192.0.2.129".parse().unwrap(), 24, 0)
+                        .expect("valid subnet"),
+                ),
         );
 
         let encoded = message.to_vec().expect("EDNS options should encode");
@@ -599,7 +602,10 @@ mod tests {
             id: 0x1234,
             ..Default::default()
         };
-        message.set_extension(Extension::default().with_option(EdnsOption::nsid(Vec::new())));
+        message.set_extension(
+            Extension::default()
+                .with_option(EdnsOption::try_nsid(Vec::new()).expect("valid NSID request")),
+        );
 
         let encoded = message
             .to_vec()
@@ -615,10 +621,12 @@ mod tests {
     #[test]
     fn to_vec_rejects_malformed_edns_options() {
         let mut message = Message::default();
-        message.set_extension(Extension::default().with_option(EdnsOption::client_subnet(
-            "192.0.2.1".parse().unwrap(),
-            33,
-            0,
+        message.set_extension(Extension::default().with_option(EdnsOption::ClientSubnet(
+            crate::EdnsClientSubnet {
+                address: "192.0.2.1".parse().unwrap(),
+                source_prefix_len: 33,
+                scope_prefix_len: 0,
+            },
         )));
 
         assert!(message.to_vec().is_err());

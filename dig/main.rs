@@ -276,7 +276,8 @@ fn parse_cookie(input: &str) -> Result<EdnsOption, String> {
     Ok(if server.is_empty() {
         EdnsOption::cookie(client)
     } else {
-        EdnsOption::cookie_with_server(client, parse_hex(server)?)
+        EdnsOption::try_cookie_with_server(client, parse_hex(server)?)
+            .map_err(|error| error.to_string())?
     })
 }
 
@@ -301,22 +302,21 @@ fn parse_subnet(input: &str) -> Result<EdnsOption, String> {
         return Err("EDNS Client Subnet must be address/source[/scope]".to_string());
     }
 
-    Ok(EdnsOption::client_subnet(
-        address,
-        source_prefix_len,
-        scope_prefix_len,
-    ))
+    EdnsOption::try_client_subnet(address, source_prefix_len, scope_prefix_len)
+        .map_err(|error| error.to_string())
 }
 
 fn parse_tcp_keepalive(input: Option<&str>) -> Result<EdnsOption, String> {
     match input {
-        None => Ok(EdnsOption::tcp_keepalive(None)),
-        Some(seconds) => seconds
-            .parse::<u64>()
-            .map(Duration::from_secs)
-            .map(Some)
-            .map(EdnsOption::tcp_keepalive)
-            .map_err(|error| error.to_string()),
+        None => EdnsOption::try_tcp_keepalive(None).map_err(|error| error.to_string()),
+        Some(seconds) => {
+            let timeout = seconds
+                .parse::<u64>()
+                .map(Duration::from_secs)
+                .map(Some)
+                .map_err(|error| error.to_string())?;
+            EdnsOption::try_tcp_keepalive(timeout).map_err(|error| error.to_string())
+        }
     }
 }
 
@@ -325,12 +325,14 @@ fn parse_unknown_edns_option(input: &str) -> Result<EdnsOption, String> {
         .split_once(':')
         .ok_or_else(|| "unknown EDNS option must be code:hex-data".to_string())?;
     let code = code.parse::<u16>().map_err(|error| error.to_string())?;
-    Ok(EdnsOption::unknown(code, parse_hex(data)?))
+    EdnsOption::try_unknown(code, parse_hex(data)?).map_err(|error| error.to_string())
 }
 
 fn parse_edns_flag(arg: &str) -> Result<Option<EdnsOption>, String> {
     if arg == "+nsid" {
-        return Ok(Some(EdnsOption::nsid(Vec::new())));
+        return EdnsOption::try_nsid(Vec::new())
+            .map(Some)
+            .map_err(|error| error.to_string());
     }
 
     if let Some(value) = arg
