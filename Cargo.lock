@@ -127,6 +127,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -417,6 +418,7 @@ dependencies = [
  "const-oid",
  "crypto-common",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -1455,15 +1457,17 @@ dependencies = [
 
 [[package]]
 name = "rsa"
-version = "0.10.0-rc.19"
+version = "0.10.0-rc.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33405e321e16ef941ca66e254f6904c3aafd3c7ff001fb88bf11c73eb75c2b85"
+checksum = "47cf9537fc2210e5db7a35a1cdda9d8d451b9df6fba234ec1cf0cd746c120c35"
 dependencies = [
  "const-oid",
  "crypto-bigint",
  "crypto-primes",
  "digest",
+ "hmac",
  "rand_core",
+ "sha2",
  "signature",
  "zeroize",
 ]
