@@ -9,8 +9,10 @@ The current baseline is `0.7.0`.
 
 - `0.5.1`: Security, parser, client, and fuzzing fixes. *(Complete)*
 - `0.6.0`: Compatibility-preserving fixes and API documentation. *(Complete)*
-- `0.7.0`: Additive features (resolver, DNSSEC trust, WASM JSON decoupling). *(In progress)*
-- `1.0.0`: Deliberate breaking cleanup, Rust 1.87.0, edition 2024, and Cargo resolver 3.
+- `0.7.0`: Additive features (resolver, DNSSEC trust, WASM JSON decoupling). *(Complete)*
+- `1.0.0`: Deliberate breaking cleanup, Rust 1.87.0, edition 2024, and Cargo resolver 3. *(In progress)*
+- `1.1.0+`: Post-1.0 additive features (stateful encoder/compression, resolver caching/EDE/strategies, zone parser extensions, DNSSEC signing & post-quantum, benchmarks).
+- `2.0.0`: Future breaking cleanup (removal of deprecated EDNS constructors and uppercase zone aliases retained in `1.0.0`).
 
 ---
 
@@ -25,18 +27,21 @@ The current baseline is `0.7.0`.
 - [x] Consolidate text and zone RDATA parsing under `text`, retaining `FromStr` entry points and unresolved zone names.
   - [x] Share borrowed SOA fields and numeric parsing between core and zone records.
   - [x] Share MX, SRV, RRSIG, and NSEC fields; reuse core DS, DNSKEY, and ZONEMD parsers.
-- [ ] Add targeted fallible constructors for caller-provided DNS and EDNS values with semantic invariants; keep ordinary record structs usable as data types and validate wire constraints during encoding.
-  - [x] Add fallible EDNS constructors for COOKIE, Client Subnet, NSID, unknown options, and TCP Keepalive; deprecate late-validating constructors.
-- [ ] Replace broad `Error::InvalidArgument(String)` with typed error variants.
-  - [x] Migrate internal call sites to typed variants; retain the deprecated catch-all for removal in 1.0.
+- [x] Add targeted fallible constructors for caller-provided DNS and EDNS values with semantic invariants; keep ordinary record structs usable as data types and validate wire constraints during encoding.
+  - [x] Add fallible EDNS constructors for COOKIE, Client Subnet, and TCP Keepalive; validate raw NSID and unknown option lengths during encoding.
+- [x] Replace broad `Error::InvalidArgument(String)` with typed error variants.
+  - [x] Migrate internal call sites to typed variants and remove the deprecated catch-all.
 - [x] Audit public method names against [DEVELOPERS.md](DEVELOPERS.md).
-- [ ] Replace stateless encoding helpers with a stateful message encoder (compression, size limits, EDNS sizing).
-- [ ] Add explicit DNS encoding options API (opt-in name compression).
-- [ ] Complete removal of input-dependent `expect`, `unwrap`, and assertions in production paths.
-- [ ] Final public API and semver compatibility audit.
+- [x] Complete removal of input-dependent `expect`, `unwrap`, and assertions in production paths.
+- [ ] Final public API and semver compatibility audit (including `#[non_exhaustive]` review and optional `rsa` prerelease dependency decision).
 - [x] Remove `Name::as_str` in favor of explicit `Name::as_ascii` and `Name::to_unicode`.
 - [x] Decide whether to move EDNS types into an `edns` submodule: keep the existing root-level names and exports; a second namespace or renaming (for example, `EdnsCookie` to `edns::Cookie`) has no clear benefit for 1.0.
 - [x] Decide whether to add getters/setters: do not convert public record structs wholesale; retain their field-based data model and add encapsulation only when needed to enforce a specific invariant.
+
+### Deferred to 1.1.0+ (Additive Encoding API)
+
+- [ ] Replace stateless encoding helpers with a stateful message encoder (compression, size limits, EDNS sizing) while keeping `to_vec`/`append_to_vec` compatible.
+- [ ] Add explicit DNS encoding options API (opt-in name compression).
 
 ### Public API audit decisions
 
@@ -56,9 +61,9 @@ continue to validate untrusted input.
 
 ---
 
-## 2. Resolver Milestones
+## 2. Resolver Milestones (1.1.0+)
 
-The core resolver architecture, deadline propagation, response correlation, failover, backoff, and verbatim exchange are implemented (see [DESIGN.md](DESIGN.md#1-resolver-architecture--design-contract)). The remaining resolver work is organized into the following feature milestones:
+The core resolver architecture, deadline propagation, response correlation, failover, backoff, and verbatim exchange are implemented (see [DESIGN.md](DESIGN.md#1-resolver-architecture--design-contract)). The remaining resolver work is additive and targeted for `1.1.0+`:
 
 ### 2.1 Cache And Negative Caching (RFC 1035 / RFC 2308)
 
@@ -111,10 +116,9 @@ Use test-driven development: add a focused failing regression or conformance tes
 - [x] Add `Type::NSEC3` (50) and `Type::NSEC3PARAM` (51) to `Type`.
 - [x] Implement wire encoding and decoding for `NSEC3` and `NSEC3PARAM` (RFC 5155) in [src/resource.rs](src/resource.rs).
 - [x] Implement `DNSKEY::key_tag()` (RFC 4034 Appendix B) and `DS::calculate()` for SHA-1, SHA-256, and SHA-384.
-- [ ] Verify and finish canonical RRset wire serialization in `src/dnssec/canonical.rs`.
+- [x] Verify and finish canonical RRset wire serialization in `src/dnssec/canonical.rs`.
   - [x] Sort by canonical RDATA octets, not the preceding RDLENGTH field, and suppress duplicate RRs.
   - [x] Check literal signed-data wire vectors for escaped-label CNAMEs, mixed case, wildcard reconstruction, and Original TTL; retain variable-length RDATA sorting tests.
-  - [ ] Add broader independently signed interoperability vectors.
 - [x] Verify RRset metadata and DNSKEY eligibility before signature validation.
   - [x] Test owner/class/type consistency, empty sets, RRSIG labels and reconstructed signer scope, protocol and zone-key/revoke flags, SEP/reserved flags, key tags, and algorithms with locally signed records.
   - [x] Test received TTL changes, Original TTL encoding at zero/u32::MAX/overflow, and exact clock-skew boundaries across serial wrap.
@@ -124,9 +128,9 @@ Use test-driven development: add a focused failing regression or conformance tes
     - Cover zero TTLs, invalid-first signature rollover, aliases/wildcards, signed denial proofs, serial wrap, fractional expiration, and zero lifetime within expiration clock skew.
 - [x] Cryptographic signature verification (Algorithms 8, 10, 13, 14, 15) via `ring` or pure-Rust RustCrypto backends in `src/dnssec/crypto/` and `src/dnssec/rrset_validator.rs`.
   - [x] Verify a frozen, independently published root DNSKEY RRset/RRSIG against the IANA KSK-2017 anchor at a fixed historical validation time; reject a tampered signature.
-  - [ ] Add independent positive interoperability vectors for every supported algorithm, not just successful self-generated signatures or malformed-key tests.
+  - [x] Verify independent RFC vectors for Algorithms 13 (P-256), 14 (P-384), and 15 (Ed25519) in `tests/dnssec_rfc_vectors.rs`.
 - [x] Official IANA Root Zone Trust Anchors (KSK 20326 and KSK 38636) and `TrustStore` in `src/dnssec/anchor.rs`.
-- [ ] Finish and verify the chain-of-trust delegation validator and DNSKEY/DS caching in `src/dnssec/chain.rs`.
+- [x] Finish and verify the chain-of-trust delegation validator and DNSKEY/DS caching in `src/dnssec/chain.rs`.
   - [x] Authenticate every DS RRset at the child owner using a strictly ancestral signer; never accept a missing DS signature.
   - [x] Try all eligible keys and signatures during rollovers, including key-tag collisions.
   - [x] Require authenticated denial of DS at a delegation before classifying unsigned answers as insecure; never let parent Opt-Out proofs override a more-specific local trust anchor.
@@ -146,13 +150,17 @@ Use test-driven development: add a focused failing regression or conformance tes
   - Local signed regressions cover closest-encloser, next-closer, wildcard, NODATA, NXDOMAIN, unsigned delegation, and NSEC3 Opt-Out cases.
   - Reject mismatched proof parameters, unsupported flags, invalid hash lengths, missing/tampered proofs, CNAME loops, and conflicting alias targets.
   - Test NSEC3 boundaries at 128/129 proof records and 150/151 iterations. A validator has a shared 1,024-unit work budget.
+
+### Post-1.0 DNSSEC Milestones (1.1.0+)
+
+- [ ] Add broader independently signed canonical RRset interoperability vectors and an independent positive vector for Algorithm 10 (`RSASHA512`).
 - [ ] Broaden denial interoperability/conformance coverage before claiming full DNSSEC support.
   - External fixture suites are deferred; retain conservative rejection of unsupported shapes, including negative ANY proofs and DNAME substitution.
 - [ ] DNSSEC signing and key generation for RSA, ECDSA, and Ed25519 behind a separate opt-in `dnssec-signing` feature.
   - Keep key-generation dependencies out of validation-only builds and retain MSRV compatibility.
   - Test each supported algorithm against independent vectors or implementations, including malformed keys, invalid RRsets, validity bounds, and tampering.
 
-### Post-quantum DNSSEC
+### Post-quantum DNSSEC (1.1.0+)
 
 Reference: Cloudflare, [1.1.1.1 now supports post-quantum DNSSEC, all 2,420 bytes of it](https://blog.cloudflare.com/post-quantum-dnssec-1111/).
 Implement the same resolver capabilities, not merely a new algorithm enum value.
@@ -180,23 +188,17 @@ Verify the current IANA assignment and [ML-DSA DNSSEC specification](https://dat
 
 Transition from stringly-typed domain names (`String` / `&str`) to a strongly-typed, canonical wire-first `Name` abstraction (Pattern 1):
 
-### Design: Canonical Wire-First `Name`
+### Design: Wire-First `Name`
 
-- **Representation**: Internally stores a normalized, lowercase, wire-format ASCII (Punycode) FQDN ending with a trailing dot (`.`):
-  ```rust
-  #[derive(Clone, Eq, PartialEq, Hash)]
-  pub struct Name {
-      ascii: String,
-  }
-  ```
+- **Representation**: Internally stores validated wire labels and a case-preserving ASCII (Punycode/escaped) FQDN ending with a trailing dot (`.`), preserving arbitrary wire label octets and original ASCII casing for 0x20-bit randomization.
 - **Invariants**:
-  1. Valid IDNA / Punycode: 100% ASCII octets.
-  2. Lowercase: Case-normalized per RFC 4034 §6.1.
+  1. Validated wire labels: preserves arbitrary label octets from wire (including escaped dots, backslashes, and non-UTF-8 data) and applies IDNA / Punycode for `Name::new`.
+  2. Case-preserving with case-insensitive `Eq`/`Hash` and canonical lowercase normalization via `to_canonical()` per RFC 4034 §6.1.
   3. Bounded: Validated against DNS label ($\le 63$ octets) and name ($\le 255$ octets) limits.
   4. FQDN: Always has a trailing dot (`.`), with root represented as `"."`.
-- **Ordering**: Naturally implements `Ord` and `PartialOrd` via Canonical DNS Name Order (RFC 4034 §6.1, `crate::names::canonical_cmp`).
+- **Ordering**: Naturally implements `Ord` and `PartialOrd` via Canonical DNS Name Order (RFC 4034 §6.1).
 - **Ergonomics & Performance**:
-  - `as_ascii(&self) -> &str` / `as_bytes(&self) -> &[u8]`: Zero-cost access for wire encoders and crypto hashers.
+  - `as_ascii(&self) -> &str` / `as_bytes(&self) -> &[u8]`: Zero-cost access for presentation and wire/crypto operations.
   - `to_unicode(&self) -> String`: Converts back to user-friendly Unicode representation on demand (e.g. `🍕.ws.`).
   - Implements `Display` (displaying Unicode for human readability), `FromStr`, and `TryFrom<&str>`.
   - Hierarchy methods: `parent(&self) -> Option<Name>`, `count_labels(&self) -> u8`, `is_subdomain_of(&self, &Name) -> bool`.
@@ -226,9 +228,9 @@ Transition from stringly-typed domain names (`String` / `&str`) to a strongly-ty
 
 ---
 
-## 5. Zone File Parser Enhancements (RFC Conformance)
+## 5. Zone File Parser Enhancements (RFC Conformance, 1.1.0+)
 
-Authoritative root zone (`root.zone`) and root hints (`named.root`) are supported (see [DESIGN.md](DESIGN.md#5-zone-file-parser--rfc-conformance-specification)). Remaining tasks for general master files:
+Authoritative root zone (`root.zone`) and root hints (`named.root`) are supported (see [DESIGN.md](DESIGN.md#5-zone-file-parser--rfc-conformance-specification)). Remaining tasks for general master files are deferred to `1.1.0+`:
 
 - [x] Establish a pinned BIND checkzone acceptance/rejection baseline with
   [per-file exceptions](tests/bind_checkzone.yaml), feature-linked TODOs, and an
@@ -258,7 +260,7 @@ Authoritative root zone (`root.zone`) and root hints (`named.root`) are supporte
 
 ---
 
-## 6. Performance Benchmarking & Allocation Profiling
+## 6. Performance Benchmarking & Allocation Profiling (1.1.0+)
 
 Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performance-benchmarking--allocation-profiling-design).
 
@@ -272,32 +274,42 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 
 ## 7. Fuzzing Strategy
 
-- [x] **Zone File Fuzzing (`zones`)**: Exercise single-record and full-file parsing, quote-safe preprocessing, origin resolution, and wire encoding with a 16 KiB input bound.
-- [x] **Round-Trip Serialization (`from_slice`)**: Exercised in [fuzz/fuzz_targets/from_slice.rs](fuzz/fuzz_targets/from_slice.rs).
+- [x] **Zone File Fuzzing (`zones`)**: Exercised in [fuzz/fuzz_targets/zones.rs](fuzz/fuzz_targets/zones.rs) (single-record and full-file parsing, quote-safe preprocessing, origin resolution, and wire encoding with a 16 KiB input bound).
+- [x] **Round-Trip Serialization (`from-slice`)**: Exercised in [fuzz/fuzz_targets/from-slice.rs](fuzz/fuzz_targets/from-slice.rs).
 - [x] **Structured Encoding and Limits (`encode`)**: Exercised in [fuzz/fuzz_targets/encode.rs](fuzz/fuzz_targets/encode.rs).
 - [x] **Text Resource Parsing (`from-str`)**: Exercised in [fuzz/fuzz_targets/from-str.rs](fuzz/fuzz_targets/from-str.rs).
 - [x] **DoH JSON Client Parsing (`json`)**: Exercised in [fuzz/fuzz_targets/json.rs](fuzz/fuzz_targets/json.rs).
 - [x] **EDNS Option Parsing (`edns`)**: Exercised in [fuzz/fuzz_targets/edns.rs](fuzz/fuzz_targets/edns.rs).
-- [ ] **Display / Formatter Safety**: Verify `Display` and `Debug` never panic on arbitrary parsed records.
-- [ ] **Continuous Fuzzing Integration**: Expand corpus seeds and CI smoke tests.
+- [x] **SOA Mailbox / Rname Fuzzing (`rname`)**: Exercised in [fuzz/fuzz_targets/rname.rs](fuzz/fuzz_targets/rname.rs).
+- [x] **Display / Formatter Safety**: `Display` and `Debug` are exercised across `from-slice`, `encode`, `from-str`, `edns`, and `json` targets.
+- [ ] **Continuous Fuzzing Integration (1.1.0+)**: Expand corpus seeds and CI smoke tests (including formatting parsed records in `zones`).
 
 ---
 
 ## 8. Rust Platform & Release Milestones
 
-- [ ] Move lint policy into workspace configuration.
-- [ ] Ratchet toward `missing_docs`, `missing_debug_implementations`, and `unsafe_code = "forbid"`.
-- [ ] Replace `lazy_static` with `std::sync::LazyLock`.
-- [ ] Review necessity of `byteorder`, `num-derive`, `educe`, and `async-trait`.
-- [ ] Clean up duplicate dependency versions (`cargo tree --duplicates`).
+### 1.0.0 Release Gate
+
+- [x] Ratchet toward `missing_docs`, `missing_debug_implementations`, and `unsafe_code = "forbid"` in [src/lib.rs](src/lib.rs).
+- [x] Replace `lazy_static` with `std::sync::LazyLock`.
 - [x] Add dependency license and source auditing via `cargo-deny`.
-- [ ] Enforce test coverage threshold in CI.
-- [ ] Run `cargo-semver-checks` against previous release.
+- [ ] Update `cargo-semver-checks` baseline in CI and run `cargo-semver-checks` against `0.7.0`.
 - [ ] Publish `1.0.0` release notes and tag.
+
+### Post-1.0 Platform Milestones (1.1.0+)
+
+- [ ] Move lint policy into workspace configuration.
+- [ ] Review necessity of `byteorder`, `num-derive`, and `async-trait`.
+- [ ] Clean up duplicate dependency versions (`cargo tree --duplicates`).
+- [ ] Enforce test coverage threshold in CI.
+
+### Future Breaking Cleanup (2.0.0)
+
+- [ ] Remove deprecated EDNS constructors in [src/edns.rs](src/edns.rs) and deprecated uppercase zone aliases in [src/zones/mod.rs](src/zones/mod.rs).
 
 ---
 
-## 9. Advanced Protocol Extensions
+## 9. Advanced Protocol Extensions (1.1.0+)
 
 - [ ] Implement zone transfer protocols: AXFR (RFC 5936) and IXFR (RFC 1995).
 - [ ] Implement transaction signatures: TSIG (RFC 2845) and SIG(0) (RFC 2931).
@@ -305,9 +317,9 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 
 ---
 
-## 10. Tooling, Examples, and Architecture
+## 10. Tooling, Examples, and Architecture (1.1.0+)
 
-- [ ] Add configurable EDNS(0) support to web-dig: allow EDNS and DO toggles, payload-size configuration, and supported options; surface limitations of DNS JSON endpoints.
+- [x] Add configurable EDNS(0) support to web-dig: allow EDNS and DO toggles, payload-size configuration, and supported options; surface limitations of DNS JSON endpoints.
 - [ ] Server-side examples: demonstrate handling, routing, and responding to incoming DNS queries with `rustdns`.
 - [ ] Implement more `dig` CLI features, such as iterative delegation tracing (`+trace`).
 - [ ] Runtime-independence: decouple core transports from Tokio to support alternative async runtimes (e.g. `smol`, `async-std`) and pure WASM environments.
@@ -316,7 +328,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 ## Definition Of Done
 
 - Compatibility fixes are clearly separated from new features.
-- `0.7.0` adds functionality without breaking existing callers or defaults.
+- `1.0.0` completes the planned breaking API cleanup and locks in a clean public surface for `1.x`.
 - Security and parser protections remain covered by deterministic tests and fuzzing.
 - Public errors, timeout behavior, and client semantics are documented.
 - Every release passes formatting, Clippy, rustdoc, tests, dependency checks, and
