@@ -335,14 +335,6 @@ impl From<EncodeError> for std::io::Error {
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// An invalid argument was provided to an API method.
-    ///
-    /// Prefer the specific error variants for new code. This compatibility
-    /// variant will be removed in the next breaking release.
-    #[error("invalid argument: {0}")]
-    #[deprecated(note = "use a specific Error variant")]
-    InvalidArgument(String),
-
     /// A DNS server address or endpoint could not be parsed.
     #[error("invalid endpoint '{endpoint}'")]
     InvalidEndpoint {

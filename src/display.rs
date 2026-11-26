@@ -394,123 +394,126 @@ mod tests {
     use crate::TXT;
     use crate::Type;
     use crate::ZONEMD;
-    use lazy_static::lazy_static;
     use pretty_assertions::assert_eq;
+    use std::sync::LazyLock;
     use std::time::{Duration, UNIX_EPOCH};
 
-    lazy_static! {
-        static ref DISPLAY_TESTS : Vec<(Resource, &'static str)> = {
-            vec![
-                (
-                    Resource::A("172.217.164.100".parse().unwrap()),
-                    "172.217.164.100",
-                ),
-                (
-                    Resource::AAAA("2607:f8b0:4005:805::2004".parse().unwrap()),
-                    "2607:f8b0:4005:805::2004",
-                ),
-                (
-                    Resource::CNAME(Name::new("code.l.google.com.").unwrap()),
-                    "code.l.google.com.",
-                ),
-                (
-                    Resource::NS(Name::new("ns4.google.com.").unwrap()),
-                    "ns4.google.com.",
-                ),
-                (Resource::PTR(Name::new("dns.google.").unwrap()), "dns.google."),
-                (
-                    Resource::SOA(SOA {
-                        mname: crate::Name::new("ns1.google.com.").unwrap(),
-                        rname: "dns-admin.google.com.".parse().unwrap(),
+    static DISPLAY_TESTS: LazyLock<Vec<(Resource, &'static str)>> = LazyLock::new(|| {
+        vec![
+            (
+                Resource::A("172.217.164.100".parse().unwrap()),
+                "172.217.164.100",
+            ),
+            (
+                Resource::AAAA("2607:f8b0:4005:805::2004".parse().unwrap()),
+                "2607:f8b0:4005:805::2004",
+            ),
+            (
+                Resource::CNAME(Name::new("code.l.google.com.").unwrap()),
+                "code.l.google.com.",
+            ),
+            (
+                Resource::NS(Name::new("ns4.google.com.").unwrap()),
+                "ns4.google.com.",
+            ),
+            (
+                Resource::PTR(Name::new("dns.google.").unwrap()),
+                "dns.google.",
+            ),
+            (
+                Resource::SOA(SOA {
+                    mname: crate::Name::new("ns1.google.com.").unwrap(),
+                    rname: "dns-admin.google.com.".parse().unwrap(),
 
-                        serial: 379031418,
+                    serial: 379031418,
 
-                        refresh: Duration::from_secs(900),
-                        retry: Duration::from_secs(900),
-                        expire: Duration::from_secs(1800),
-                        minimum: Duration::from_secs(60),
-                    }),
-                    "ns1.google.com. dns-admin.google.com. 379031418 900 900 1800 60",
-                ),
-                (
-                    Resource::MX(MX {
-                        preference: 10,
-                        exchange: crate::Name::new("aspmx.l.google.com.").unwrap(),
-                    }),
-                    "10 aspmx.l.google.com.",
-                ),
-                (
-                    Resource::SRV(SRV {
-                        priority: 5,
-                        weight: 0,
-                        port: 389,
-                        name: crate::Name::new("ldap.google.com.").unwrap(),
-                    }),
-                    "5 0 389 ldap.google.com.",
-                ),
-                (
-                    Resource::TXT(TXT::from("v=spf1 include:_spf.google.com ~all")),
-                    "\"v=spf1 include:_spf.google.com ~all\"",
-                ),
-                (
-                    // Example from TXT s1024._domainkey.yahoo.com.
-                    Resource::TXT(TXT::from(&[
+                    refresh: Duration::from_secs(900),
+                    retry: Duration::from_secs(900),
+                    expire: Duration::from_secs(1800),
+                    minimum: Duration::from_secs(60),
+                }),
+                "ns1.google.com. dns-admin.google.com. 379031418 900 900 1800 60",
+            ),
+            (
+                Resource::MX(MX {
+                    preference: 10,
+                    exchange: crate::Name::new("aspmx.l.google.com.").unwrap(),
+                }),
+                "10 aspmx.l.google.com.",
+            ),
+            (
+                Resource::SRV(SRV {
+                    priority: 5,
+                    weight: 0,
+                    port: 389,
+                    name: crate::Name::new("ldap.google.com.").unwrap(),
+                }),
+                "5 0 389 ldap.google.com.",
+            ),
+            (
+                Resource::TXT(TXT::from("v=spf1 include:_spf.google.com ~all")),
+                "\"v=spf1 include:_spf.google.com ~all\"",
+            ),
+            (
+                // Example from TXT s1024._domainkey.yahoo.com.
+                Resource::TXT(TXT::from(
+                    &[
                         "k=rsa;  p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDrEee0Ri4Juz+QfiWYui/E9UGSXau/2P8LjnTD8V4Unn+2FAZVGE3kL23bzeoULYv4PeleB3gfm",
-                        "JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;"
-                    ][..])),
-                    "\"k=rsa;  p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDrEee0Ri4Juz+QfiWYui/E9UGSXau/2P8LjnTD8V4Unn+2FAZVGE3kL23bzeoULYv4PeleB3gfm\" \"JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;\"",
-                ),
-                (
-                    Resource::DS(DS {
-                        key_tag: 31852,
-                        algorithm: crate::types::Algorithm::RSASHA256,
-                        digest_type: crate::types::DigestType::Sha256,
-                        digest: vec![0x89, 0xF7, 0x67, 0x0A],
-                    }),
-                    "31852 8 2 89F7670A",
-                ),
-                (
-                    Resource::DNSKEY(DNSKEY {
-                        flags: 256,
-                        protocol: 3,
-                        algorithm: crate::types::Algorithm::RSASHA256,
-                        public_key: vec![1, 2, 3, 4],
-                    }),
-                    "256 3 8 AQIDBA==",
-                ),
-                (
-                    Resource::RRSIG(RRSIG {
-                        type_covered: Type::A,
-                        algorithm: crate::types::Algorithm::RSASHA256,
-                        labels: 2,
-                        original_ttl: Duration::from_secs(3600),
-                        expiration: UNIX_EPOCH + Duration::from_secs(1789880400),
-                        inception: UNIX_EPOCH + Duration::from_secs(1788753600),
-                        key_tag: 12345,
-                        signer_name: crate::Name::new("example.com.").unwrap(),
-                        signature: vec![10, 20, 30, 40],
-                    }),
-                    "A 8 2 3600 20260920050000 20260907040000 12345 example.com. ChQeKA==",
-                ),
-                (
-                    Resource::NSEC(NSEC {
-                        next_domain: crate::Name::new("next.example.com.").unwrap(),
-                        types: vec![Type::A, Type::NS, Type::SOA],
-                    }),
-                    "next.example.com. A NS SOA",
-                ),
-                (
-                    Resource::ZONEMD(ZONEMD {
-                        serial: 2026090700,
-                        scheme: 1,
-                        algorithm: 1,
-                        digest: vec![0x46, 0x5D, 0x6F, 0x58],
-                    }),
-                    "2026090700 1 1 465D6F58",
-                ),
-            ]
-        };
-    }
+                        "JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;",
+                    ][..],
+                )),
+                "\"k=rsa;  p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDrEee0Ri4Juz+QfiWYui/E9UGSXau/2P8LjnTD8V4Unn+2FAZVGE3kL23bzeoULYv4PeleB3gfm\" \"JiDJOKU3Ns5L4KJAUUHjFwDebt0NP+sBK0VKeTATL2Yr/S3bT/xhy+1xtj4RkdV7fVxTn56Lb4udUnwuxK4V5b5PdOKj/+XcwIDAQAB; n=A 1024 bit key;\"",
+            ),
+            (
+                Resource::DS(DS {
+                    key_tag: 31852,
+                    algorithm: crate::types::Algorithm::RSASHA256,
+                    digest_type: crate::types::DigestType::Sha256,
+                    digest: vec![0x89, 0xF7, 0x67, 0x0A],
+                }),
+                "31852 8 2 89F7670A",
+            ),
+            (
+                Resource::DNSKEY(DNSKEY {
+                    flags: 256,
+                    protocol: 3,
+                    algorithm: crate::types::Algorithm::RSASHA256,
+                    public_key: vec![1, 2, 3, 4],
+                }),
+                "256 3 8 AQIDBA==",
+            ),
+            (
+                Resource::RRSIG(RRSIG {
+                    type_covered: Type::A,
+                    algorithm: crate::types::Algorithm::RSASHA256,
+                    labels: 2,
+                    original_ttl: Duration::from_secs(3600),
+                    expiration: UNIX_EPOCH + Duration::from_secs(1789880400),
+                    inception: UNIX_EPOCH + Duration::from_secs(1788753600),
+                    key_tag: 12345,
+                    signer_name: crate::Name::new("example.com.").unwrap(),
+                    signature: vec![10, 20, 30, 40],
+                }),
+                "A 8 2 3600 20260920050000 20260907040000 12345 example.com. ChQeKA==",
+            ),
+            (
+                Resource::NSEC(NSEC {
+                    next_domain: crate::Name::new("next.example.com.").unwrap(),
+                    types: vec![Type::A, Type::NS, Type::SOA],
+                }),
+                "next.example.com. A NS SOA",
+            ),
+            (
+                Resource::ZONEMD(ZONEMD {
+                    serial: 2026090700,
+                    scheme: 1,
+                    algorithm: 1,
+                    digest: vec![0x46, 0x5D, 0x6F, 0x58],
+                }),
+                "2026090700 1 1 465D6F58",
+            ),
+        ]
+    });
 
     #[test]
     fn test_display() {
@@ -524,7 +527,7 @@ mod tests {
         let mut message = Message::default();
         message.set_extension(
             Extension::default()
-                .with_option(EdnsOption::try_nsid(Vec::new()).expect("valid NSID request"))
+                .with_option(EdnsOption::nsid(Vec::new()))
                 .with_option(
                     EdnsOption::try_tcp_keepalive(Some(Duration::from_secs(30)))
                         .expect("valid keepalive timeout"),

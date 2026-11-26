@@ -263,10 +263,10 @@ pub struct Extension {
     ///
     /// Options are encoded in order into the OPT record RDATA. Use
     /// [`Extension::add_option`] or [`Extension::with_option`] to add typed
-    /// options such as [`EdnsOption::try_nsid`], [`EdnsOption::cookie`],
+    /// options such as [`EdnsOption::nsid`], [`EdnsOption::cookie`],
     /// [`EdnsOption::try_client_subnet`], [`EdnsOption::try_cookie_with_server`],
     /// [`EdnsOption::try_tcp_keepalive`], or [`EdnsOption::padding`]. Unknown
-    /// option codes can be preserved with [`EdnsOption::try_unknown`].
+    /// option codes can be preserved with [`EdnsOption::unknown`].
     pub options: Vec<EdnsOption>,
 }
 

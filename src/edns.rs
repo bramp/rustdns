@@ -32,11 +32,11 @@ pub const EDNS_OPTION_PADDING: u16 = 12;
 
 /// EDNS(0) option data as defined in [RFC 6891].
 ///
-/// Use typed constructors such as [`EdnsOption::try_nsid`],
+/// Use typed constructors such as [`EdnsOption::nsid`],
 /// [`EdnsOption::try_client_subnet`], [`EdnsOption::cookie`],
 /// [`EdnsOption::try_cookie_with_server`], [`EdnsOption::try_tcp_keepalive`],
 /// and [`EdnsOption::padding`] when constructing a query. Use
-/// [`EdnsOption::try_unknown`] for options that do not yet have a typed variant.
+/// [`EdnsOption::unknown`] for options that do not yet have a typed variant.
 ///
 /// [RFC 6891]: https://datatracker.ietf.org/doc/html/rfc6891
 #[non_exhaustive]
@@ -87,26 +87,10 @@ pub enum EdnsOption {
 impl EdnsOption {
     /// Creates an EDNS(0) NSID option.
     ///
-    /// Compatibility constructor. Prefer [`EdnsOption::try_nsid`], which
-    /// rejects payloads exceeding the EDNS option data limit.
-    #[deprecated(note = "use EdnsOption::try_nsid to validate at construction")]
-    pub fn nsid(data: impl Into<Vec<u8>>) -> Self {
-        Self::Nsid(data.into())
-    }
-
-    /// Creates an EDNS(0) NSID option after validating its payload length.
-    ///
     /// Use an empty value to request that the server include its NSID in the
     /// response. Use a non-empty value when sending an explicit NSID payload.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EncodeError::OptionDataTooLong`] if `data` exceeds the maximum
-    /// EDNS option data length.
-    pub fn try_nsid(data: impl Into<Vec<u8>>) -> Result<Self, EncodeError> {
-        let data = data.into();
-        encoded_option_data_len(data.len())?;
-        Ok(Self::Nsid(data))
+    pub fn nsid(data: impl Into<Vec<u8>>) -> Self {
+        Self::Nsid(data.into())
     }
 
     /// Creates an EDNS(0) Client Subnet option.
@@ -234,28 +218,12 @@ impl EdnsOption {
 
     /// Creates an unknown EDNS(0) option from its option code and raw data.
     ///
-    /// Compatibility constructor. Prefer [`EdnsOption::try_unknown`], which
-    /// rejects payloads exceeding the EDNS option data limit.
-    #[deprecated(note = "use EdnsOption::try_unknown to validate at construction")]
+    /// Use this for EDNS options that do not yet have a typed variant.
     pub fn unknown(code: u16, data: impl Into<Vec<u8>>) -> Self {
         Self::Unknown {
             code,
             data: data.into(),
         }
-    }
-
-    /// Creates an unknown EDNS(0) option after validating its payload length.
-    ///
-    /// Use this for options that do not yet have a typed variant.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EncodeError::OptionDataTooLong`] if `data` exceeds the maximum
-    /// EDNS option data length.
-    pub fn try_unknown(code: u16, data: impl Into<Vec<u8>>) -> Result<Self, EncodeError> {
-        let data = data.into();
-        encoded_option_data_len(data.len())?;
-        Ok(Self::Unknown { code, data })
     }
 
     /// Returns the EDNS(0) option code.
@@ -339,7 +307,9 @@ impl EdnsOption {
             }
         }
 
-        let data_len = encoded_option_data_len(data.len())?;
+        let data_len = u16::try_from(data.len()).map_err(|_| EncodeError::OptionDataTooLong {
+            max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
+        })?;
         buf.extend_from_slice(&self.code().to_be_bytes());
         buf.extend_from_slice(&data_len.to_be_bytes());
         buf.extend_from_slice(&data);
@@ -375,12 +345,6 @@ impl fmt::Display for EdnsOption {
 
 fn hex(data: &[u8]) -> String {
     data.iter().map(|value| format!("{value:02x}")).collect()
-}
-
-fn encoded_option_data_len(len: usize) -> Result<u16, EncodeError> {
-    u16::try_from(len).map_err(|_| EncodeError::OptionDataTooLong {
-        max: crate::limits::MAX_EDNS_OPTION_DATA_LEN,
-    })
 }
 
 fn display_duration(duration: Duration) -> String {
@@ -872,15 +836,6 @@ mod tests {
             assert!(EdnsCookie::try_new(*b"client01", vec![0; len]).is_err());
             assert!(EdnsOption::try_cookie_with_server(*b"client01", vec![0; len]).is_err());
         }
-    }
-
-    #[test]
-    fn fallible_raw_option_constructors_validate_data_length() {
-        let max_len = crate::limits::MAX_EDNS_OPTION_DATA_LEN;
-        assert!(EdnsOption::try_nsid(vec![0; max_len]).is_ok());
-        assert!(EdnsOption::try_unknown(65001, vec![0; max_len]).is_ok());
-        assert!(EdnsOption::try_nsid(vec![0; max_len + 1]).is_err());
-        assert!(EdnsOption::try_unknown(65001, vec![0; max_len + 1]).is_err());
     }
 
     #[test]

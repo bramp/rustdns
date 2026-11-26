@@ -137,7 +137,6 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 ###
 
 [dev-dependencies]
-lazy_static = "1.5.0"
 env_logger = "0.11.11"
 ntest = "0.10"
 pretty_assertions = "1.4.1"

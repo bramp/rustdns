@@ -325,14 +325,12 @@ fn parse_unknown_edns_option(input: &str) -> Result<EdnsOption, String> {
         .split_once(':')
         .ok_or_else(|| "unknown EDNS option must be code:hex-data".to_string())?;
     let code = code.parse::<u16>().map_err(|error| error.to_string())?;
-    EdnsOption::try_unknown(code, parse_hex(data)?).map_err(|error| error.to_string())
+    Ok(EdnsOption::unknown(code, parse_hex(data)?))
 }
 
 fn parse_edns_flag(arg: &str) -> Result<Option<EdnsOption>, String> {
     if arg == "+nsid" {
-        return EdnsOption::try_nsid(Vec::new())
-            .map(Some)
-            .map_err(|error| error.to_string());
+        return Ok(Some(EdnsOption::nsid(Vec::new())));
     }
 
     if let Some(value) = arg
