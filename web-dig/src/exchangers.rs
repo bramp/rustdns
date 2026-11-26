@@ -5,6 +5,7 @@ use rustdns::clients::doh::{CONTENT_TYPE_APPLICATION_DNS_MESSAGE, DNS_QUERY_PARA
 use rustdns::clients::json::CONTENT_TYPE_APPLICATION_DNS_JSON;
 use rustdns::clients::{AsyncExchanger, WireResponse, WireResponseMeta};
 use rustdns::types::ChannelSecurity;
+use rustdns::{EdnsOption, Extension};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -174,7 +175,7 @@ impl BrowserJsonClient {
             self.endpoint, separator, domain, rtype, query.cd
         );
         if let Some(extension) = &query.extension {
-            url.push_str(&format!("&do={}", extension.dnssec_ok));
+            append_json_edns_params(&mut url, extension)?;
         }
         let channel_security = self.channel_security();
         let query_id = query.id;
@@ -203,6 +204,38 @@ impl BrowserJsonClient {
         })
         .await
     }
+}
+
+fn append_json_edns_params(url: &mut String, extension: &Extension) -> Result<(), rustdns::Error> {
+    url.push_str(&format!("&do={}", extension.dnssec_ok));
+    for option in &extension.options {
+        match option {
+            EdnsOption::ClientSubnet(subnet) => {
+                if subnet.scope_prefix_len != 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "DNS-over-HTTPS JSON cannot represent an ECS scope prefix",
+                    )
+                    .into());
+                }
+                url.push_str(&format!(
+                    "&edns_client_subnet={}/{}",
+                    subnet.address, subnet.source_prefix_len
+                ));
+            }
+            option => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    format!(
+                        "DNS-over-HTTPS JSON cannot represent EDNS option code {}",
+                        option.code()
+                    ),
+                )
+                .into());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[async_trait]

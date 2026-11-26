@@ -68,19 +68,64 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="dnssec-mode">DNSSEC</label>
+                            <div class="label-with-info">
+                                <label for="dnssec-mode">DNSSEC</label>
+                                <a class="info-tip" href="dnssec.html" aria-label="What do DNSSEC modes mean?" title="Learn what upstream trust and local validation mean.">i</a>
+                            </div>
                             <select id="dnssec-mode">
                                 <option value="off" selected>Off</option>
                                 <option value="upstream">Trust upstream (AD)</option>
                                 <option value="local">Validate locally</option>
                             </select>
-                            <small class="help-text"><a href="dnssec.html">What do these results mean?</a></small>
                         </div>
                     </div>
 
                     <div id="custom-server-row" class="custom-server-row">
                         <label for="custom-server-input" id="custom-server-label">Custom Endpoint URL</label>
                         <input id="custom-server-input" type="text" placeholder="https://my-dns-server.example/dns-query">
+                    </div>
+
+                    <div class="edns-panel">
+                        <label class="edns-master-label" for="edns-enabled">
+                            <input id="edns-enabled" type="checkbox">
+                            <span>EDNS options</span>
+                        </label>
+                        <div id="edns-content" class="edns-content" hidden>
+                            <div class="edns-inputs-grid">
+                                <div class="form-group">
+                                    <label for="client-subnet">Client subnet (ECS)</label>
+                                    <input id="client-subnet" type="text" placeholder="192.0.2.0/24" autocomplete="off" spellcheck="false">
+                                    <small class="help-text">Format: <code>addr/prefix[/scope]</code>. Resolvers may ignore ECS.</small>
+                                </div>
+                                <div class="edns-numeric-pair">
+                                    <div class="form-group">
+                                        <label for="edns-payload-size">UDP payload size</label>
+                                        <input id="edns-payload-size" type="number" min="512" max="65535" step="1" value="4096">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="padding-length">EDNS padding bytes</label>
+                                        <input id="padding-length" type="number" min="0" max="65535" step="1" value="0">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="edns-toggles-row">
+                                <div class="edns-toggle-item">
+                                    <label class="toggle-control" for="cookie-enabled">
+                                        <input id="cookie-enabled" type="checkbox">
+                                        <span>Send DNS COOKIE</span>
+                                    </label>
+                                    <small class="help-text">Sends a random 8-byte client cookie (often ignored over DoH).</small>
+                                </div>
+                                <div class="edns-toggle-item">
+                                    <label class="toggle-control" for="nsid-enabled">
+                                        <input id="nsid-enabled" type="checkbox">
+                                        <span>Request NSID</span>
+                                    </label>
+                                    <small class="help-text">Requests the upstream server identifier (RFC 5001).</small>
+                                </div>
+                            </div>
+                            <p id="edns-capability-note" class="edns-capability-note" role="status"></p>
+                        </div>
                     </div>
 
                     <div class="submit-row">

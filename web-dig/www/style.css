@@ -100,7 +100,7 @@ header p {
     margin-bottom: 1rem;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 760px) {
     .form-grid {
         grid-template-columns: 1fr;
     }
@@ -131,7 +131,10 @@ label {
 }
 
 input[type="text"],
+input[type="number"],
 select {
+    width: 100%;
+    min-width: 0;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
@@ -143,7 +146,19 @@ select {
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M2.25 4.25L6 8l3.75-3.75-.9-.9L6 6.2 3.15 3.35z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 0.75rem 0.75rem;
+    cursor: pointer;
+}
+
 input[type="text"]:focus,
+input[type="number"]:focus,
 select:focus {
     border-color: var(--accent-blue);
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
@@ -162,6 +177,183 @@ option:disabled {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+}
+
+.edns-panel {
+    margin: 0 0 1rem;
+}
+
+.label-with-info {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.info-tip {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+    border: 1px solid var(--text-muted);
+    border-radius: 50%;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    text-transform: none;
+}
+
+.info-tip:hover,
+.info-tip:focus-visible {
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
+.info-tip::after {
+    content: attr(title);
+    position: absolute;
+    z-index: 5;
+    left: 50%;
+    bottom: calc(100% + 0.55rem);
+    width: min(17rem, calc(100vw - 3rem));
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 400;
+    line-height: 1.4;
+    text-transform: none;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, 0.2rem);
+    transition: opacity 0.12s, transform 0.12s;
+}
+
+.info-tip:hover::after,
+.info-tip:focus-visible::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+.edns-master-label {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 2rem;
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+.edns-master-label input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--accent-blue);
+    flex: 0 0 auto;
+}
+
+.edns-content {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 0.65rem;
+}
+
+.edns-content[hidden] {
+    display: none;
+}
+
+.edns-master-label:has(input:focus-visible) {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 3px;
+    border-radius: 2px;
+}
+
+.edns-inputs-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 1.5rem;
+}
+
+.edns-numeric-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 1rem;
+}
+
+.edns-toggles-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+    margin-top: 0.9rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.edns-toggle-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.edns-toggle-item .help-text {
+    margin-left: 1.55rem;
+}
+
+.toggle-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.toggle-control input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--accent-blue);
+    flex: 0 0 auto;
+}
+
+.toggle-control:has(input:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.edns-capability-note {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 0.75rem;
+}
+
+.edns-capability-note:empty {
+    display: none;
+}
+
+input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+    .edns-inputs-grid,
+    .edns-toggles-row {
+        grid-template-columns: 1fr;
+        gap: 0.85rem;
+    }
+
+    .edns-content {
+        padding: 0.75rem;
+    }
 }
 
 .submit-row {
@@ -338,6 +530,8 @@ option:disabled {
     font-size: 0.88rem;
     line-height: 1.55;
     padding: 1rem 1.25rem;
+    max-width: 100%;
+    text-align: left;
     overflow-x: auto;
     white-space: pre;
     min-height: 220px;

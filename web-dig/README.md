@@ -9,6 +9,8 @@ Live demo: <https://dig.bramp.net>
 - **Direct In-Browser Resolution**: Queries DNS-over-HTTPS (DoH, RFC 8484) and DNS-over-HTTPS JSON endpoints directly from the browser without needing a backend server or proxy.
 - **AsyncExchanger Integration**: Implements the `rustdns::clients::AsyncExchanger` trait for both binary DoH (`BrowserDohClient`) and JSON DoH (`BrowserJsonClient`).
 - **Authentic Dig Output**: Formats DNS query responses using `rustdns`'s built-in `Display` implementation.
+- **EDNS Controls**: EDNS is off until enabled; configure advertised UDP payload size, ECS, DNS COOKIE, NSID, and padding. ECS and COOKIE are opt-in; COOKIE uses a fresh cryptographically random client value. DNSSEC mode controls DO automatically.
+- **JSON DoH Limits**: JSON endpoints support only DO and provider-dependent ECS parameters. COOKIE, NSID, padding, and the advertised UDP payload size require binary DoH.
 - **DNSSEC Demonstration**: Compare an upstream resolver's `AD` assertion with local cryptographic chain validation to IANA root trust anchors.
 - **Validation Trace**: In local-validation mode, a trace pane lists every DNSKEY and DS query made to build the chain of trust, with flags, results, timing, and the full responses.
 - **Bounded Browser Resolution**: DNSKEY and DS dependency queries use the selected DoH endpoint, a shared deadline, and abortable fetches.
