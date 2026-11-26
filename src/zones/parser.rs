@@ -22,6 +22,14 @@ pub(crate) struct ZoneParser;
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
+fn expect_rule(input: &Node<'_>, expected: Rule) -> Result<()> {
+    if input.as_rule() == expected {
+        Ok(())
+    } else {
+        Err(input.error(format!("expected {expected:?}, got {:?}", input.as_rule())))
+    }
+}
+
 fn unquote_name(text: &str) -> &str {
     text.strip_prefix('"')
         .and_then(|text| text.strip_suffix('"'))
@@ -60,12 +68,12 @@ fn rdata_text(input: &str) -> Cow<'_, str> {
 #[pest_consume::parser]
 impl ZoneParser {
     fn EOI(input: Node<'_>) -> Result<()> {
-        assert_eq!(input.as_rule(), Rule::EOI);
+        expect_rule(&input, Rule::EOI)?;
         Ok(())
     }
 
     fn ip4(input: Node<'_>) -> Result<Ipv4Addr> {
-        assert_eq!(input.as_rule(), Rule::ip4);
+        expect_rule(&input, Rule::ip4)?;
 
         match Ipv4Addr::from_str(input.as_str()) {
             Ok(ip4) => Ok(ip4),
@@ -74,7 +82,7 @@ impl ZoneParser {
     }
 
     fn ip6(input: Node<'_>) -> Result<Ipv6Addr> {
-        assert_eq!(input.as_rule(), Rule::ip6);
+        expect_rule(&input, Rule::ip6)?;
 
         match Ipv6Addr::from_str(input.as_str()) {
             Ok(ip6) => Ok(ip6),
@@ -83,7 +91,7 @@ impl ZoneParser {
     }
 
     fn duration(input: Node<'_>) -> Result<Duration> {
-        assert_eq!(input.as_rule(), Rule::duration);
+        expect_rule(&input, Rule::duration)?;
 
         // TODO Support more complex duration types (e.g "1d")
         match input.as_str().parse() {
@@ -93,14 +101,14 @@ impl ZoneParser {
     }
 
     fn domain(input: Node<'_>) -> Result<&str> {
-        assert_eq!(input.as_rule(), Rule::domain);
+        expect_rule(&input, Rule::domain)?;
 
         let text = input.as_str();
         Ok(unquote_name(text))
     }
 
     fn class(input: Node<'_>) -> Result<Class> {
-        assert_eq!(input.as_rule(), Rule::class);
+        expect_rule(&input, Rule::class)?;
 
         match input.as_str().parse() {
             Ok(class) => Ok(class),
@@ -110,7 +118,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_a(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_a);
+        expect_rule(&input, Rule::resource_a)?;
 
         Ok(match_nodes!(input.into_children();
             [ip4(ip)] => Resource::A(ip),
@@ -119,7 +127,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_aaaa(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_aaaa);
+        expect_rule(&input, Rule::resource_aaaa)?;
 
         Ok(match_nodes!(input.into_children();
             [ip6(ip)] => Resource::AAAA(ip),
@@ -128,7 +136,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_cname(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_cname);
+        expect_rule(&input, Rule::resource_cname)?;
 
         Ok(match_nodes!(input.into_children();
             [domain(name)] => Resource::CNAME(name.to_string()),
@@ -144,7 +152,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_ns(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_ns);
+        expect_rule(&input, Rule::resource_ns)?;
 
         Ok(match_nodes!(input.into_children();
             [domain(name)] => Resource::NS(name.to_string()),
@@ -153,7 +161,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_mx(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_mx);
+        expect_rule(&input, Rule::resource_mx)?;
 
         Ok(match_nodes!(input.into_children();
             [mx_rdata(mx)] => Resource::MX(mx),
@@ -189,7 +197,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_ptr(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_ptr);
+        expect_rule(&input, Rule::resource_ptr)?;
 
         Ok(match_nodes!(input.into_children();
             [domain(name)] => Resource::PTR(name.to_string()),
@@ -198,7 +206,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_soa(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_soa);
+        expect_rule(&input, Rule::resource_soa)?;
 
         Ok(match_nodes!(input.into_children();
             [soa_rdata(soa)] => Resource::SOA(soa),
@@ -221,7 +229,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_ds(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_ds);
+        expect_rule(&input, Rule::resource_ds)?;
 
         Ok(match_nodes!(input.into_children();
             [ds_rdata(ds)] => Resource::DS(ds),
@@ -236,7 +244,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_dnskey(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_dnskey);
+        expect_rule(&input, Rule::resource_dnskey)?;
 
         Ok(match_nodes!(input.into_children();
             [dnskey_rdata(dnskey)] => Resource::DNSKEY(dnskey),
@@ -251,7 +259,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_rrsig(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_rrsig);
+        expect_rule(&input, Rule::resource_rrsig)?;
 
         Ok(match_nodes!(input.into_children();
             [rrsig_rdata(rrsig)] => Resource::RRSIG(rrsig),
@@ -276,7 +284,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_nsec(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_nsec);
+        expect_rule(&input, Rule::resource_nsec)?;
 
         Ok(match_nodes!(input.into_children();
             [nsec_rdata(nsec)] => Resource::NSEC(nsec),
@@ -294,7 +302,7 @@ impl ZoneParser {
 
     #[alias(resource)]
     fn resource_zonemd(input: Node<'_>) -> Result<Resource> {
-        assert_eq!(input.as_rule(), Rule::resource_zonemd);
+        expect_rule(&input, Rule::resource_zonemd)?;
 
         Ok(match_nodes!(input.into_children();
             [zonemd_rdata(zonemd)] => Resource::ZONEMD(zonemd),
@@ -362,7 +370,7 @@ impl ZoneParser {
 
     #[alias(entry)]
     fn origin(input: Node<'_>) -> Result<Entry> {
-        assert_eq!(input.as_rule(), Rule::origin);
+        expect_rule(&input, Rule::origin)?;
 
         Ok(match_nodes!(input.into_children();
             [domain(d)] => Entry::Origin(d.to_string()),
@@ -371,7 +379,7 @@ impl ZoneParser {
 
     #[alias(entry)]
     fn ttl(input: Node<'_>) -> Result<Entry> {
-        assert_eq!(input.as_rule(), Rule::ttl);
+        expect_rule(&input, Rule::ttl)?;
 
         Ok(match_nodes!(input.into_children();
             [duration(ttl)] => Entry::TTL(ttl),
@@ -380,7 +388,7 @@ impl ZoneParser {
 
     #[alias(entry)]
     fn record(input: Node<'_>) -> Result<Entry> {
-        assert_eq!(input.as_rule(), Rule::record);
+        expect_rule(&input, Rule::record)?;
 
         let record = Self::parse_record(input)?;
 
@@ -389,7 +397,7 @@ impl ZoneParser {
     }
 
     pub fn single_record(input: Node<'_>) -> Result<Record> {
-        assert_eq!(input.as_rule(), Rule::single_record);
+        expect_rule(&input, Rule::single_record)?;
 
         match_nodes!(input.into_children();
             [record, _EOI] => Ok(Self::parse_record(record)?)
@@ -397,7 +405,7 @@ impl ZoneParser {
     }
 
     pub fn file(input: Node<'_>) -> Result<Vec<Entry>> {
-        assert_eq!(input.as_rule(), Rule::file);
+        expect_rule(&input, Rule::file)?;
 
         match_nodes!(input.into_children();
             [entry(entrys).., _EOI] => Ok(entrys.collect()),
@@ -411,7 +419,8 @@ impl ZoneParser {
     // `#[pest_consume::parser]` which does not allow aliased methods to be
     // called, or used in match_nodes.
     fn parse_record(input: Node<'_>) -> Result<Record> {
-        assert_eq!(input.as_rule(), Rule::record);
+        expect_rule(&input, Rule::record)?;
+        let record_span = input.as_span();
 
         let mut record = Record {
             name: None,
@@ -420,9 +429,6 @@ impl ZoneParser {
             resource: Resource::ANY,
         };
 
-        // All the assert! are due to programming errors, hopefully
-        // never due to a parsing error.
-
         // We would prefer to use match_nodes! but we need to match the
         // various children in any order. This is due to the near ambigious
         // syntax of the resource record entry.
@@ -430,7 +436,9 @@ impl ZoneParser {
             let rule = node.as_rule();
             match rule {
                 Rule::domain => {
-                    assert!(record.name.is_none(), "record domain was set twice");
+                    if record.name.is_some() {
+                        return Err(node.error("record domain was set twice"));
+                    }
 
                     // Intentionally preserved as a raw String (not Name). In zone files,
                     // domain names may be relative (e.g. "www"), "@", or inherit from previous
@@ -439,12 +447,16 @@ impl ZoneParser {
                     record.name = Some(Self::domain(node)?.to_string())
                 }
                 Rule::duration => {
-                    assert!(record.ttl.is_none(), "record ttl was set twice");
+                    if record.ttl.is_some() {
+                        return Err(node.error("record ttl was set twice"));
+                    }
 
                     record.ttl = Some(Self::duration(node)?)
                 }
                 Rule::class => {
-                    assert!(record.class.is_none(), "record class was set twice");
+                    if record.class.is_some() {
+                        return Err(node.error("record class was set twice"));
+                    }
 
                     record.class = Some(Self::class(node)?)
                 }
@@ -453,22 +465,31 @@ impl ZoneParser {
                     // Rule::resource have many aliases, try one of them.
                     match Self::rule_alias(rule) {
                         AliasedRule::resource => {
-                            assert!(
-                                record.resource == Resource::ANY,
-                                "record resource was set twice"
-                            );
+                            if record.resource != Resource::ANY {
+                                return Err(node.error("record resource was set twice"));
+                            }
 
                             record.resource = Self::resource(node)?
                         }
 
-                        _ => panic!("Unexpected token: {:?} '{:?}'", rule, node.as_str()),
+                        _ => {
+                            return Err(
+                                node.error(format!("unexpected token: {rule:?} {:?}", node.as_str()))
+                            );
+                        }
                     }
                 }
             }
         }
 
-        // By the end atleast this should be set
-        assert_ne!(record.resource, Resource::ANY);
+        if record.resource == Resource::ANY {
+            return Err(Error::new_from_span(
+                pest::error::ErrorVariant::CustomError {
+                    message: "record missing resource data".to_owned(),
+                },
+                record_span,
+            ));
+        }
 
         Ok(record)
     }

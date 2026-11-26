@@ -11,7 +11,14 @@ struct ZonePreprocessor;
 type Result<T> = result::Result<T, Error<Rule>>;
 
 fn parse_tokens(pair: Pair<'_, Rule>) -> Result<String> {
-    assert_eq!(pair.as_rule(), Rule::tokens);
+    if pair.as_rule() != Rule::tokens {
+        return Err(Error::new_from_span(
+            pest::error::ErrorVariant::CustomError {
+                message: format!("expected {:?}, got {:?}", Rule::tokens, pair.as_rule()),
+            },
+            pair.as_span(),
+        ));
+    }
 
     let span = pair.as_span();
     let mut result = String::new();
@@ -79,7 +86,14 @@ pub(crate) fn preprocess(input: &str) -> Result<String> {
         match pair.as_rule() {
             Rule::tokens => result.push_str(&parse_tokens(pair)?),
             Rule::EOI => (), // Nothing
-            _ => unreachable!("Unexpected rule: {:?}", pair.as_rule()),
+            rule => {
+                return Err(Error::new_from_span(
+                    pest::error::ErrorVariant::CustomError {
+                        message: format!("unexpected preprocessor rule: {rule:?}"),
+                    },
+                    pair.as_span(),
+                ));
+            }
         }
     }
     Ok(result)
