@@ -106,19 +106,13 @@ impl BrowserResolver {
         );
         let upstream = self.client.endpoint();
 
+        let mut meta = ResponseMeta::new(upstream, elapsed, when, channel_security);
+        meta.security_status = security_status;
+        meta.wire = vec![wire.meta];
+
         Ok(Response {
             message: wire.message,
-            meta: ResponseMeta {
-                upstream,
-                attempts: 1,
-                elapsed,
-                when,
-                security_status,
-                security_source: rustdns::types::SecuritySource::AdFlag,
-                dnssec_error: None,
-                channel_security,
-                wire: vec![wire.meta],
-            },
+            meta,
         })
     }
 }

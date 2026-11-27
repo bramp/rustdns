@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 /// Resolver execution metadata attached to a [`Response`].
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct ResponseMeta {
     /// The endpoint or identifier of the upstream that produced this response.
@@ -39,6 +40,27 @@ pub struct ResponseMeta {
 }
 
 impl ResponseMeta {
+    /// Creates a new [`ResponseMeta`] for a single exchange with the given upstream,
+    /// timing, and channel security.
+    pub fn new(
+        upstream: impl Into<Arc<str>>,
+        elapsed: Duration,
+        when: SystemTime,
+        channel_security: ChannelSecurity,
+    ) -> Self {
+        Self {
+            upstream: upstream.into(),
+            attempts: 1,
+            elapsed,
+            when,
+            security_status: SecurityStatus::Indeterminate,
+            security_source: SecuritySource::default(),
+            dnssec_error: None,
+            channel_security,
+            wire: Vec::new(),
+        }
+    }
+
     /// Returns the transport metadata of the winning attempt, if any wire response was received.
     pub fn winning_wire(&self) -> Option<&WireResponseMeta> {
         self.wire.last()

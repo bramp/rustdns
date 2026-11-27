@@ -60,17 +60,12 @@ impl AsyncResolver<u64> for Replay {
             .ok_or(rustdns::Error::ResponseMismatch)?;
         Ok(Response {
             message,
-            meta: ResponseMeta {
-                upstream: "replay".into(),
-                attempts: 1,
-                elapsed: Duration::ZERO,
-                when: UNIX_EPOCH,
-                security_status: SecurityStatus::Indeterminate,
-                security_source: rustdns::types::SecuritySource::AdFlag,
-                dnssec_error: None,
-                channel_security: ChannelSecurity::Encrypted,
-                wire: Vec::new(),
-            },
+            meta: ResponseMeta::new(
+                "replay",
+                Duration::ZERO,
+                UNIX_EPOCH,
+                ChannelSecurity::Encrypted,
+            ),
         })
     }
 }

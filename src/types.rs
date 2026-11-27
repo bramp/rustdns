@@ -302,6 +302,7 @@ impl Extension {
 }
 
 /// The transport security classification of a communication channel.
+#[non_exhaustive]
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum ChannelSecurity {
@@ -343,6 +344,7 @@ pub struct TlsInfo {
 }
 
 /// The DNSSEC security status of a response.
+#[non_exhaustive]
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum SecurityStatus {
@@ -391,6 +393,7 @@ impl std::fmt::Display for SecuritySource {
 }
 
 /// The DNSSEC validation policy configured on a resolver.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum DnssecMode {
     /// DNSSEC validation is disabled (default). The resolver does not set `DO=1`
@@ -438,6 +441,7 @@ pub enum DnssecMode {
 /// This policy guards `AD=1` assertions, not `AD=0` responses. In
 /// [`DnssecMode::TrustUpstream`], `require_secure` controls whether `AD=0`
 /// responses are accepted.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum UpstreamTrustPolicy {
     /// Honor the upstream `AD=1` bit only if the transport is secure (DoH, DoT, or loopback).
@@ -493,6 +497,7 @@ impl From<QR> for bool {
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, Hash, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u8)] // Really only 4 bits
 pub enum Opcode {
@@ -538,6 +543,7 @@ impl Default for Opcode {
 /// [DNS Parameters]: https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 #[derive(Copy, Clone, Debug, Display, EnumString, Eq, Hash, FromPrimitive, PartialEq)]
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)] // In headers it is 4 bits, in extended OPTS it is 16.
 pub enum Rcode {
@@ -628,6 +634,7 @@ pub enum ExtendedRcode {
 ///
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Type {
     /// Reserved type code (0).
@@ -868,6 +875,7 @@ impl Default for Type {
 /// [RFC 8624]: https://datatracker.ietf.org/doc/html/rfc8624#section-3.1
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Algorithm {
     /// RSA/MD5 [RFC 2537, RFC 4034] - Deprecated, MUST NOT be used.
@@ -1006,6 +1014,7 @@ impl std::str::FromStr for Algorithm {
 /// [RFC 6605]: https://datatracker.ietf.org/doc/html/rfc6605
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum DigestType {
     /// SHA-1 [RFC 4034] - Mandatory for historical validation.
@@ -1088,6 +1097,7 @@ impl std::str::FromStr for DigestType {
 /// [RFC 5155 §11.4]: https://datatracker.ietf.org/doc/html/rfc5155#section-11.4
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Nsec3HashAlgorithm {
     /// SHA-1 [RFC 5155] - Currently the only standardized NSEC3 hash algorithm.
@@ -1153,6 +1163,7 @@ impl std::str::FromStr for Nsec3HashAlgorithm {
 #[derive(
     Copy, Clone, Debug, Display, EnumString, Eq, FromPrimitive, Hash, Ord, PartialEq, PartialOrd,
 )]
+#[non_exhaustive]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[repr(u16)]
 pub enum Class {
@@ -1204,6 +1215,7 @@ impl Default for Class {
 
 /// Resource record definitions.
 #[allow(clippy::upper_case_acronyms)]
+#[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Resource {

@@ -143,20 +143,14 @@ mod tests {
     fn response_to(query: &Message) -> Response {
         let mut message = query.clone();
         message.qr = QR::Response;
-        Response {
-            message,
-            meta: ResponseMeta {
-                upstream: "https://dns.example/dns-query".into(),
-                attempts: 1,
-                elapsed: Duration::from_millis(5),
-                when: SystemTime::UNIX_EPOCH,
-                security_status: SecurityStatus::Insecure,
-                security_source: rustdns::types::SecuritySource::AdFlag,
-                dnssec_error: None,
-                channel_security: ChannelSecurity::Encrypted,
-                wire: Vec::new(),
-            },
-        }
+        let mut meta = ResponseMeta::new(
+            "https://dns.example/dns-query",
+            Duration::from_millis(5),
+            SystemTime::UNIX_EPOCH,
+            ChannelSecurity::Encrypted,
+        );
+        meta.security_status = SecurityStatus::Insecure;
+        Response { message, meta }
     }
 
     #[test]

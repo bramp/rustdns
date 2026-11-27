@@ -104,14 +104,10 @@ impl BrowserDohClient {
             let elapsed = Duration::from_secs_f64(((now_millis() - start).max(0.0)) / 1000.0);
             let mut message = Message::from_slice(&resp_bytes)?;
             message.id = query_id;
-            let meta = WireResponseMeta {
-                server: None,
-                elapsed,
-                bytes_sent,
-                bytes_received: resp_bytes.len(),
-                channel_security,
-                tls_info: None,
-            };
+            let mut meta = WireResponseMeta::new(channel_security);
+            meta.elapsed = elapsed;
+            meta.bytes_sent = bytes_sent;
+            meta.bytes_received = resp_bytes.len();
             Ok(WireResponse::new(message, meta))
         })
         .await
@@ -192,14 +188,10 @@ impl BrowserJsonClient {
             let elapsed = Duration::from_secs_f64(((now_millis() - start).max(0.0)) / 1000.0);
             let mut message: Message = rustdns::json::from_str(&json_text)?;
             message.id = query_id;
-            let meta = WireResponseMeta {
-                server: None,
-                elapsed,
-                bytes_sent: url.len(),
-                bytes_received: json_text.len(),
-                channel_security,
-                tls_info: None,
-            };
+            let mut meta = WireResponseMeta::new(channel_security);
+            meta.elapsed = elapsed;
+            meta.bytes_sent = url.len();
+            meta.bytes_received = json_text.len();
             Ok(WireResponse::new(message, meta))
         })
         .await

@@ -181,6 +181,7 @@ fn preprocess_input(input: &str) -> Result<String, pest_consume::Error<Rule>> {
 }
 
 /// An entry in an unprocessed zone file.
+#[non_exhaustive]
 #[derive(Clone, Debug, Display, PartialEq)]
 pub enum Entry {
     /// An `$ORIGIN <domain>` directive that establishes or updates the current base domain.

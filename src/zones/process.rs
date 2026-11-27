@@ -9,6 +9,7 @@ use core::time::Duration;
 use thiserror::Error;
 
 /// An error encountered while processing a zone file into concrete [`Record`] entries.
+#[non_exhaustive]
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ProcessError {
     /// A resolved owner or resource name was not a valid DNS presentation name.

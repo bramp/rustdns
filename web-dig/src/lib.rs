@@ -347,6 +347,7 @@ pub async fn dig_dnssec_with_edns(
                 .await;
             resolver.take_trace()
         }
+        _ => Vec::new(),
     };
 
     Ok(DigResult {

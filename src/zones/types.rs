@@ -8,6 +8,7 @@ use crate::resource::{A, AAAA, DNSKEY, DS, NSEC3, NSEC3PARAM, RawResource, TXT, 
 /// In an unprocessed zone file, domain names in records (such as `NS`, `CNAME`, `MX`, etc.)
 /// can be relative (e.g. `"www"`), origin shortcuts (`"@"`), or omitted. These are preserved
 /// as [`String`]s until resolved against `$ORIGIN` via [`crate::zones::File::try_into_records`].
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Resource {
     /// IPv4 Address (A) record.

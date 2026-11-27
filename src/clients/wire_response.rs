@@ -5,6 +5,7 @@ use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
 /// Metadata and statistics from one transport exchange over the wire.
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq)]
 pub struct WireResponseMeta {
     /// Target server socket address (IP and port), if known from the transport.
@@ -24,6 +25,20 @@ pub struct WireResponseMeta {
 
     /// Optional TLS connection details if this exchange was over an encrypted transport.
     pub tls_info: Option<TlsInfo>,
+}
+
+impl WireResponseMeta {
+    /// Creates a new [`WireResponseMeta`] with the given transport security and zeroed metrics.
+    pub fn new(channel_security: ChannelSecurity) -> Self {
+        Self {
+            server: None,
+            elapsed: Duration::ZERO,
+            bytes_sent: 0,
+            bytes_received: 0,
+            channel_security,
+            tls_info: None,
+        }
+    }
 }
 
 impl std::fmt::Display for WireResponseMeta {
