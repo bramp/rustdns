@@ -33,7 +33,7 @@ The current baseline is `0.7.0`.
   - [x] Migrate internal call sites to typed variants and remove the deprecated catch-all.
 - [x] Audit public method names against [DEVELOPERS.md](DEVELOPERS.md).
 - [x] Complete removal of input-dependent `expect`, `unwrap`, and assertions in production paths.
-- [ ] Final public API and semver compatibility audit (including `#[non_exhaustive]` review and optional `rsa` prerelease dependency decision).
+- [x] Final public API and semver compatibility audit (including `#[non_exhaustive]` review and upgrading `rsa` to stable `0.10.0`).
 - [x] Remove `Name::as_str` in favor of explicit `Name::as_ascii` and `Name::to_unicode`.
 - [x] Decide whether to move EDNS types into an `edns` submodule: keep the existing root-level names and exports; a second namespace or renaming (for example, `EdnsCookie` to `edns::Cookie`) has no clear benefit for 1.0.
 - [x] Decide whether to add getters/setters: do not convert public record structs wholesale; retain their field-based data model and add encapsulation only when needed to enforce a specific invariant.
@@ -293,7 +293,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 - [x] Ratchet toward `missing_docs`, `missing_debug_implementations`, and `unsafe_code = "forbid"` in [src/lib.rs](src/lib.rs).
 - [x] Replace `lazy_static` with `std::sync::LazyLock`.
 - [x] Add dependency license and source auditing via `cargo-deny`.
-- [ ] Update `cargo-semver-checks` baseline in CI and run `cargo-semver-checks` against `0.7.0`.
+- [x] Update `cargo-semver-checks` baseline in CI and run `cargo-semver-checks` against `0.7.0`.
 - [ ] Publish `1.0.0` release notes and tag.
 
 ### Post-1.0 Platform Milestones (1.1.0+)
