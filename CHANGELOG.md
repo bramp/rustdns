@@ -4,6 +4,8 @@ All notable changes to rustdns are documented here.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-27
+
 ### Fixed
 
 - Local DNSSEC validation rejected zones signed with 1024-bit RSA keys, such as
@@ -50,6 +52,19 @@ All notable changes to rustdns are documented here.
 
 ### Changed
 
+- **Breaking:** Removed the deprecated `Error::InvalidArgument` catch-all variant.
+  All callers should match on the specific typed `Error` variants.
+- **Breaking:** Marked extensible protocol and zone enums (`ChannelSecurity`,
+  `SecurityStatus`, `DnssecMode`, `UpstreamTrustPolicy`, `Opcode`, `Rcode`,
+  `Type`, `Algorithm`, `DigestType`, `Nsec3HashAlgorithm`, `Class`, `Resource`,
+  `zones::Resource`, `zones::Entry`, `zones::ProcessError`) and response metadata
+  structs (`ResponseMeta`, `WireResponseMeta`) as `#[non_exhaustive]` so `1.x`
+  can add new record types, algorithms, directives, and metadata fields without
+  breaking callers. Added `ResponseMeta::new` and `WireResponseMeta::new`
+  constructors for downstream exchanger and resolver implementations.
+- Upgraded the optional `dnssec-rustcrypto` `rsa` dependency to stable `0.10.0`.
+- Enforced `#![forbid(unsafe_code)]` at the crate root and replaced panicking
+  assertions in the zone parser and preprocessor with `Result` errors.
 - `Resolver::query` and `lookup` in `DnssecMode::TrustUpstream` now send `AD=1`
   without `DO`, requesting the upstream's validation result without RRSIG or
   denial records ([RFC 6840 §5.7](https://datatracker.ietf.org/doc/html/rfc6840#section-5.7)).
@@ -521,7 +536,8 @@ All notable changes to rustdns are documented here.
   zone files, and the UDP, TCP, DoH, and JSON clients.
 - Included stored DNS response test data, integration tests, and fuzzing support.
 
-[Unreleased]: https://github.com/bramp/rustdns/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/bramp/rustdns/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/bramp/rustdns/compare/v0.7.0...v1.0.0
 [0.7.0]: https://github.com/bramp/rustdns/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/bramp/rustdns/releases/tag/v0.6.0
 [0.5.1]: https://github.com/bramp/rustdns/releases/tag/v0.5.1

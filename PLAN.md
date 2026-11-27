@@ -3,14 +3,14 @@
 This plan tracks remaining implementation tasks and release milestones for `rustdns`.
 For architectural specifications, invariants, and design contracts, see [DESIGN.md](DESIGN.md).
 
-The current baseline is `0.7.0`.
+The current baseline is `1.0.0`.
 
 ## Release Policy
 
 - `0.5.1`: Security, parser, client, and fuzzing fixes. *(Complete)*
 - `0.6.0`: Compatibility-preserving fixes and API documentation. *(Complete)*
 - `0.7.0`: Additive features (resolver, DNSSEC trust, WASM JSON decoupling). *(Complete)*
-- `1.0.0`: Deliberate breaking cleanup, Rust 1.87.0, edition 2024, and Cargo resolver 3. *(In progress)*
+- `1.0.0`: Deliberate breaking cleanup, Rust 1.87.0, edition 2024, and Cargo resolver 3. *(Complete)*
 - `1.1.0+`: Post-1.0 additive features (stateful encoder/compression, resolver caching/EDE/strategies, zone parser extensions, DNSSEC signing & post-quantum, benchmarks).
 - `2.0.0`: Future breaking cleanup (removal of deprecated EDNS constructors and uppercase zone aliases retained in `1.0.0`).
 
@@ -294,7 +294,7 @@ Harness and profiling architecture defined in [DESIGN.md](DESIGN.md#4-performanc
 - [x] Replace `lazy_static` with `std::sync::LazyLock`.
 - [x] Add dependency license and source auditing via `cargo-deny`.
 - [x] Update `cargo-semver-checks` baseline in CI and run `cargo-semver-checks` against `0.7.0`.
-- [ ] Publish `1.0.0` release notes and tag.
+- [x] Publish `1.0.0` release notes and tag.
 
 ### Post-1.0 Platform Milestones (1.1.0+)
 

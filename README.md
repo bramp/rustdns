@@ -171,7 +171,7 @@ Default features remain `clients` and `zones`. For wire-only use without Pest
 or record-parser regex dependencies, disable defaults:
 
 ```toml
-rustdns = { version = "0.7", default-features = false }
+rustdns = { version = "1.0", default-features = false }
 ```
 
 Transports such as `do53`, `dot`, and binary `doh` can be selected independently
@@ -310,10 +310,10 @@ workflow checks the tag matches `Cargo.toml`, publishes to crates.io via
 token stored), and creates a GitHub release.
 
 ```shell
-$ cargo set-version 0.6.0   # or edit Cargo.toml by hand
+$ cargo set-version 1.0.0   # or edit Cargo.toml by hand
 $ cargo readme -o README.md
-$ git commit -am "Release v0.6.0" && git push
-$ git tag v0.6.0 && git push origin v0.6.0
+$ git commit -am "Release v1.0.0" && git push
+$ git tag -a v1.0.0 -m "Release v1.0.0" && git push origin v1.0.0
 ```
 
 ## Reference
