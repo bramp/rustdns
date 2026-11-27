@@ -53,8 +53,12 @@ impl Backend for RustCrypto {
             HashAlgorithm::Sha512 => Pkcs1v15Sign::new::<sha2::Sha512>(),
             other => return Err(format!("unsupported RSA hash {other:?}")),
         };
-        let public_key = rsa::RsaPublicKey::new_with_max_size(uint(key.n)?, uint(key.e)?, 8192)
-            .map_err(|e| e.to_string())?;
+        let public_key = rsa::PublicKey::new_with_size_limits(
+            uint(key.n)?,
+            uint(key.e)?,
+            rsa::PublicKey::MIN_SIZE..=8192,
+        )
+        .map_err(|e| e.to_string())?;
         let hashed = Self::digest(hash, &[signed_data]);
         public_key
             .verify(scheme, &hashed, signature)
