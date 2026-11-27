@@ -59,10 +59,9 @@ jobs:
         with:
           tool: cargo-semver-checks
 
-      - name: Check semver compatibility (advisory)
+      - name: Check semver compatibility
         if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: cargo semver-checks check-release --baseline-version 0.7.0 --release-type major
+        run: cargo semver-checks check-release --baseline-version 1.0.0 --release-type minor
 
   test:
     name: Build & Test (${{ matrix.rust }})
